@@ -1,5 +1,6 @@
 import os
 from contextlib import asynccontextmanager
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import firebase_admin
 from firebase_admin import credentials, db as firebase_db
@@ -16,7 +17,36 @@ DATABASE_URL = os.getenv(
     "postgresql+asyncpg://postgres:password@localhost:5432/pathguard",
 )
 
-engine = create_async_engine(DATABASE_URL, echo=bool(os.getenv("DEBUG", False)))
+
+def _normalize_url(raw: str) -> tuple[str, dict]:
+    """Accept a standard Neon/libpq URL and adapt it for the asyncpg driver.
+
+    Lets teammates paste their raw Neon string (``postgres://…?sslmode=require``)
+    unchanged: we force the ``+asyncpg`` driver and translate the libpq-only
+    ``sslmode``/``channel_binding`` params — which asyncpg rejects — into a
+    ``connect_args`` SSL flag.
+    """
+    parts = urlsplit(raw)
+    scheme = "postgresql+asyncpg" if parts.scheme in ("postgres", "postgresql") else parts.scheme
+    query = dict(parse_qsl(parts.query))
+
+    sslmode = query.pop("sslmode", None)
+    ssl_flag = query.pop("ssl", None)
+    query.pop("channel_binding", None)  # libpq-only, asyncpg can't use it
+
+    connect_args: dict = {}
+    if sslmode in ("require", "verify-ca", "verify-full") or ssl_flag in ("require", "true"):
+        connect_args["ssl"] = True
+
+    new_query = "&".join(f"{k}={v}" for k, v in query.items())
+    url = urlunsplit((scheme, parts.netloc, parts.path, new_query, parts.fragment))
+    return url, connect_args
+
+
+_url, _connect_args = _normalize_url(DATABASE_URL)
+engine = create_async_engine(
+    _url, echo=bool(os.getenv("DEBUG", False)), connect_args=_connect_args
+)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 

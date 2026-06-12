@@ -5,3 +5,7 @@ serviceAccountKey.json
 __pycache__/
 *.pyc
 .venv/
+
+# Personal AI tooling (teammates don't use Claude / these skills)
+.agents/
+.claude/
