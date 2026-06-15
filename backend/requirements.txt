@@ -1,2 +1,19 @@
+# Web Framework
 fastapi
-uvicorn
+uvicorn[standard]
+
+# Database
+psycopg2-binary
+
+# Data Processing
+numpy
+pandas
+
+# Machine Learning
+scikit-learn
+
+# Deep Learning (LSTM)
+tensorflow
+
+# Validation (Pydantic ใช้กับ FastAPI)
+pydantic
