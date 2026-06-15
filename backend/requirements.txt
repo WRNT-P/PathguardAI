@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
 firebase-admin
 asyncpg
 sqlalchemy
@@ -10,3 +10,7 @@ numpy
 pandas
 scikit-learn
 httpx
+pydantic
+
+# Deep Learning (LSTM — AI module 1 sequence learning)
+tensorflow
