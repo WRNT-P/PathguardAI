@@ -10,9 +10,14 @@ GPS-based wandering detection system for dementia patients.
 Installed packages and secrets are **not** in git — each person sets them up locally.
 
 ### 1. Install dependencies (run once)
+Recommended: use a virtual environment so deps stay isolated.
 ```bash
+python -m venv backend/venv      # create once
+# activate — Windows: backend\venv\Scripts\activate  |  macOS/Linux: source backend/venv/bin/activate
 pip install -r backend/requirements.txt
 ```
+`tensorflow` (Module 1 LSTM only) is heavy; if you're not on that module you can
+install everything else and skip it — the rest of the backend runs without it.
 
 ### 2. Create `backend/.env` (not in git — make it yourself)
 ```env
@@ -70,24 +75,56 @@ await crud.upsert_behavioral_profile(db, patient_id, known_places=..., routine_p
 ```
 **Transaction rule:** `crud` helpers `flush` but never `commit` — the request owns the transaction (`get_db` commits at the end). GPS history is written **only** through `gps_processor.process_gps_point()`, never `crud.save_gps_point` directly.
 
-**How startup wires in (for `main.py`):**
-```python
-from app.db.database import get_db, init_db, init_firebase
-
-init_firebase()      # on startup
-await init_db()      # creates tables
-
-async def handler(db: AsyncSession = Depends(get_db)):   # in an endpoint
-    ...
-```
+**Startup is wired in `app/main.py`** (now implemented). Its lifespan calls
+`await init_db()` to create tables. `init_firebase()` is **not** called yet — it
+needs `serviceAccountKey.json`, and the live GPS push is best-effort, so the API
+runs without it during development. Add `init_firebase()` to the lifespan once
+everyone has the key.
 
 **Note for whoever does deletes/retention:** FK cascade is ORM-level (`cascade="all, delete-orphan"`). Deleting a `User` via SQLAlchemy cascades to their rows; a *raw SQL* delete is blocked by the FK. Add `ondelete="CASCADE"` to the FK columns if you need DB-level cascade.
 
 ---
 
-## Remaining (other roles)
-- `main.py` — wire startup (`init_firebase()` + `init_db()`) and routers
-- `services/notification.py`
-- `api/` — gps (calls `gps_processor.process_gps_point`), risk, search_area, recommendation endpoints
-- AI modules 1–5 (behavior, prediction, risk, search area, recommend) — read/write via `crud.py`
-- Flutter `location_service.dart`
+## Running the backend
+```bash
+# from backend/ with the venv activated
+uvicorn app.main:app --reload
+```
+Then open **http://127.0.0.1:8000/docs** for the interactive API docs.
+Endpoints live today: `POST /api/register`, `POST /api/gps`, `GET /`.
+
+---
+
+## Latest additions (DB side) — ✅ done, on `feature/database`
+
+| Item | Where | Notes |
+|------|-------|-------|
+| **`POST /api/register`** | `app/api/users.py` | Creates a `users` row from `firebase_uid`; returns the int `users.id`. 201 created · 409 duplicate uid · 422 bad role. Verified over real HTTP. |
+| **`firebase_uid → users.id` lookup** | `crud.get_user_id_by_firebase_uid` | Resolves the Flutter string UID to the int FK before writing GPS/AI data. |
+| **`create_user`** | `crud.create_user` | Insert helper (flush; caller owns the tx). |
+| **`direction` + `device_motion` columns** | `models.GPSData`, `gps_data` table (live), `GPSDataCreate/Response` | Stored end-to-end. Module 2 (wandering) needs `direction`. |
+| **Module 1 ↔ DB connector** | `app/ai/module1_behavior/behavior_pipeline.py` | `analyze_behavior(db, patient_id)`: reads GPS history → preprocess + cluster → writes `behavioral_profiles`. Verified against Neon. |
+| **App entry point** | `app/main.py` | Minimal FastAPI app; mounts users + gps. |
+
+Team decisions behind these are recorded in **`backend/docs/gps-ingestion-fix.md`**.
+
+---
+
+## What each teammate should do next
+
+- **GPS endpoint owner** — repoint `api/gps.py` from the in-memory
+  `data_collection.save_gps_data` to `gps_processor.process_gps_point()` so GPS
+  actually reaches Postgres. Full instructions, code sketch, and the
+  `patient_id` / timestamp decisions are in **`backend/docs/gps-ingestion-fix.md`**.
+- **Module 1 (behavior) owner** — call `analyze_behavior(db, patient_id)` from a
+  trigger/endpoint when you want to (re)learn places. Also tune the Kalman params
+  in `preprocess_gps` (`R=1e-3 ≫ Q=1e-5`): they currently smooth across location
+  jumps, so distinct places ~1 km apart collapse into one cluster.
+- **Module 2–5 owners** — create your router in `api/` and mount it in
+  `app/main.py` at the marked `TODO (teammates)` line. Read/write data **only**
+  through `crud.py`, never raw SQL.
+- **Flutter dev** — after Firebase sign-in, call `POST /api/register` once so the
+  `users` row exists before any GPS is sent. Send timestamps as **UTC ISO**
+  strings ending in `Z`.
+- **Still unimplemented:** `services/notification.py`, AI modules 2–5, Flutter
+  `location_service.dart`.
