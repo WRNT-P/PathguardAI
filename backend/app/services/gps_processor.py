@@ -36,6 +36,8 @@ async def process_gps_point(db: AsyncSession, raw: GPSDataCreate) -> GPSData:
         accuracy=raw.accuracy,
         speed=raw.speed,
         altitude=raw.altitude,
+        direction=raw.direction,
+        device_motion=raw.device_motion,
         smooth_latitude=smooth_lat,
         smooth_longitude=smooth_lon,
     )

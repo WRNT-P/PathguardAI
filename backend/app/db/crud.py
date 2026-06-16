@@ -12,7 +12,24 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Alert, BehavioralProfile, GPSData, RiskScore
+from app.db.models import Alert, BehavioralProfile, GPSData, RiskScore, User
+
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+
+async def get_user_id_by_firebase_uid(
+    db: AsyncSession, firebase_uid: str,
+) -> int | None:
+    """Resolve a Firebase/Flutter string UID to the internal int ``users.id``.
+
+    The GPS endpoint calls this before writing a reading: incoming payloads carry
+    the string ``firebase_uid``, but ``gps_data.patient_id`` is an int FK to
+    ``users.id``. Returns None if no user is registered for that UID.
+    """
+    result = await db.execute(
+        select(User.id).where(User.firebase_uid == firebase_uid)
+    )
+    return result.scalar_one_or_none()
 
 
 # ── GPS history ─────────────────────────────────────────────────────────────
@@ -26,6 +43,8 @@ async def save_gps_point(
     accuracy: float | None = None,
     speed: float | None = None,
     altitude: float | None = None,
+    direction: float | None = None,
+    device_motion: str | None = None,
     smooth_latitude: float | None = None,
     smooth_longitude: float | None = None,
 ) -> GPSData:
@@ -37,6 +56,8 @@ async def save_gps_point(
         accuracy=accuracy,
         speed=speed,
         altitude=altitude,
+        direction=direction,
+        device_motion=device_motion,
         smooth_latitude=smooth_latitude,
         smooth_longitude=smooth_longitude,
         recorded_at=recorded_at,

@@ -9,6 +9,8 @@ class GPSDataCreate(BaseModel):
     accuracy: float | None = None
     speed: float | None = None
     altitude: float | None = None
+    direction: float | None = Field(default=None, ge=0, lt=360)
+    device_motion: str | None = None
     recorded_at: datetime
 
 
@@ -20,6 +22,8 @@ class GPSDataResponse(BaseModel):
     accuracy: float | None
     speed: float | None
     altitude: float | None
+    direction: float | None
+    device_motion: str | None
     smooth_latitude: float | None
     smooth_longitude: float | None
     recorded_at: datetime

@@ -35,6 +35,8 @@ class GPSData(Base):
     accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)   # metres
     speed: Mapped[float | None] = mapped_column(Float, nullable=True)      # m/s
     altitude: Mapped[float | None] = mapped_column(Float, nullable=True)   # metres
+    direction: Mapped[float | None] = mapped_column(Float, nullable=True)  # degrees 0–359
+    device_motion: Mapped[str | None] = mapped_column(String(20), nullable=True)  # e.g. "walking" | "still"
     # Kalman-smoothed coords stored alongside raw
     smooth_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     smooth_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
