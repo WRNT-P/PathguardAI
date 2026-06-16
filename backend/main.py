@@ -1,9 +1,4 @@
-from fastapi import FastAPI
-from app.api.gps import router as gps_router
-
-app = FastAPI()
-app.include_router(gps_router)
-
-@app.get("/")
-def root():
-    return {"status": "PathGuard API is running"}
+# pathguard/backend/main.py
+# Thin launcher so `uvicorn main:app` works from backend/.
+# The real app (routers, startup) lives in app/main.py — single source of truth.
+from app.main import app  # noqa: F401
