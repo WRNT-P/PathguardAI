@@ -32,6 +32,30 @@ async def get_user_id_by_firebase_uid(
     return result.scalar_one_or_none()
 
 
+async def create_user(
+    db: AsyncSession,
+    firebase_uid: str,
+    name: str,
+    role: str,
+    caregiver_id: int | None = None,
+) -> User:
+    """Create a user row (the FK target GPS/risk/alert data references).
+
+    Written by the register endpoint so a ``users.id`` exists before any GPS for
+    that patient arrives. Caller should check ``get_user_id_by_firebase_uid``
+    first to keep ``firebase_uid`` unique.
+    """
+    user = User(
+        firebase_uid=firebase_uid,
+        name=name,
+        role=role,
+        caregiver_id=caregiver_id,
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
 # ── GPS history ─────────────────────────────────────────────────────────────
 
 async def save_gps_point(
