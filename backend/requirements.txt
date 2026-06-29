@@ -9,6 +9,7 @@ filterpy
 numpy
 pandas
 scikit-learn
+scipy>=1.11
 httpx
 pydantic
 

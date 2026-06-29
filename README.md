@@ -106,16 +106,40 @@ Endpoints live today: `POST /api/register`, `POST /api/gps`, `GET /`.
 | **Module 1 ↔ DB connector** | `app/ai/module1_behavior/behavior_pipeline.py` | `analyze_behavior(db, patient_id)`: reads GPS history → preprocess + cluster → writes `behavioral_profiles`. Verified against Neon. |
 | **App entry point** | `app/main.py` | Minimal FastAPI app; mounts users + gps. |
 
-Team decisions behind these are recorded in **`backend/docs/gps-ingestion-fix.md`**.
+Key team decisions affecting GPS ingestion (int `patient_id` FK, UTC timestamps, stored `direction`/`device_motion`) are folded into the **GPS endpoint owner** task below.
 
 ---
 
 ## What each teammate should do next
 
-- **GPS endpoint owner** — repoint `api/gps.py` from the in-memory
-  `data_collection.save_gps_data` to `gps_processor.process_gps_point()` so GPS
-  actually reaches Postgres. Full instructions, code sketch, and the
-  `patient_id` / timestamp decisions are in **`backend/docs/gps-ingestion-fix.md`**.
+- **GPS endpoint owner** — **TODO (not done yet):** `api/gps.py` currently
+  persists GPS to an in-memory list (`data_collection.save_gps_data`), so nothing
+  reaches Postgres and the AI modules have no history to read. Repoint it to the
+  real single-writer path, `gps_processor.process_gps_point()` (Kalman-smooths →
+  writes Postgres → pushes live position to Firebase):
+  ```python
+  # app/api/gps.py
+  from fastapi import APIRouter, Depends
+  from sqlalchemy.ext.asyncio import AsyncSession
+
+  from app.db.database import get_db
+  from app.models.gps_data import GPSDataCreate
+  from app.services.gps_processor import process_gps_point
+
+  router = APIRouter()
+
+  @router.post("/api/gps")
+  async def receive_gps(data: GPSDataCreate, db: AsyncSession = Depends(get_db)):
+      point = await process_gps_point(db, data)
+      return {"status": "success", "patient_id": data.patient_id, "id": point.id}
+  ```
+  Reconcile the request model with `GPSDataCreate` (`app/models/gps_data.py`):
+  `patient_id` is an **int** FK to `users.id` (not the Flutter string UID — that
+  lives in `users.firebase_uid`; resolve it via `crud.get_user_id_by_firebase_uid`);
+  the time field is `recorded_at: datetime` (parse the app's UTC ISO string ending
+  in `Z`; server stamps `datetime.now(timezone.utc)` if missing); `accuracy` and
+  `altitude` are optional. Once repointed, `analyze_behavior(db, patient_id)` runs
+  the Module 1 pipeline with no further DB work.
 - **Module 1 (behavior) owner** — call `analyze_behavior(db, patient_id)` from a
   trigger/endpoint when you want to (re)learn places. Also tune the Kalman params
   in `preprocess_gps` (`R=1e-3 ≫ Q=1e-5`): they currently smooth across location
