@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.db.database import init_db
-from app.api import users, gps, recommendation, prediction, risk
+from app.api import users, gps, recommendation, prediction, risk, search_area
 
 
 @asynccontextmanager
@@ -34,10 +34,7 @@ app.include_router(gps.router)              # POST /api/gps
 app.include_router(recommendation.router)   # GET  /api/recommendation/{patient_id}
 app.include_router(prediction.router)       # GET  /api/predict-destination/{patient_id}
 app.include_router(risk.router)             # GET  /api/risk/{patient_id}
-
-# TODO (teammates): mount your module routers here once they exist
-#   from app.api import search_area
-#   app.include_router(search_area.router)
+app.include_router(search_area.router)      # GET  /api/search-area/{patient_id}
 
 
 @app.get("/", summary="Service info")

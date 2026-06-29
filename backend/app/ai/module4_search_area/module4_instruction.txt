@@ -1,0 +1,71 @@
+Here's a detailed explanation of **Module 4: Search Area Prediction** from the PathGuard AI project:
+
+---
+
+## Module 4: Search Area Prediction
+
+### Overview
+This module activates **when a patient goes missing or GPS signal is lost**. Its goal is to calculate and estimate the most probable area where the patient can be found, using three key inputs: the **last known location**, **walking speed and direction**, and **previously learned behavior patterns**.
+
+For mid-stage dementia patients in particular, the predicted search radius tends to be narrower, since these patients typically walk slowly and stay within familiar areas — making location estimation more accurate.
+
+---
+
+### How It Works — 3 Steps
+
+**Step 4.1 — Last Known Position Analysis**
+
+The system analyzes the patient's last detected location before the GPS signal was lost. It takes four inputs:
+- Last Known Location (coordinates)
+- Last Walking Speed
+- Last Direction
+- Time Since Missing
+
+It then calculates the maximum possible distance traveled using the formula:
+> **Distance = Speed × Time**
+
+For example, if a patient walks at 0.8 m/s for 25 minutes, the estimated search radius would be approximately **1.2 km**.
+
+---
+
+**Step 4.2 — Movement Path Simulation**
+
+The system simulates likely paths the patient may have taken using:
+- Historical Route Data
+- Familiar Places
+- Walking Direction
+- Road Network Data
+
+Two algorithms work together here:
+- **Monte Carlo Simulation** — randomly generates 10,000 possible path scenarios, accounting for walkways, parks, crossings, and past travel behavior.
+- **A\* Pathfinding Algorithm** — maps routes along real road networks.
+
+The output is a set of simulated paths, prioritizing areas the patient is familiar with or frequently visited.
+
+---
+
+**Step 4.3 — Probability Area Estimation**
+
+Using the simulated paths from Step 4.2, the system applies **Kernel Density Estimation (KDE)** to generate a **Probability Heatmap** — a visual map showing where the patient is most likely to be found.
+
+The heatmap is divided into three probability zones:
+- 🔴 **High** probability
+- 🟡 **Medium** probability
+- 🟢 **Low** probability
+
+Target locations (familiar spots) are also highlighted on the map.
+
+---
+
+### Example Input
+```json
+{
+  "last_location": [13.7563, 100.5018],
+  "last_speed": 0.8,
+  "last_direction": 90,
+  "time_missing": 25
+}
+```
+
+### Key Value
+This module is critical for emergency response — it gives caregivers and search teams a **data-driven, prioritized search area** rather than searching blindly, significantly improving the chances of finding the patient quickly and safely.

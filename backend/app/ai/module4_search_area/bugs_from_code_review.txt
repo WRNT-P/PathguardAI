@@ -1,0 +1,50 @@
+[
+  {
+    "file": "backend/app/ai/module4_search_area/probability_area_estimation.py",
+    "line": 68,
+    "summary": "_fallback_zones returns bare [lat, lng] lists but the router reads dict keys 'latitude'/'longitude'/'probability', crashing with TypeError",
+    "failure_scenario": "Any deployment without scipy installed, or any search where all simulated endpoints are identical (zero-variance GPS history), triggers _fallback_zones. Its output — [[lat, lng], ...] lists — flows through estimate_probability_zones unmodified into _to_zones in search_area.py:175, which does z[\"latitude\"]. The endpoint 500s on every search in that environment."
+  },
+  {
+    "file": "backend/app/ai/module4_search_area/last_known_position.py",
+    "line": 97,
+    "summary": "float(lat) called unconditionally at line 97 but lat can be None when a GPS row exists without coordinate columns, raising TypeError",
+    "failure_scenario": "A GPS record inserted without smooth_latitude or latitude (partial row, schema migration gap). The guard at line 73 checks only for last_gps_record is None — the record exists, so it passes. _get_attr returns None for both keys. float(None) raises TypeError. The router's None guard at search_area.py:99 is never reached because the crash happens inside extract_last_known first."
+  },
+  {
+    "file": "backend/app/ai/module4_search_area/search_radius_adjustment.py",
+    "line": 63,
+    "summary": "Bare p[\"latitude\"] / p[\"longitude\"] subscripts in the list comprehension raise KeyError on any known_places entry lacking those keys",
+    "failure_scenario": "A behavioral profile whose known_places JSON uses 'lat'/'lng' instead of 'latitude'/'longitude', or any entry saved without coordinate keys. All other consumers (_astar_familiar, identify_target_locations) use p.get('latitude') with explicit None guards; only adjust_radius uses bare subscripts, causing a KeyError that crashes the request before any simulation runs."
+  },
+  {
+    "file": "backend/app/api/search_area.py",
+    "line": 160,
+    "summary": "crud.save_alert('gps_lost') is called unconditionally — fires a false gps_lost alert even when the patient's GPS is still active",
+    "failure_scenario": "Caregiver supplies override coordinates (has_override_coords=True) for a proactive search while GPS is still active (gap['gps_lost']=False). The gps_active guard at line 111 requires both conditions — it is skipped because has_override_coords is True. Execution falls through to the save_alert call at line 160 with no surrounding if-block. Module 3 (risk.py:141) correctly gates its equivalent alert on if gap['gps_lost']."
+  },
+  {
+    "file": "backend/app/ai/module4_search_area/movement_path_simulation.py",
+    "line": 208,
+    "summary": "dist = rng.uniform(0, radius_m) in polar coordinates creates a 1/r density (center-biased), contradicting the docstring's Rayleigh claim and systematically inflating KDE density near the last known position",
+    "failure_scenario": "With r ~ Uniform(0, R), the 2D area element r·dr·dθ means Cartesian density is proportional to 1/r — ~75% of all 10,000 endpoints land in the inner half of the disc (25% of the area). The KDE heatmap always shows the highest probability at the last known location regardless of direction or wandering history. Correct disc-uniform sampling requires r = R * sqrt(U); a true Rayleigh requires r = σ * sqrt(-2 * ln(U)). Lines 208 and 215 both use the wrong formula."
+  },
+  {
+    "file": "backend/app/api/search_area.py",
+    "line": 76,
+    "summary": "get_gps_history(days=30) is fetched unconditionally before the gps_active early-exit guard, wasting a full-table-scan on every non-emergency request",
+    "failure_scenario": "A patient whose GPS is active (the common case) hits the gps_active return at line 111, but gps_history has already been fetched at line 76 — it is never used on this path. With 30 days of GPS data (potentially thousands of rows), this is a sequential round-trip DB scan discarded on every poll. Moving get_gps_history to after the gap check (line 111) eliminates the cost entirely for the non-emergency path."
+  },
+  {
+    "file": "backend/app/ai/module4_search_area/movement_path_simulation.py",
+    "line": 186,
+    "summary": "random.Random(42) hardcodes the seed inside _monte_carlo, making every request's simulation produce the identical pseudorandom sequence",
+    "failure_scenario": "rng = random.Random(42) is created inside _monte_carlo on every call. Two patients with the same search radius and same number of historical bearings receive identical endpoint clouds (translated by origin, but identically sampled). A single patient gets the same cloud on every API call — Monte Carlo's statistical validity depends on independent sampling across invocations. The comment 'reproducible within a request' reveals the intent, but the effect eliminates stochasticity across patients and repeated calls."
+  },
+  {
+    "file": "backend/app/ai/module4_search_area/movement_path_simulation.py",
+    "line": 88,
+    "summary": "PathSimulator.fit() accepts known_places but never references it — the parameter is silently discarded",
+    "failure_scenario": "The router calls sim.fit(gps_history, known_places) at search_area.py:148 expecting familiar-place data to influence bearing learning. The fit() body (lines 95-112) reads only gps_records; known_places is never referenced. No exception is raised. The A* generation in simulate_paths is unaffected (known_places is passed separately there), but any caller relying on fit() to incorporate place-awareness into the bearing prior gets silently wrong behavior."
+  }
+]
