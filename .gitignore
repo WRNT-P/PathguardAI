@@ -10,6 +10,7 @@ venv/
 # Personal AI tooling (teammates don't use Claude / these skills)
 .agents/
 .claude/
+AGENTS.md
 
 # Documentation / walkthroughs — keep main to runnable code + tests only
 docs/
