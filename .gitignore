@@ -16,3 +16,6 @@ docs/
 
 # Test/build artifacts
 .pytest_cache/
+
+# Spec / binary docs — keep main to runnable code + tests only
+*.pdf
