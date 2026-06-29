@@ -4,15 +4,13 @@
   - Normal Stop (หยุดจงใจ): เช่น หยุดพักเหนื่อย, ซื้อของที่ร้านประจำ, อยู่บ้าน (familiarity สูง, ห่างเส้นทางน้อย)
   - Confusion Stop (หยุดสับสน): เช่น หยุดนิ่งกลางทางเดินที่ไม่รู้จักหลังจากเดินเลี้ยวไปเลี้ยวมา (familiarity ต่ำ, deviation สูง, มีเลี้ยวบ่อยก่อนหยุด)
 
-ใช้ Gradient Boosting Classifier ในการสร้างโมเดลจำแนก
+ใช้กฎเชิงคณิตศาสตร์ (rule-based) ในการให้คะแนนความสับสน — ไม่ใช่โมเดล ML ที่ฝึกจากข้อมูล
 """
 
 from __future__ import annotations
 
 import math
-from typing import Optional
 import numpy as np
-from sklearn.ensemble import GradientBoostingClassifier
 
 from app.ai.module2_prediction.cluster_matcher import haversine_km
 
@@ -51,9 +49,13 @@ class StopConfusionClassifier:
     วิเคราะห์และจำแนกประเภทการหยุดนิ่ง (Stop) ของผู้ป่วย
     """
 
-    def __init__(self):
-        self._model: Optional[GradientBoostingClassifier] = None
-        self._is_trained = False
+    # Intentionally rule-based, NOT a trained ML model. The system has no labeled
+    # "confused vs normal stop" ground-truth data, so a trained classifier would
+    # have to learn from invented labels (which is exactly what the removed
+    # fit_synthetic() did — it merely re-derived the hand-written _rule_based_score
+    # below). A genuine ML classifier here would first require a caregiver-feedback
+    # labeling pipeline to capture real labels. Until that exists, classify() scores
+    # stops with the transparent heuristic in _rule_based_score().
 
     # ── feature extraction ──────────────────────────────────────────────────
 
@@ -140,68 +142,6 @@ class StopConfusionClassifier:
             deviation_m
         ], dtype=float)
 
-    # ── fit model ─────────────────────────────────────────────────────────────
-
-    def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> dict:
-        """
-        ฝึก Gradient Boosting Classifier ด้วยชุดข้อมูลที่ระบุ Label มาให้
-
-        Parameters
-        ----------
-        X_train : Feature matrix (N, 5)
-        y_train : Labels (N,) -> 0 = Normal Stop, 1 = Confused Stop
-        """
-        if X_train.shape[0] < 5:
-            return {"status": "error", "message": "Need at least 5 samples to fit model."}
-
-        self._model = GradientBoostingClassifier(
-            n_estimators=50,
-            learning_rate=0.1,
-            max_depth=3,
-            random_state=42
-        )
-        self._model.fit(X_train, y_train)
-        self._is_trained = True
-
-        return {
-            "status": "trained",
-            "n_samples": int(X_train.shape[0]),
-        }
-
-    def fit_synthetic(self) -> dict:
-        """
-        ฝึกโมเดลด้วยการจำลองข้อมูลขึ้นมา (กรณีใช้งานแรกเริ่มที่ไม่มี Label ประวัติ)
-        """
-        # สร้างสถานการณ์ Normal (0) และ Confused (1) อย่างละ 50 ตัวอย่าง
-        np.random.seed(42)
-        
-        # 1. Normal Stops (หยุดสั้น, มีความเร็วปกติก่อนหยุด, เลี้ยวน้อย, คุ้นเคยสูง, ห่างเส้นทางน้อย)
-        normal_samples = []
-        for _ in range(50):
-            normal_samples.append([
-                np.random.uniform(30.0, 180.0),     # หยุด 30-180 วินาที
-                np.random.uniform(1.0, 1.6),        # ความเร็วก่อนหยุดปกติ 1.0-1.6 m/s
-                np.random.choice([0, 1]),           # เลี้ยวก่อนหยุด 0-1 ครั้ง
-                np.random.uniform(0.7, 1.0),        # ความคุ้นเคยสถานที่สูง 0.7-1.0
-                np.random.uniform(0.0, 20.0),       # ห่างจากเส้นทางแค่ 0-20 เมตร
-            ])
-            
-        # 2. Confused Stops (หยุดนานมาก, เดินช้าสับสนก่อนหยุด, เลี้ยวไปมาเยอะ, ไม่คุ้นเคย, ห่างเส้นทางมาก)
-        confused_samples = []
-        for _ in range(50):
-            confused_samples.append([
-                np.random.uniform(300.0, 1200.0),   # หยุดนาน 5-20 นาที
-                np.random.uniform(0.3, 0.8),        # เดินช้าๆ ก่อนหยุด
-                np.random.randint(3, 7),            # เลี้ยวสะเปะสะปะ 3-6 ครั้ง
-                np.random.uniform(0.0, 0.2),        # ไม่คุ้นสถานที่ 0.0-0.2
-                np.random.uniform(80.0, 400.0),     # นอกเส้นทางที่คาดหมาย 80-400 เมตร
-            ])
-            
-        X = np.vstack([normal_samples, confused_samples])
-        y = np.array([0] * 50 + [1] * 50)
-        
-        return self.fit(X, y)
-
     # ── classify ──────────────────────────────────────────────────────────────
 
     def classify(
@@ -241,14 +181,8 @@ class StopConfusionClassifier:
             "route_deviation_meters": round(float(feat[4]), 1)
         }
 
-        # คำนวณความน่าจะเป็นของ Anomaly (Class 1)
-        if self._is_trained and self._model is not None:
-            # predict_proba คืนค่า [[prob_normal, prob_confused]]
-            probs = self._model.predict_proba([feat])[0]
-            confidence_score = float(probs[1])
-        else:
-            # Fallback: ใช้กฎเชิงคณิตศาสตร์หากโมเดลยังไม่ถูกฝึกฝน
-            confidence_score = self._rule_based_score(feat)
+        # คำนวณคะแนนความสับสนด้วยกฎเชิงคณิตศาสตร์ (rule-based)
+        confidence_score = self._rule_based_score(feat)
 
         confidence_score = round(confidence_score, 3)
         status = "confused" if confidence_score >= _CONFUSION_THRESHOLD else "normal"
@@ -263,7 +197,7 @@ class StopConfusionClassifier:
 
     def _rule_based_score(self, feat: np.ndarray) -> float:
         """
-        คำนวณเกณฑ์สับสนด้วยคะแนนสัญชาตญาณ (เมื่อไม่ได้ฝึกโมเดล)
+        คำนวณเกณฑ์สับสนด้วยคะแนนสัญชาตญาณจาก 5 ฟีเจอร์ (rule-based ล้วน)
         """
         stop_dur, avg_speed, dir_changes, familiarity, deviation_m = feat
 

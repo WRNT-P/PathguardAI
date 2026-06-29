@@ -136,12 +136,15 @@ def is_in_danger_zone(lat: float, lng: float) -> bool:
 # ── detector preparation (Decision 2: fit-per-request, cacheable later) ───────
 
 def _prepare_detectors(gps_30d: list, known_places: list) -> dict:
-    """Fit the three Module 2 detectors on the patient's history."""
+    """Prepare the three Module 2 detectors.
+
+    Wandering and route are fitted on the patient's history; confusion is a
+    rule-based scorer and needs no fitting.
+    """
     wandering = WanderingDetector()
     wandering.fit(gps_30d, known_places)
 
-    confusion = StopConfusionClassifier()
-    confusion.fit_synthetic()  # synthetic labels — no history labels needed
+    confusion = StopConfusionClassifier()  # rule-based scorer; no fitting needed
 
     route = RoutePredictor()
     route.fit(gps_30d, known_places)
