@@ -20,3 +20,12 @@ docs/
 
 # Spec / binary docs — keep main to runnable code + tests only
 *.pdf
+
+# Dev notes / instructions — not runnable code, keep local
+backend/app/ai/module1_behavior/module1_Description.txt
+backend/app/ai/module2_prediction/module2_Description.text
+backend/app/ai/module4_search_area/bugs_from_code_review.txt
+backend/app/ai/module4_search_area/module4_instruction.txt
+
+# Redundant standalone script (covered by tests/test_module2_detectors.py)
+backend/test_wandering_detection.py
