@@ -1,0 +1,6 @@
+# Test dependencies (install into the same venv as requirements.txt):
+#   pip install -r requirements-dev.txt
+# Run the suite from backend/ with:  python -m pytest
+pytest
+pytest-asyncio
+aiosqlite        # in-memory test DB; no PostgreSQL needed for tests
