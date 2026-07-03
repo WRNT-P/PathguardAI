@@ -22,6 +22,7 @@ from app.ai.module5_recommend import (
     generate_recommendations,
     prioritize,
 )
+from app.ai.module5_recommend.ranker import load_ranker
 from app.models.recommendation import (
     RecommendationFlags,
     RecommendationResponse,
@@ -63,7 +64,16 @@ async def get_recommendations(
             recommendations=[],
         )
 
-    top = prioritize(generate_recommendations(ctx), top_n=3)
+    # Learned ranker if one is trained for this patient; else the rule-based
+    # blend, honestly flagged in the message (never passed off as ML).
+    ranker = load_ranker(patient_id)
+    scorer_note = (
+        f"learned ranker ({ranker.provenance.get('data', 'unknown data')})"
+        if ranker is not None
+        else "rule-based fallback (no trained model)"
+    )
+
+    top = prioritize(generate_recommendations(ctx, ranker=ranker), top_n=3)
     recommendations = [
         RecommendedPlace(
             rank=i,
@@ -80,7 +90,7 @@ async def get_recommendations(
     return RecommendationResponse(
         patient_id=patient_id,
         status="ok",
-        message=f"Top {len(recommendations)} place(s) by likelihood.",
+        message=f"Top {len(recommendations)} place(s) by likelihood. Scorer: {scorer_note}.",
         flags=RecommendationFlags(
             time_match_available=False,
             location_used=ctx.has_location,

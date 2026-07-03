@@ -12,3 +12,7 @@ __all__ = [
     "generate_recommendations",
     "prioritize",
 ]
+
+# The learned ranker (ranker.Module5Ranker / ranker.load_ranker) is imported
+# directly from its module to keep this package import light — pulling it here
+# would drag sklearn into every Module 5 import.

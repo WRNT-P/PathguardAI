@@ -44,6 +44,7 @@ class ScoredPlace:
     factors: dict          # {frequency, proximity, familiarity, time_match} in [0, 1]
     confidence: float      # [0, 1]
     location_used: bool    # whether proximity contributed
+    scorer: str = "rules"  # "rules" | "ml" — never pass rules off as ML
 
 
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -55,10 +56,14 @@ def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 2 * EARTH_RADIUS_KM * math.asin(math.sqrt(a))
 
 
-def score_place(place: dict, ctx: UserContext) -> ScoredPlace:
+def score_place(place: dict, ctx: UserContext, ml_score: float | None = None) -> ScoredPlace:
     """Score one place against the user's current context.
 
-    This is the ML-swappable boundary: same signature, same return type.
+    This is the ML-swappable boundary. When ``ml_score`` is given (the learned
+    ranker's P(chosen), computed batch-wise in ``generate_recommendations``),
+    it becomes the confidence and the result is flagged ``scorer="ml"``. The
+    transparent rule factors are still computed either way — they remain the
+    human-readable breakdown; only the confidence source changes.
     """
     # Per-patient maxima for relative normalization (lists are tiny).
     max_freq = max((p.get("visit_frequency", 0) for p in ctx.known_places), default=0)
@@ -94,6 +99,11 @@ def score_place(place: dict, ctx: UserContext) -> ScoredPlace:
     weight_sum = sum(WEIGHTS[f] for f in active) or 1.0
     confidence = sum(WEIGHTS[f] * factors[f] for f in active) / weight_sum
 
+    if ml_score is not None:
+        confidence, scorer = ml_score, "ml"
+    else:
+        scorer = "rules"
+
     return ScoredPlace(
         cluster_id=int(place["cluster_id"]),
         latitude=float(place["latitude"]),
@@ -102,9 +112,24 @@ def score_place(place: dict, ctx: UserContext) -> ScoredPlace:
         factors=factors,
         confidence=round(confidence, 4),
         location_used=ctx.has_location,
+        scorer=scorer,
     )
 
 
-def generate_recommendations(ctx: UserContext) -> list[ScoredPlace]:
-    """Score every known place. Empty profile -> empty list."""
+def generate_recommendations(ctx: UserContext, ranker=None) -> list[ScoredPlace]:
+    """Score every known place. Empty profile -> empty list.
+
+    With a trained ``ranker`` (see ``ranker.load_ranker``), confidences come
+    from the learned model (batch-scored; unknown weather is marginalized).
+    Without one, the transparent rule blend applies and results stay flagged
+    ``scorer="rules"`` — the fallback is never passed off as ML.
+    """
+    if ranker is not None and getattr(ranker, "model", None) is not None and ctx.known_places:
+        ml_scores = ranker.score_places(
+            ctx.known_places, ctx.now, ctx.current_lat, ctx.current_lng
+        )
+        return [
+            score_place(place, ctx, ml_score=round(ml_scores[int(place["cluster_id"])], 4))
+            for place in ctx.known_places
+        ]
     return [score_place(place, ctx) for place in ctx.known_places]
