@@ -5,8 +5,8 @@ Pure detector: decides whether a patient's GPS feed has gone silent for too
 long, and packages the last known fix for downstream search. No DB, no Module 2
 or Module 4 imports, no side effects.
 
-It does NOT call Module 4 (still empty) — the returned dict *is* the handoff
-contract Module 4 will consume: last_known lat/lng + time is what its
+It does NOT call Module 4 — the wiring is intentionally deferred. The returned
+dict *is* the handoff contract Module 4 consumes: last_known lat/lng + time is what its
 search-radius math needs (Distance = Speed × Time).
 
 Safety-biased on the unknown: anything we can't evaluate is treated as
