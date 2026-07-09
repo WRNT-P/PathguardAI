@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pytest
 
-from app.ai.module5_recommend.data_source import (
+from app.mock.data_source import (
     BASE_DATE, OFF_PATTERN_RATE, PLACE_KEYS, MockDataSource,
 )
 from app.ai.module5_recommend.evaluation import (

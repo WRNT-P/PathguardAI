@@ -36,7 +36,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 
-from .weather_provider import BUCKETS, MockWeather, WeatherProvider
+from .weather_provider import MockWeather, WeatherProvider
 
 # Fixed calendar anchor so day-of-week and the whole series are reproducible and
 # never depend on "today". 2025-01-01 is a Wednesday.

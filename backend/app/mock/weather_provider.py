@@ -18,7 +18,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-BUCKETS = ("sunny", "rainy", "hot")
+from app.ai.module5_recommend.featurize import BUCKETS
 
 
 class WeatherProvider(ABC):

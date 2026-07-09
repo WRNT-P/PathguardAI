@@ -25,7 +25,7 @@ import pandas as pd
 from app.ai.module1_behavior.data_preprocessing import preprocess_gps
 from app.ai.module1_behavior.place_clustering import cluster_places
 
-from .data_source import BASE_DATE, PLACES, PLACE_KEYS, DataSource, DecisionEvent
+from app.mock.data_source import BASE_DATE, PLACES, PLACE_KEYS, DataSource, DecisionEvent
 from .recommendation_generation import haversine_km
 
 # 70/30 temporal cut: train = days 1-63 (index 0-62), test = days 64-90.
@@ -446,7 +446,7 @@ def final_honesty_report(source: DataSource, cut_day: int = DEFAULT_CUT_DAY) -> 
 
 
 def print_final_report() -> dict:
-    from .data_source import MockDataSource
+    from app.mock.data_source import MockDataSource
 
     src = MockDataSource(n_days=90, seed=42)
     out = final_honesty_report(src)
