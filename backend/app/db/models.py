@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, Float, ForeignKey,
-    Index, Integer, String, Text, func,
+    Index, Integer, JSON, String, Text, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -174,3 +174,25 @@ class RuleAuditLog(Base):
     changed_by: Mapped[str] = mapped_column(String(100), nullable=False)
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     reason: Mapped[str] = mapped_column(Text, nullable=False)            # NOT NULL: no anonymous rule changes
+
+
+class TemporalRule(Base):
+    """A rule that uses a patient's risk-score HISTORY (not just the current
+    reading) to adjust the score or force an escalation. Same KB discipline as
+    the other rule tables: values live in ``parameters`` (JSON) — nothing is
+    hardcoded in the pure ``temporal_adjustment`` engine."""
+    __tablename__ = "temporal_rules"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    rule_name: Mapped[str] = mapped_column(String(50), nullable=False)   # validated vs KNOWN_TEMPORAL_RULES
+    # Tunables per rule, e.g. {"window": 3, "boost": 10} / {"window": 5, "min_score": 50}
+    parameters: Mapped[dict] = mapped_column(JSON, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    source_reference: Mapped[str] = mapped_column(String(255), nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_temporal_rule_name_active", "rule_name", "active"),)

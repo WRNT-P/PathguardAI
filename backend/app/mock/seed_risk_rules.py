@@ -17,7 +17,9 @@ import asyncio
 
 from sqlalchemy import select
 
-from app.db.models import DangerZone, RiskFactorWeight, RiskThreshold
+from app.db.models import (
+    DangerZone, RiskFactorWeight, RiskThreshold, TemporalRule,
+)
 
 SEED_CREATED_BY = "seed_risk_rules"
 
@@ -82,6 +84,31 @@ SEED_THRESHOLDS = [
                    "injury risk increases sharply.")},
 ]
 
+# Temporal rules use a patient's score HISTORY. Tunables live in `parameters`
+# so nothing is hardcoded in the pure engine (design D2). The min_score for
+# sustained risk is stored here (D3) — it currently equals low_ceiling (50) but
+# is independently tunable and carries its own citation.
+SEED_TEMPORAL_RULES = [
+    {"rule_name": "trend_escalation",
+     "parameters": {"window": 3, "boost": 10.0},
+     "source_reference": "NEWS (RCP National Early Warning Score, 2012/2017)",
+     "rationale": ("Trend-based early warning: three consecutive rising risk "
+                   "scores (score[t-3] < score[t-2] < score[t-1]) signal "
+                   "deterioration before any single value is alarming, mirroring "
+                   "the NHS National Early Warning Score principle that the "
+                   "trajectory matters more than a lone reading. Adds +10 to the "
+                   "current score before level classification.")},
+    {"rule_name": "sustained_high_risk",
+     "parameters": {"window": 5, "min_score": 50.0},
+     "source_reference": "MOPH ED Triage 2561 Level 3 (Urgent, 30-min)",
+     "rationale": ("Five consecutive scores at medium level or above (>=50) at "
+                   "~2-min sampling ≈ 10 minutes of sustained risk. MOPH ED Triage "
+                   "Level 3 (Urgent) mandates response within 30 minutes; sustained "
+                   "elevation warrants escalating to a Level 1-2 emergency rather "
+                   "than waiting for a single spike. Forces emergency=true, "
+                   "reason 'sustained_risk', severity 'high'.")},
+]
+
 # Exactly the two demo circles previously hardcoded in risk_data_collection.py,
 # so danger-zone behavior is byte-identical after the refactor.
 SEED_DANGER_ZONES = [
@@ -102,8 +129,8 @@ SEED_DANGER_ZONES = [
 
 
 async def seed_rules(session) -> dict:
-    """Insert any missing KB rows (weights/thresholds/zones). Caller commits."""
-    counts = {"weights": 0, "thresholds": 0, "danger_zones": 0}
+    """Insert any missing KB rows (weights/thresholds/zones/temporal). Caller commits."""
+    counts = {"weights": 0, "thresholds": 0, "danger_zones": 0, "temporal_rules": 0}
 
     existing = set(
         (await session.execute(
@@ -133,6 +160,16 @@ async def seed_rules(session) -> dict:
         if z["name"] not in existing:
             session.add(DangerZone(**z, active=True, created_by=SEED_CREATED_BY))
             counts["danger_zones"] += 1
+
+    existing = set(
+        (await session.execute(
+            select(TemporalRule.rule_name).where(TemporalRule.active))
+         ).scalars())
+    for tr in SEED_TEMPORAL_RULES:
+        if tr["rule_name"] not in existing:
+            session.add(TemporalRule(**tr, active=True, version=1,
+                                     created_by=SEED_CREATED_BY))
+            counts["temporal_rules"] += 1
 
     await session.flush()
     return counts

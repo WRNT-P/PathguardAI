@@ -22,7 +22,9 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import DangerZone, RiskFactorWeight, RiskThreshold, RuleAuditLog
+from app.db.models import (
+    DangerZone, RiskFactorWeight, RiskThreshold, RuleAuditLog, TemporalRule,
+)
 
 # ── Canonical rule names (Q12) ────────────────────────────────────────────────
 KNOWN_FACTORS = frozenset(
@@ -40,6 +42,10 @@ KNOWN_THRESHOLDS = frozenset(
 )
 
 ZONE_TYPES = frozenset({"highway", "waterway", "construction", "other"})
+
+TREND_ESCALATION = "trend_escalation"
+SUSTAINED_HIGH_RISK = "sustained_high_risk"
+KNOWN_TEMPORAL_RULES = frozenset({TREND_ESCALATION, SUSTAINED_HIGH_RISK})
 
 # Active weights must sum to 1.0 within this tolerance (Q2 — strict reject).
 WEIGHT_SUM_TOLERANCE = 1e-3
@@ -106,6 +112,19 @@ async def get_active_danger_zones(session: AsyncSession) -> list[dict]:
          "longitude": z.center_longitude, "radius_m": z.radius_meters,
          "zone_type": z.zone_type}
         for z in rows
+    ]
+
+
+async def get_active_temporal_rules(session: AsyncSession) -> list[dict]:
+    """Active temporal rules as plain dicts (the shape the pure engine takes)."""
+    rows = (await session.execute(
+        select(TemporalRule).where(TemporalRule.active)
+    )).scalars().all()
+    return [
+        {"rule_name": r.rule_name, "parameters": r.parameters,
+         "source_reference": r.source_reference, "rationale": r.rationale,
+         "version": r.version}
+        for r in rows
     ]
 
 
@@ -201,6 +220,33 @@ async def update_threshold(session: AsyncSession, name: str, new_value: float,
     await session.flush()
     session.add(_audit("risk_thresholds", new_row.id, "value",
                        old_row.value, new_row.value, changed_by, reason))
+
+
+async def update_temporal_rule(session: AsyncSession, rule_name: str,
+                               new_parameters: dict, changed_by: str,
+                               reason: str) -> None:
+    """Re-version a temporal rule's parameters (old active=False, new row
+    version+1, audit) — atomic per Q4. Keeps exactly one active row per name."""
+    _require_reason(changed_by, reason)
+    if rule_name not in KNOWN_TEMPORAL_RULES:
+        raise RuleValidationError(f"Unknown temporal rule {rule_name!r}")
+    if not isinstance(new_parameters, dict) or not new_parameters:
+        raise RuleValidationError("new_parameters must be a non-empty dict")
+
+    old_row = (await session.execute(
+        select(TemporalRule)
+        .where(TemporalRule.rule_name == rule_name, TemporalRule.active)
+    )).scalar_one()
+    old_row.active = False
+    new_row = TemporalRule(
+        rule_name=rule_name, parameters=new_parameters, active=True,
+        version=old_row.version + 1, source_reference=old_row.source_reference,
+        rationale=old_row.rationale, created_by=changed_by,
+    )
+    session.add(new_row)
+    await session.flush()
+    session.add(_audit("temporal_rules", new_row.id, "parameters",
+                       old_row.parameters, new_row.parameters, changed_by, reason))
 
 
 async def add_danger_zone(session: AsyncSession, *, name: str, latitude: float,
