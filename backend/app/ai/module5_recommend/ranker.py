@@ -35,9 +35,8 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 
 from .featurize import (
-    FEATURE_NAMES, WEATHER_FEATURES, PlaceStatsNorm, pair_row, rows_for_event,
+    BUCKETS, FEATURE_NAMES, WEATHER_FEATURES, PlaceStatsNorm, pair_row, rows_for_event,
 )
-from .weather_provider import BUCKETS
 
 MODELS_DIR = Path(__file__).resolve().parents[2] / "ai" / "models"
 

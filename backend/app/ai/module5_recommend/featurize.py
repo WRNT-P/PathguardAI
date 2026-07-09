@@ -27,8 +27,11 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from .weather_provider import BUCKETS
 from .recommendation_generation import haversine_km
+
+# Coarse weather buckets. Defined here (runtime) rather than in the mock weather
+# provider so no runtime code depends on app.mock; MockWeather imports it back.
+BUCKETS: tuple[str, ...] = ("sunny", "rainy", "hot")
 
 FEATURE_NAMES: tuple[str, ...] = (
     "slot_morning", "is_weekend", "w_sunny", "w_rainy", "w_hot",
