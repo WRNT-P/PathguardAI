@@ -40,6 +40,9 @@ class GPSData(Base):
     # Kalman-smoothed coords stored alongside raw
     smooth_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     smooth_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # True for synthetically-injected wandering points (issue #1 Phase 2.5) so
+    # real GeoLife points and injected anomalies stay auditable/separable.
+    synthetic_injected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -151,6 +154,9 @@ class DangerZone(Base):
     radius_meters: Mapped[float] = mapped_column(Float, nullable=False)
     zone_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "highway" | "waterway" | "construction" | "other"
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # True for demo/seeded hazards injected by inject_wandering.py (issue #1
+    # Phase 2.5) so a synthetic zone is never mistaken for a real KB hazard.
+    synthetic_injected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     source_reference: Mapped[str] = mapped_column(String(255), nullable=False)
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[str] = mapped_column(String(100), nullable=False)

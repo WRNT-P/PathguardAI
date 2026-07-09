@@ -18,6 +18,9 @@ docs/
 # Test/build artifacts
 .pytest_cache/
 
+# Downloaded GeoLife dataset (Microsoft, ~large, licensed) — not source
+backend/data/
+
 # Spec / binary docs — keep main to runnable code + tests only
 *.pdf
 
