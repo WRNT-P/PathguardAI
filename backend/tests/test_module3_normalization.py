@@ -11,6 +11,11 @@ from app.ai.module3_risk.data_normalization import (
 )
 
 
+# Mirrors the KB seed's route_deviation_ceiling_m; passed explicitly because
+# the normalizer no longer has a hardcoded default.
+CEILING_M = 500.0
+
+
 @pytest.mark.parametrize(
     "meters, expected",
     [
@@ -23,7 +28,7 @@ from app.ai.module3_risk.data_normalization import (
     ],
 )
 def test_normalize_route_deviation(meters, expected):
-    assert math.isclose(normalize_route_deviation(meters), expected, abs_tol=1e-9)
+    assert math.isclose(normalize_route_deviation(meters, CEILING_M), expected, abs_tol=1e-9)
 
 
 def test_normalize_route_deviation_custom_ceiling():

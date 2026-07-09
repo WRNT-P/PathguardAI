@@ -16,8 +16,12 @@ def _clamp01(value: float) -> float:
     return min(1.0, max(0.0, value))
 
 
-def normalize_route_deviation(meters: float, max_distance: float = 500.0) -> float:
-    """Distance off the predicted route, scaled so ``max_distance`` m -> 1.0 (D)."""
+def normalize_route_deviation(meters: float, max_distance: float) -> float:
+    """Distance off the predicted route, scaled so ``max_distance`` m -> 1.0 (D).
+
+    ``max_distance`` comes from the rule KB (``route_deviation_ceiling_m``) —
+    no hardcoded default, the caller must pass it.
+    """
     return _clamp01(meters / max_distance)
 
 
@@ -34,32 +38,3 @@ def convert_boolean(flag: bool) -> float:
 def compute_unfamiliarity(familiarity: float) -> float:
     """Unfamiliarity = 1 - familiarity, clamped to [0, 1] (F)."""
     return _clamp01(1.0 - familiarity)
-
-
-if __name__ == "__main__":
-    import math
-
-    def eq(a: float, b: float) -> None:
-        assert math.isclose(a, b, abs_tol=1e-9), f"{a} != {b}"
-
-    # normalize_route_deviation: normal, spec example, upper clamp, lower clamp
-    eq(normalize_route_deviation(250.0), 0.5)
-    eq(normalize_route_deviation(320.0), 0.64)   # spec example
-    eq(normalize_route_deviation(600.0), 1.0)    # upper clamp
-    eq(normalize_route_deviation(-5.0), 0.0)     # lower clamp
-
-    # scale_wandering: normal, upper clamp, lower clamp
-    eq(scale_wandering(0.7), 0.7)
-    eq(scale_wandering(1.4), 1.0)                 # upper clamp
-    eq(scale_wandering(-0.3), 0.0)               # lower clamp
-
-    # convert_boolean: both branches
-    eq(convert_boolean(True), 1.0)
-    eq(convert_boolean(False), 0.0)
-
-    # compute_unfamiliarity: spec example, upper clamp, lower clamp
-    eq(compute_unfamiliarity(0.30), 0.70)        # spec example
-    eq(compute_unfamiliarity(-0.2), 1.0)         # upper clamp
-    eq(compute_unfamiliarity(1.3), 0.0)          # lower clamp
-
-    print("data_normalization: all assertions passed")

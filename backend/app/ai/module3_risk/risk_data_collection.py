@@ -49,14 +49,10 @@ WANDERING_DEFAULT = 0.5        # neutral-cautious wandering when detect not "ok"
 CONFUSION_UNKNOWN_DEFAULT = 0.5  # stopped but classify failed
 DEFAULT_STOP_DURATION_S = 60.0   # fallback when window timestamps are unusable
 
-# Hardcoded danger zones (Decision 1 — stub). Swap for a DB/table source later;
-# each is a circle {latitude, longitude, radius_m, name}. Demo coords (Bangkok).
-DANGER_ZONES = [
-    {"name": "Major highway interchange (demo)",
-     "latitude": 13.7700, "longitude": 100.5550, "radius_m": 150.0},
-    {"name": "Canal / waterway edge (demo)",
-     "latitude": 13.7400, "longitude": 100.5200, "radius_m": 200.0},
-]
+# Danger zones are no longer hardcoded here — they live in the rule KB
+# (``danger_zones`` table, seeded by app/mock/seed_risk_rules.py with sources).
+# The api/ layer loads them via rule_repository.get_active_danger_zones() and
+# passes them in as circles {latitude, longitude, radius_m, name}.
 
 
 # ── small extraction helpers (dependency-free, mirror Module 2) ───────────────
@@ -121,10 +117,10 @@ def _window_duration_seconds(recent_gps: list) -> float:
 
 # ── danger zone (Decision 1) ──────────────────────────────────────────────────
 
-def is_in_danger_zone(lat: float, lng: float) -> bool:
-    """True if (lat, lng) falls within any hardcoded DANGER_ZONES circle."""
+def is_in_danger_zone(lat: float, lng: float, danger_zones: list) -> bool:
+    """True if (lat, lng) falls within any of the given danger-zone circles."""
     try:
-        for zone in DANGER_ZONES:
+        for zone in danger_zones:
             dist_m = haversine_km(lat, lng, zone["latitude"], zone["longitude"]) * 1000.0
             if dist_m <= zone["radius_m"]:
                 return True
@@ -160,8 +156,13 @@ def collect_risk_factors(
     profile: dict,
     current_lat: float,
     current_lng: float,
+    danger_zones: list,
 ) -> dict:
-    """Assemble the five RAW risk factors from fetched data (no DB, no normalize)."""
+    """Assemble the five RAW risk factors from fetched data (no DB, no normalize).
+
+    ``danger_zones`` is the list of active geofence circles from the rule KB
+    (loaded by the api/ layer) — this module stays DB-free.
+    """
     known_places = _extract_known_places(profile)
     detectors = _prepare_detectors(gps_30d, known_places)
     defaults_fired: list[str] = []
@@ -227,7 +228,7 @@ def collect_risk_factors(
         familiarity = get_familiarity(known_places, cluster_id)
 
     # ── Z: danger zone ────────────────────────────────────────────────────────
-    danger_zone = is_in_danger_zone(current_lat, current_lng)
+    danger_zone = is_in_danger_zone(current_lat, current_lng, danger_zones)
 
     return {
         "route_deviation": route_deviation,
@@ -263,6 +264,14 @@ if __name__ == "__main__":
         return {"latitude": place["latitude"], "longitude": place["longitude"],
                 "speed": speed, "recorded_at": ts}
 
+    # Explicit zone circles (the KB seed values) — collect stays DB-free.
+    ZONES = [
+        {"name": "Major highway interchange (demo)",
+         "latitude": 13.7700, "longitude": 100.5550, "radius_m": 150.0},
+        {"name": "Canal / waterway edge (demo)",
+         "latitude": 13.7400, "longitude": 100.5200, "radius_m": 200.0},
+    ]
+
     # 30-day-ish history: alternating place0 <-> place1 across several days
     gps_30d = []
     base = datetime(2026, 6, 1, 8, 0, 0)
@@ -280,7 +289,8 @@ if __name__ == "__main__":
 
     # 1) normal moving case near place1 -> C=0, F computed, route attempted
     recent_moving = [pt(PLACES[1], NOW - timedelta(minutes=5 - k), 1.2) for k in range(6)]
-    r = collect_risk_factors(gps_30d, recent_moving, profile, PLACES[1]["latitude"], PLACES[1]["longitude"])
+    r = collect_risk_factors(gps_30d, recent_moving, profile,
+                             PLACES[1]["latitude"], PLACES[1]["longitude"], ZONES)
     assert set(r) >= {"route_deviation", "wandering", "confusion", "danger_zone", "familiarity"}, r
     assert r["confusion"] == 0.0, ("moving -> C=0", r["_meta"])
     assert 0.0 <= r["wandering"] <= 1.0, r
@@ -295,7 +305,7 @@ if __name__ == "__main__":
     # Pure-latitude offset: distance = R*Δlat_rad, so Δlat = 150/(6371000*π/180).
     OFF_LAT = 0.001349  # ≈ 150 m north of place1
     r = collect_risk_factors(gps_30d, recent_moving, profile,
-                             PLACES[1]["latitude"] + OFF_LAT, PLACES[1]["longitude"])
+                             PLACES[1]["latitude"] + OFF_LAT, PLACES[1]["longitude"], ZONES)
     assert r["_meta"]["route_status"] == "ok", r["_meta"]
     assert 145.0 <= r["route_deviation"] <= 155.0, ("D off-route", r["route_deviation"])
     print("  [1b] 150 m off waypoint: D=", round(r["route_deviation"], 1),
@@ -303,29 +313,32 @@ if __name__ == "__main__":
 
     # 2) empty known_places -> familiarity = 0.0 (file 7 -> F=1.0) and D = 350.0
     r = collect_risk_factors(gps_30d, recent_moving, {"known_places": []},
-                             PLACES[1]["latitude"], PLACES[1]["longitude"])
+                             PLACES[1]["latitude"], PLACES[1]["longitude"], ZONES)
     assert r["familiarity"] == 0.0, r
     assert r["route_deviation"] == NO_ROUTE_DEVIATION_M, r
     print("  [2] empty known_places: familiarity=", r["familiarity"], "D=", r["route_deviation"])
 
     # 3) no recent_gps -> route can't be predicted -> D = 350.0 default
-    r = collect_risk_factors(gps_30d, [], profile, PLACES[1]["latitude"], PLACES[1]["longitude"])
+    r = collect_risk_factors(gps_30d, [], profile,
+                             PLACES[1]["latitude"], PLACES[1]["longitude"], ZONES)
     assert r["route_deviation"] == NO_ROUTE_DEVIATION_M, r
     assert "no_route_deviation_default" in r["_meta"]["defaults_fired"], r["_meta"]
     print("  [3] no recent_gps: D=", r["route_deviation"], "defaults=", r["_meta"]["defaults_fired"])
 
     # 4) stopped case (avg speed < 0.3) -> classify path runs, C in [0,1]
     recent_stopped = [pt(PLACES[1], NOW - timedelta(minutes=10 - k), 0.05) for k in range(8)]
-    r = collect_risk_factors(gps_30d, recent_stopped, profile, PLACES[1]["latitude"], PLACES[1]["longitude"])
+    r = collect_risk_factors(gps_30d, recent_stopped, profile,
+                             PLACES[1]["latitude"], PLACES[1]["longitude"], ZONES)
     assert r["_meta"]["stopped"] is True, r["_meta"]
     assert 0.0 <= r["confusion"] <= 1.0, r
     print("  [4] stopped: C=", r["confusion"], "stopped=", r["_meta"]["stopped"])
 
     # 5) danger zone: a point inside a zone -> True; a far point -> False
-    z = DANGER_ZONES[0]
-    assert is_in_danger_zone(z["latitude"], z["longitude"]) is True
-    assert is_in_danger_zone(13.7000, 100.4000) is False
-    r_in = collect_risk_factors(gps_30d, recent_moving, profile, z["latitude"], z["longitude"])
+    z = ZONES[0]
+    assert is_in_danger_zone(z["latitude"], z["longitude"], ZONES) is True
+    assert is_in_danger_zone(13.7000, 100.4000, ZONES) is False
+    r_in = collect_risk_factors(gps_30d, recent_moving, profile,
+                                z["latitude"], z["longitude"], ZONES)
     assert r_in["danger_zone"] is True, r_in
     print("  [5] danger zone: center=True, far=False, collect.danger_zone=", r_in["danger_zone"])
 

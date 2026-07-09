@@ -26,7 +26,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import crud
+from app.db import crud, rule_repository
 from app.db.database import get_db
 from app.ai.module3_risk import detect_gps_gap
 from app.ai.module4_search_area import (
@@ -46,8 +46,6 @@ from app.models.search_area import (
 )
 
 router = APIRouter()
-
-_GPS_GAP_THRESHOLD_S = 600.0  # 10 minutes — mirrors Module 3's default
 
 
 @router.get(
@@ -106,8 +104,12 @@ async def get_search_area(
         )
 
     # ── 3. GPS gap check — is the patient actually missing? ───────────────────
+    # Threshold from the rule KB — the same gps_gap_seconds row Module 3 uses,
+    # so a rule change affects /api/risk and /api/search-area consistently.
+    gap_threshold_s = await rule_repository.get_threshold(
+        db, rule_repository.GPS_GAP_SECONDS)
     gap = detect_gps_gap(last_reading=latest_gps, now=datetime.now(timezone.utc),
-                         threshold_s=_GPS_GAP_THRESHOLD_S)
+                         threshold_s=gap_threshold_s)
 
     # If GPS is recent and no manual override, the patient is still trackable
     if not gap["gps_lost"] and not has_override_coords:

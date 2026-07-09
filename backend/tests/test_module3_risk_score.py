@@ -1,30 +1,48 @@
-"""Module 3.2 — risk score calculation (weighted sum, level mapping)."""
+"""Module 3.2 — risk score calculation (weighted sum, level mapping).
+
+Pure-function tests: weights and level boundaries are passed explicitly (the
+values below mirror the KB seed — tests hardcode EXPECTATIONS, the app does
+not hardcode rules). That the seeded KB itself sums to 1.0 is asserted in
+test_rule_repository.py.
+"""
 import math
 
 import pytest
 
-from app.ai.module3_risk.risk_score_calculation import WEIGHTS, calculate_risk
+from app.ai.module3_risk.risk_score_calculation import calculate_risk
 
 KEYS = ["route_deviation", "wandering", "confusion", "danger_zone", "unfamiliarity"]
+
+# Test-local rule values (mirror app/mock/seed_risk_rules.py).
+WEIGHTS = {
+    "route_deviation": 0.30,
+    "wandering": 0.25,
+    "confusion": 0.20,
+    "danger_zone": 0.15,
+    "unfamiliarity": 0.10,
+}
+LOW_CEILING = 50.0
+MEDIUM_CEILING = 80.0
 
 
 def factors(*vals):
     return dict(zip(KEYS, vals))
 
 
-def test_weights_sum_to_one():
-    assert math.isclose(sum(WEIGHTS.values()), 1.0, abs_tol=1e-9)
+def score(f):
+    return calculate_risk(f, WEIGHTS, low_ceiling=LOW_CEILING,
+                          medium_ceiling=MEDIUM_CEILING)
 
 
 def test_all_zero_is_low():
-    r = calculate_risk(factors(0, 0, 0, 0, 0))
+    r = score(factors(0, 0, 0, 0, 0))
     assert r["risk_score"] == 0.0
     assert r["risk_level"] == "low"
     assert all(c == 0.0 for c in r["contributions"].values())
 
 
 def test_all_one_is_high_with_weighted_contributions():
-    r = calculate_risk(factors(1, 1, 1, 1, 1))
+    r = score(factors(1, 1, 1, 1, 1))
     assert r["risk_score"] == 100.0
     assert r["risk_level"] == "high"
     assert r["contributions"] == {
@@ -37,7 +55,7 @@ def test_all_one_is_high_with_weighted_contributions():
 
 
 def test_contributions_sum_to_headline_score():
-    r = calculate_risk(factors(0.64, 0.70, 0.40, 0.0, 0.70))
+    r = score(factors(0.64, 0.70, 0.40, 0.0, 0.70))
     assert math.isclose(sum(r["contributions"].values()), r["risk_score"], abs_tol=1e-9)
     assert r["risk_score"] == 51.7
     assert r["risk_level"] == "medium"
@@ -52,6 +70,15 @@ def test_contributions_sum_to_headline_score():
     ],
 )
 def test_level_boundaries(value, expected_score, expected_level):
-    r = calculate_risk(factors(value, value, value, value, value))
+    r = score(factors(value, value, value, value, value))
     assert r["risk_score"] == expected_score
     assert r["risk_level"] == expected_level
+
+
+def test_different_weights_change_the_score():
+    """The KB is live: pass different weights, get a different score."""
+    flat = {k: 0.2 for k in KEYS}
+    f = factors(1.0, 0.0, 0.0, 0.0, 0.0)
+    assert score(f)["risk_score"] == 30.0
+    r = calculate_risk(f, flat, low_ceiling=50.0, medium_ceiling=80.0)
+    assert r["risk_score"] == 20.0

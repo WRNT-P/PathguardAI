@@ -49,11 +49,13 @@ def _parse_timestamp(ts):
     return None
 
 
-def detect_gps_gap(last_reading, now: datetime, threshold_s: float = 600.0) -> dict:
+def detect_gps_gap(last_reading, now: datetime, threshold_s: float) -> dict:
     """Detect a GPS gap from the last reading; return the Module-4 handoff payload.
 
-    ``gps_lost`` is True when the silence exceeds ``threshold_s`` (strict ``>``,
-    so exactly at the threshold is still fine). Unknowns are biased to lost.
+    ``threshold_s`` comes from the rule KB (``gps_gap_seconds``) — no hardcoded
+    default, the caller must pass it. ``gps_lost`` is True when the silence
+    exceeds ``threshold_s`` (strict ``>``, so exactly at the threshold is still
+    fine). Unknowns are biased to lost.
     """
     # No reading at all is itself a lost-GPS condition.
     if not last_reading:
@@ -87,58 +89,3 @@ def detect_gps_gap(last_reading, now: datetime, threshold_s: float = 600.0) -> d
         "gap_seconds": round(raw_gap, 1),
         "last_known": last_known,
     }
-
-
-if __name__ == "__main__":
-    from datetime import timedelta
-
-    NOW = datetime(2026, 6, 26, 12, 0, 0)
-
-    def reading(seconds_ago: float, *, as_iso: bool = False, ts_key: str = "recorded_at"):
-        t = NOW - timedelta(seconds=seconds_ago)
-        return {"latitude": 13.7563, "longitude": 100.5018, ts_key: t.isoformat() if as_iso else t}
-
-    # gap under threshold -> not lost
-    r = detect_gps_gap(reading(300), NOW)
-    assert r["gps_lost"] is False, r
-    assert r["gap_seconds"] == 300.0, r
-
-    # gap over threshold -> lost (the 845s example)
-    r = detect_gps_gap(reading(845), NOW)
-    assert r["gps_lost"] is True, r
-    assert r["gap_seconds"] == 845.0, r
-    assert r["last_known"]["latitude"] == 13.7563, r
-
-    # exactly at threshold (600s) -> not lost (strict >)
-    r = detect_gps_gap(reading(600), NOW)
-    assert r["gps_lost"] is False, r
-    assert r["gap_seconds"] == 600.0, r
-
-    # no reading -> lost, last_known None
-    r = detect_gps_gap(None, NOW)
-    assert r == {"gps_lost": True, "gap_seconds": None, "last_known": None}, r
-
-    # ISO string vs datetime timestamps parse to the same result
-    r_iso = detect_gps_gap(reading(845, as_iso=True), NOW)
-    r_dt = detect_gps_gap(reading(845, as_iso=False), NOW)
-    assert r_iso == r_dt, (r_iso, r_dt)
-    assert r_iso["gps_lost"] is True and r_iso["gap_seconds"] == 845.0, r_iso
-
-    # "Z"-suffixed ISO parses via the +00:00 fallback (compared against a tz-aware now)
-    now_utc = datetime.fromisoformat("2026-06-26T12:00:00+00:00")
-    r = detect_gps_gap(
-        {"latitude": 1.0, "longitude": 2.0, "recorded_at": "2026-06-26T11:45:55Z"},
-        now_utc,
-    )
-    assert r["gps_lost"] is True and r["gap_seconds"] == 845.0, r
-
-    # alternate "timestamp" key is honored
-    r = detect_gps_gap(reading(845, ts_key="timestamp"), NOW)
-    assert r["gps_lost"] is True, r
-
-    # missing/unparseable timestamp -> lost, position kept, recorded_at None
-    r = detect_gps_gap({"latitude": 1.0, "longitude": 2.0, "recorded_at": "not-a-date"}, NOW)
-    assert r["gps_lost"] is True and r["gap_seconds"] is None, r
-    assert r["last_known"] == {"latitude": 1.0, "longitude": 2.0, "recorded_at": None}, r
-
-    print("gps_failure_handling: all assertions passed")

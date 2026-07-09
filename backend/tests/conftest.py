@@ -37,6 +37,13 @@ async def db_engine():
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Seed the Module 3 rule knowledge base — the /api/risk pipeline loads
+    # weights/thresholds/danger-zones from these tables on every request.
+    from app.mock.seed_risk_rules import seed_rules
+
+    async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+        await seed_rules(session)
+        await session.commit()
     try:
         yield engine
     finally:
@@ -68,13 +75,14 @@ async def client(session_factory):
     import httpx
     from fastapi import FastAPI
 
-    from app.api import gps, recommendation, risk, users
+    from app.api import admin_rules, gps, recommendation, risk, users
 
     app = FastAPI(title="PathGuard AI (test)")
     app.include_router(users.router)
     app.include_router(gps.router)
     app.include_router(recommendation.router)
     app.include_router(risk.router)
+    app.include_router(admin_rules.router)
 
     @app.get("/")
     async def _root():

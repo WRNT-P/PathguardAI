@@ -9,12 +9,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.ai.module3_risk.risk_data_collection import DANGER_ZONES
 from app.db import crud
+from app.mock.seed_risk_rules import SEED_DANGER_ZONES
 
 pytestmark = pytest.mark.asyncio
 
-# Two known places, both clear of the hardcoded DANGER_ZONES.
+# Two known places, both clear of the seeded danger zones.
 PLACES = [
     {"cluster_id": 0, "latitude": 13.7460, "longitude": 100.5340,
      "visit_frequency": 40, "avg_stay_time": 120.0},
@@ -79,12 +79,12 @@ async def test_risk_ok_path_scores_and_persists(client, db_session):
 
 async def test_risk_danger_zone_triggers_emergency_alert(client, db_session):
     patient_id = await _seed_patient_with_history(db_session)
-    zone = DANGER_ZONES[0]
+    zone = SEED_DANGER_ZONES[0]
 
     # Force current location to a danger-zone centre via query override.
     resp = await client.get(
         f"/api/risk/{patient_id}",
-        params={"lat": zone["latitude"], "lng": zone["longitude"]},
+        params={"lat": zone["center_latitude"], "lng": zone["center_longitude"]},
     )
     assert resp.status_code == 200
     body = resp.json()

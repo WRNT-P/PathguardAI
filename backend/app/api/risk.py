@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import crud
+from app.db import crud, rule_repository
 from app.db.database import get_db
 from app.ai.module3_risk import (
     collect_risk_factors,
@@ -65,6 +65,12 @@ async def get_risk(
     lng: float | None = Query(None, ge=-180, le=180),
     db: AsyncSession = Depends(get_db),
 ) -> RiskResponse:
+    # ── 0. Load the rule knowledge base (fresh per request — no cache, so a
+    #       rule change in the DB affects the very next call) ──────────────────
+    weights = await rule_repository.get_active_weights(db)
+    thresholds = await rule_repository.get_all_thresholds(db)
+    danger_zones = await rule_repository.get_active_danger_zones(db)
+
     # ── 1. Fetch inputs ───────────────────────────────────────────────────────
     profile = await crud.get_behavioral_profile(db, patient_id)
     gps_30d = await crud.get_gps_history(db, patient_id, days=30)
@@ -87,23 +93,30 @@ async def get_risk(
     # known_places is a JSON string; collect_risk_factors json.loads-es it itself.
     profile_dict = {"known_places": profile.known_places}
 
-    # ── 3. RAW factors from the pure ai/ layer ────────────────────────────────
-    raw = collect_risk_factors(gps_30d, recent_gps, profile_dict, lat, lng)
+    # ── 3. RAW factors from the pure ai/ layer (KB zones passed in) ───────────
+    raw = collect_risk_factors(gps_30d, recent_gps, profile_dict, lat, lng,
+                               danger_zones)
 
     # ── 4. Normalize to the five 0–1 keys calculate_risk expects ──────────────
     normalized = {
-        "route_deviation": normalize_route_deviation(raw["route_deviation"]),
+        "route_deviation": normalize_route_deviation(
+            raw["route_deviation"],
+            thresholds[rule_repository.ROUTE_DEVIATION_CEILING_M]),
         "wandering": scale_wandering(raw["wandering"]),
         "confusion": raw["confusion"],  # already 0–1 — no normalizer exists
         "danger_zone": convert_boolean(raw["danger_zone"]),
         "unfamiliarity": compute_unfamiliarity(raw["familiarity"]),  # inversion lives here
     }
 
-    # ── 5. Score ──────────────────────────────────────────────────────────────
-    result = calculate_risk(normalized)
+    # ── 5. Score (weights + level boundaries from the KB) ────────────────────
+    result = calculate_risk(
+        normalized, weights,
+        low_ceiling=thresholds[rule_repository.LOW_CEILING],
+        medium_ceiling=thresholds[rule_repository.MEDIUM_CEILING])
 
     # ── 6. GPS-loss check (tz-aware now to match recorded_at columns) ─────────
-    gap = detect_gps_gap(last_reading=latest, now=datetime.now(timezone.utc))
+    gap = detect_gps_gap(last_reading=latest, now=datetime.now(timezone.utc),
+                         threshold_s=thresholds[rule_repository.GPS_GAP_SECONDS])
     gps_available = not gap["gps_lost"]
 
     # ── 7. Derive wandering_detected (Module 2's mild threshold) ──────────────
@@ -121,7 +134,8 @@ async def get_risk(
     )
 
     # ── 9. Emergency alert — only persisted when it fires ─────────────────────
-    decision = decide_emergency(result["risk_score"], raw["danger_zone"])
+    decision = decide_emergency(result["risk_score"], raw["danger_zone"],
+                                thresholds[rule_repository.EMERGENCY_SCORE])
     if decision["emergency"]:
         if decision["reason"] == "danger_zone":
             message = f"Patient entered a danger zone — risk {result['risk_score']}%."

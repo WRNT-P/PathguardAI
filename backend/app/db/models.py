@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, Float, ForeignKey,
-    Integer, String, Text, func,
+    Index, Integer, String, Text, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -93,3 +93,84 @@ class BehavioralProfile(Base):
     )
 
     patient: Mapped["User"] = relationship("User", back_populates="behavioral_profiles")
+
+
+# ── Module 3 rule knowledge base ──────────────────────────────────────────────
+# Rules live in the DB (not code) so judges can inspect values, medical sources
+# and rationale at runtime. Updates never mutate rows: the old row is flipped to
+# active=False and a new row (version+1) is inserted, so full history is kept.
+# "Exactly one active row per name" is enforced by rule_repository (app-level,
+# per design Q1 — works identically on SQLite tests and Postgres).
+
+
+class RiskFactorWeight(Base):
+    """One weighted factor of the Module 3 risk formula (weights sum to 1.0)."""
+    __tablename__ = "risk_factor_weights"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    factor_name: Mapped[str] = mapped_column(String(50), nullable=False)   # validated vs KNOWN_FACTORS
+    weight: Mapped[float] = mapped_column(Float, nullable=False)           # 0–1; active set sums to 1.0
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    source_reference: Mapped[str] = mapped_column(String(255), nullable=False)  # e.g. "TH-DMS-2564 §BPSD"
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)           # judge-readable medical justification
+    effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_weight_name_active", "factor_name", "active"),)
+
+
+class RiskThreshold(Base):
+    """A named cut-off used by Module 3 (score boundaries, distances, timeouts)."""
+    __tablename__ = "risk_thresholds"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    threshold_name: Mapped[str] = mapped_column(String(50), nullable=False)  # validated vs KNOWN_THRESHOLDS
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str] = mapped_column(String(20), nullable=False)            # "score" | "meter" | "second"
+    source_reference: Mapped[str] = mapped_column(String(255), nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_threshold_name_active", "threshold_name", "active"),)
+
+
+class DangerZone(Base):
+    """A geofenced circle that forces an emergency when the patient is inside."""
+    __tablename__ = "danger_zones"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    center_latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    center_longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    radius_meters: Mapped[float] = mapped_column(Float, nullable=False)
+    zone_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "highway" | "waterway" | "construction" | "other"
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    source_reference: Mapped[str] = mapped_column(String(255), nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_danger_zone_active", "active"),)
+
+
+class RuleAuditLog(Base):
+    """Immutable trail of every rule change — written in the SAME transaction
+    as the change itself (design Q4), so log and rule state can never disagree."""
+    __tablename__ = "rule_audit_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    table_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    record_id: Mapped[int] = mapped_column(BigInteger, nullable=False)   # id of the NEW active row
+    field_changed: Mapped[str] = mapped_column(String(50), nullable=False)
+    old_value: Mapped[str | None] = mapped_column(String(255), nullable=True)   # None for inserts
+    new_value: Mapped[str | None] = mapped_column(String(255), nullable=True)   # None for deactivations
+    changed_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reason: Mapped[str] = mapped_column(Text, nullable=False)            # NOT NULL: no anonymous rule changes
