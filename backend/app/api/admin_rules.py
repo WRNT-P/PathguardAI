@@ -17,7 +17,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
-from app.db.models import DangerZone, RiskFactorWeight, RiskThreshold, RuleAuditLog
+from app.db.models import (
+    DangerZone, RiskFactorWeight, RiskThreshold, RuleAuditLog, TemporalRule,
+)
 
 router = APIRouter()
 
@@ -53,10 +55,20 @@ class DangerZoneRule(BaseModel):
     effective_from: datetime
 
 
+class TemporalRuleView(BaseModel):
+    rule_name: str
+    parameters: dict
+    version: int
+    source_reference: str
+    rationale: str
+    effective_from: datetime
+
+
 class RulesResponse(BaseModel):
     weights: list[WeightRule]
     thresholds: list[ThresholdRule]
     danger_zones: list[DangerZoneRule]
+    temporal_rules: list[TemporalRuleView]
 
 
 class AuditEntry(BaseModel):
@@ -97,11 +109,15 @@ async def get_rules(db: AsyncSession = Depends(get_db)) -> RulesResponse:
     zones = (await db.execute(
         select(DangerZone).where(DangerZone.active).order_by(DangerZone.id)
     )).scalars().all()
+    temporal = (await db.execute(
+        select(TemporalRule).where(TemporalRule.active).order_by(TemporalRule.rule_name)
+    )).scalars().all()
 
     return RulesResponse(
         weights=[WeightRule.model_validate(w, from_attributes=True) for w in weights],
         thresholds=[ThresholdRule.model_validate(t, from_attributes=True) for t in thresholds],
         danger_zones=[DangerZoneRule.model_validate(z, from_attributes=True) for z in zones],
+        temporal_rules=[TemporalRuleView.model_validate(t, from_attributes=True) for t in temporal],
     )
 
 

@@ -31,6 +31,17 @@ async def test_rules_lists_all_active_rules_with_citations(client):
     assert abs(sum(weights.values()) - 1.0) < 1e-9
 
 
+async def test_rules_lists_temporal_rules_with_params_and_citations(client):
+    body = (await client.get("/api/admin/rules")).json()
+    temporal = {t["rule_name"]: t for t in body["temporal_rules"]}
+    assert set(temporal) == set(repo.KNOWN_TEMPORAL_RULES)
+    assert temporal["trend_escalation"]["parameters"] == {"window": 3, "boost": 10.0}
+    assert temporal["sustained_high_risk"]["parameters"] == {"window": 5, "min_score": 50.0}
+    for t in temporal.values():
+        assert t["source_reference"].strip()
+        assert t["rationale"].strip()
+
+
 async def test_history_empty_before_any_change(client):
     resp = await client.get("/api/admin/rules/history")
     assert resp.status_code == 200

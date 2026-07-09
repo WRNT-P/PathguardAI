@@ -154,6 +154,24 @@ async def get_latest_risk_score(db: AsyncSession, patient_id: int) -> RiskScore 
     return result.scalar_one_or_none()
 
 
+async def get_recent_risk_scores(
+    db: AsyncSession, patient_id: int, limit: int = 5
+) -> list[RiskScore]:
+    """Return the patient's most recent risk scores, newest first.
+
+    Used by Module 3's temporal rules (trend / sustained-risk) to look back at
+    history. The current round has not been persisted yet when this is called,
+    so the result is exactly the *previous* rounds.
+    """
+    result = await db.execute(
+        select(RiskScore)
+        .where(RiskScore.patient_id == patient_id)
+        .order_by(desc(RiskScore.calculated_at))
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
 # ── Alerts ──────────────────────────────────────────────────────────────────
 
 async def save_alert(

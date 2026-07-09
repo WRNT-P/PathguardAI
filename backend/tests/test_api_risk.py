@@ -10,9 +10,24 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.db import crud
+from app.db.models import RiskScore
 from app.mock.seed_risk_rules import SEED_DANGER_ZONES
 
 pytestmark = pytest.mark.asyncio
+
+
+async def _seed_scores(db, patient_id, scores):
+    """Insert prior risk_scores oldest->newest (scores[-1] is most recent)."""
+    now = datetime.now(timezone.utc)
+    n = len(scores)
+    for i, s in enumerate(scores):
+        level = "low" if s < 50 else "medium" if s < 80 else "high"
+        db.add(RiskScore(
+            patient_id=patient_id, score=s, level=level,
+            wandering_detected=False, gps_available=True,
+            calculated_at=now - timedelta(minutes=(n - i) * 2),
+        ))
+    await db.commit()
 
 # Two known places, both clear of the seeded danger zones.
 PLACES = [
@@ -105,3 +120,44 @@ async def test_risk_danger_zone_triggers_emergency_alert(client, db_session):
 async def test_risk_rejects_out_of_range_lat(client):
     resp = await client.get("/api/risk/1", params={"lat": 200, "lng": 100})
     assert resp.status_code == 422
+
+
+# ── Temporal rules (Improvement B) ────────────────────────────────────────────
+
+async def test_temporal_cold_start_no_adjustment(client, db_session):
+    """A patient with no score history: temporal rules are a no-op (parity)."""
+    patient_id = await _seed_patient_with_history(db_session)
+
+    body = (await client.get(f"/api/risk/{patient_id}")).json()
+    assert body["temporal_rules_triggered"] == []
+    assert body["temporal_adjustment"] == 0.0
+    assert body["risk_score"] == body["base_risk_score"]
+
+
+async def test_temporal_trend_adds_boost(client, db_session):
+    """Four rising prior scores -> trend_escalation adds +10 to the current."""
+    patient_id = await _seed_patient_with_history(db_session)
+    await _seed_scores(db_session, patient_id, [10.0, 20.0, 30.0, 40.0])
+
+    body = (await client.get(f"/api/risk/{patient_id}")).json()
+    assert "trend_escalation" in body["temporal_rules_triggered"]
+    assert body["temporal_adjustment"] == 10.0
+    assert body["risk_score"] == round(body["base_risk_score"] + 10.0, 1)
+
+
+async def test_temporal_sustained_forces_emergency(client, db_session):
+    """Five sustained medium scores (4 prior + current) -> sustained_risk emergency."""
+    patient_id = await _seed_patient_with_history(db_session)
+    await _seed_scores(db_session, patient_id, [55.0, 55.0, 55.0, 55.0])
+
+    # Far-from-route override so the CURRENT score is medium (>=50) but not a
+    # danger zone and not >80 — isolating the sustained-risk trigger.
+    body = (await client.get(
+        f"/api/risk/{patient_id}", params={"lat": 13.7800, "lng": 100.5800}
+    )).json()
+    assert body["base_risk_score"] >= 50.0, body
+    assert body["emergency"] is True
+    assert body["reason"] == "sustained_risk"
+    assert "sustained_high_risk" in body["temporal_rules_triggered"]
+    # Equal (non-rising) history must NOT trigger the trend rule.
+    assert "trend_escalation" not in body["temporal_rules_triggered"]

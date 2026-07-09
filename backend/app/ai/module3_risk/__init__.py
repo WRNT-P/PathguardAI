@@ -10,6 +10,7 @@ from .risk_score_calculation import calculate_risk
 from .gps_failure_handling import detect_gps_gap
 from .emergency_decision_engine import decide_emergency
 from .risk_data_collection import collect_risk_factors
+from .temporal_adjustment import apply_temporal_rules
 
 __all__ = [
     "normalize_route_deviation",
@@ -20,4 +21,5 @@ __all__ = [
     "detect_gps_gap",
     "decide_emergency",
     "collect_risk_factors",
+    "apply_temporal_rules",
 ]

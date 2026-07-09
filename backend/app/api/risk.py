@@ -32,6 +32,7 @@ from app.ai.module3_risk import (
     calculate_risk,
     decide_emergency,
     detect_gps_gap,
+    apply_temporal_rules,
 )
 
 # Module 2's mild-wandering threshold (wandering_detection._MILD_THRESHOLD):
@@ -52,6 +53,11 @@ class RiskResponse(BaseModel):
     gps_available: bool | None = None
     emergency: bool = False
     reason: str | None = None
+    # Temporal rules (history-based). risk_score is the FINAL (adjusted) value;
+    # base_risk_score is before any temporal boost, and contributions sum to it.
+    base_risk_score: float | None = None
+    temporal_adjustment: float | None = None
+    temporal_rules_triggered: list[str] = []
 
 
 @router.get(
@@ -113,6 +119,19 @@ async def get_risk(
         normalized, weights,
         low_ceiling=thresholds[rule_repository.LOW_CEILING],
         medium_ceiling=thresholds[rule_repository.MEDIUM_CEILING])
+    base_score = result["risk_score"]
+
+    # ── 5b. Temporal rules — use the patient's score HISTORY (trend/sustained).
+    #        recent_scores are the PREVIOUS rounds (this round isn't saved yet),
+    #        newest first — exactly what apply_temporal_rules expects. Additive:
+    #        a patient with too little history is returned unchanged. ───────────
+    temporal_rules = await rule_repository.get_active_temporal_rules(db)
+    recent = await crud.get_recent_risk_scores(db, patient_id, limit=5)
+    recent_scores = [r.score for r in recent]
+    adj_score, adj_level, temporal_emergency, triggered = apply_temporal_rules(
+        base_score, result["risk_level"], False, recent_scores, temporal_rules,
+        low_ceiling=thresholds[rule_repository.LOW_CEILING],
+        medium_ceiling=thresholds[rule_repository.MEDIUM_CEILING])
 
     # ── 6. GPS-loss check (tz-aware now to match recorded_at columns) ─────────
     gap = detect_gps_gap(last_reading=latest, now=datetime.now(timezone.utc),
@@ -122,25 +141,33 @@ async def get_risk(
     # ── 7. Derive wandering_detected (Module 2's mild threshold) ──────────────
     wandering_detected = raw["wandering"] >= _WANDERING_DETECTED_THRESHOLD
 
-    # ── 8. Persist the risk score (contributions dict -> JSON string) ─────────
+    # ── 8. Persist the ADJUSTED risk score (contributions dict -> JSON string).
+    #        contributions still sum to base_score; adj_score is the headline. ──
     await crud.save_risk_score(
         db,
         patient_id,
-        score=result["risk_score"],
-        level=result["risk_level"],
+        score=adj_score,
+        level=adj_level,
         wandering_detected=wandering_detected,
         gps_available=gps_available,
         factors=json.dumps(result["contributions"]),
     )
 
-    # ── 9. Emergency alert — only persisted when it fires ─────────────────────
-    decision = decide_emergency(result["risk_score"], raw["danger_zone"],
+    # ── 9. Emergency — decided on the ADJUSTED score (so a trend boost stays
+    #        consistent with the saved score/level), then the sustained-risk
+    #        temporal rule can force an escalation if nothing else fired. ───────
+    decision = decide_emergency(adj_score, raw["danger_zone"],
                                 thresholds[rule_repository.EMERGENCY_SCORE])
+    if temporal_emergency and not decision["emergency"]:
+        decision = {"emergency": True, "reason": "sustained_risk",
+                    "severity": "high", "alert_type": "emergency"}
     if decision["emergency"]:
         if decision["reason"] == "danger_zone":
-            message = f"Patient entered a danger zone — risk {result['risk_score']}%."
+            message = f"Patient entered a danger zone — risk {adj_score}%."
+        elif decision["reason"] == "sustained_risk":
+            message = f"Sustained elevated risk ({adj_score}%) over recent readings — escalating."
         else:
-            message = f"High risk ({result['risk_score']}%) — {decision['reason']}."
+            message = f"High risk ({adj_score}%) — {decision['reason']}."
         await crud.save_alert(
             db,
             patient_id,
@@ -168,12 +195,15 @@ async def get_risk(
     return RiskResponse(
         patient_id=patient_id,
         status="ok",
-        message=f"Risk {result['risk_score']}% ({result['risk_level']}).",
-        risk_score=result["risk_score"],
-        risk_level=result["risk_level"],
+        message=f"Risk {adj_score}% ({adj_level}).",
+        risk_score=adj_score,
+        risk_level=adj_level,
         contributions=result["contributions"],
         wandering_detected=wandering_detected,
         gps_available=gps_available,
         emergency=decision["emergency"],
         reason=decision["reason"],
+        base_risk_score=base_score,
+        temporal_adjustment=round(adj_score - base_score, 1),
+        temporal_rules_triggered=triggered,
     )
