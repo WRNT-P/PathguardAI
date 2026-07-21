@@ -9,39 +9,15 @@
 
 from __future__ import annotations
 
-import math
 import numpy as np
 
-from app.ai.module2_prediction.cluster_matcher import haversine_km
+from app.ai.module2_prediction.cluster_matcher import (
+    haversine_km, bearing as _bearing, angle_diff as _angle_diff,
+    get_lat_lng as _get_lat_lng, get_speed as _get_speed,
+)
 
 # ─── Thresholds ─────────────────────────────────────────────────────────────
 _CONFUSION_THRESHOLD = 0.60  # ถ้า confidence >= 0.60 -> confused
-
-
-def _bearing(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    """คำนวณ bearing ทิศทางจากจุด 1 -> 2 (0-360 องศา)"""
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dl = math.radians(lng2 - lng1)
-    x = math.sin(dl) * math.cos(phi2)
-    y = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dl)
-    return (math.degrees(math.atan2(x, y)) + 360) % 360
-
-
-def _angle_diff(a: float, b: float) -> float:
-    d = abs(a - b) % 360
-    return d if d <= 180 else 360 - d
-
-
-def _get_lat_lng(r) -> tuple[float, float]:
-    if isinstance(r, dict):
-        return float(r["latitude"]), float(r["longitude"])
-    return float(r.latitude), float(r.longitude)
-
-
-def _get_speed(r) -> float | None:
-    if isinstance(r, dict):
-        return r.get("speed")
-    return getattr(r, "speed", None)
 
 
 class StopConfusionClassifier:

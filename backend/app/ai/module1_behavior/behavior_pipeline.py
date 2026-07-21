@@ -53,15 +53,15 @@ async def analyze_behavior(
     if not records:
         return {"patient_id": patient_id, "places": [], "note": "no GPS history"}
 
-    df = gps_history_to_dataframe(records)
-    df = preprocess_gps(df)
-    places = cluster_places(df)
+    df = gps_history_to_dataframe(records) # แปลง list ของ GPS records (จาก database) ให้กลายเป็น pandas DataFrame (ตารางข้อมูล)
+    df = preprocess_gps(df) # รับ DataFrame เข้าไป ทำความสะอาด (ตามที่ doc บอก: ลบ noise ด้วย Kalman Filter, normalize เวลา, แปลงหน่วยความเร็ว) แล้ว return DataFrame ที่สะอาดแล้ว ทับตัวแปรเดิม
+    places = cluster_places(df) # รับ DataFrame ที่สะอาดแล้ว ส่งเข้า clustering (DBSCAN) แล้วคืนค่าเป็น list of places (dict)
 
-    await crud.upsert_behavioral_profile(
+    await crud.upsert_behavioral_profile( # บันทึกผลลัพธ์กลับ database
         db,
         patient_id=patient_id,
-        known_places=json.dumps(places),
-        last_trained_at=datetime.now(timezone.utc),
+        known_places=json.dumps(places), # places เป็น list ของ dict (Python object) ต้องแปลงเป็น string JSON ก่อนเก็บลง database 
+        last_trained_at=datetime.now(timezone.utc), # บันทึกเวลาปัจจุบัน (UTC timezone) ไว้
     )
 
     return {"patient_id": patient_id, "places": places}

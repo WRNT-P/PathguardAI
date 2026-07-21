@@ -1,12 +1,12 @@
 # pathguard/backend/app/ai/module3_risk/emergency_decision_engine.py
-"""Module 3.4 — Emergency Decision Engine.
+"""Module 3.5 — Emergency Decision Engine.
 
 Pure decision: given the already-computed risk score and the danger-zone flag,
 decide whether a caregiver alert should fire and why. No DB, no Module 2, no
 notification — the api/ layer acts on this decision (crud.save_alert + notify),
 keeping ai/ side-effect-free like Module 5.
 
-Rule (3.4): emergency fires when ``danger_zone`` OR ``risk_score >
+Rule (3.5): emergency fires when ``danger_zone`` OR ``risk_score >
 emergency_score`` (strict ``>``). The trigger score is NOT hardcoded — it lives
 in the rule KB (``risk_thresholds.emergency_score``, cited to the Alzheimer's
 Association Safe Return guidance) and is passed in by the api/ layer. The two

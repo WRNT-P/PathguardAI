@@ -1,5 +1,5 @@
 # pathguard/backend/app/ai/module3_risk/data_normalization.py
-"""Module 3.1 — Data Normalization.
+"""Module 3.2 — Data Normalization.
 
 Pure functions that map each raw risk signal onto the [0, 1] scale the risk
 formula expects. No DB, no Module 2 imports, no model fitting — just arithmetic.

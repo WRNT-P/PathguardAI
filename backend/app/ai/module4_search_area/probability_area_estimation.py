@@ -23,17 +23,9 @@ try:
 except ImportError:
     _HAS_SCIPY = False
 
-EARTH_RADIUS_KM = 6371.0
+from ._geo import EARTH_RADIUS_KM, haversine_m as _haversine_m
+
 _GRID_STEPS = 50          # 50×50 = 2500 grid cells
-
-
-def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    dlat = math.radians(lat2 - lat1)
-    dlng = math.radians(lng2 - lng1)
-    a = (math.sin(dlat / 2) ** 2
-         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
-         * math.sin(dlng / 2) ** 2)
-    return EARTH_RADIUS_KM * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)) * 1000.0
 
 
 def _radius_to_deg(radius_m: float, origin_lat: float) -> tuple[float, float]:

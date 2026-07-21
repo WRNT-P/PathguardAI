@@ -28,21 +28,13 @@ try:
 except ImportError:  # pragma: no cover
     _HAS_NUMPY = False
 
-EARTH_RADIUS_KM = 6371.0
+from ._geo import EARTH_RADIUS_KM, haversine_m as _haversine_m
+
 _DEG_PER_M_LAT = 1.0 / 111_320.0  # metres → degrees latitude (constant)
 
 
 def _deg_per_m_lng(lat_deg: float) -> float:
     return 1.0 / (111_320.0 * math.cos(math.radians(lat_deg)))
-
-
-def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    dlat = math.radians(lat2 - lat1)
-    dlng = math.radians(lng2 - lng1)
-    a = (math.sin(dlat / 2) ** 2
-         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
-         * math.sin(dlng / 2) ** 2)
-    return EARTH_RADIUS_KM * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)) * 1000.0
 
 
 def _bearing_rad(from_lat: float, from_lng: float, to_lat: float, to_lng: float) -> float:
@@ -156,9 +148,12 @@ class PathSimulator:
         endpoints = self._monte_carlo(last_lat, last_lng, last_direction_deg, search_radius_m)
 
         # ── A* familiar-place routes ──────────────────────────────────────────
+        # คำนวณ เส้นทางที่สมจริง (ตามถนน/ทางเดินจริง ไม่ใช่เส้นตรงทะลุตึก) จากจุดเริ่มต้นไปยังสถานที่คุ้นเคยแต่ละแห่ง
+        #ความต่างจาก Monte Carlo: Monte Carlo คือการ "สุ่มเดา" เส้นทางแบบกว้างๆ ทั่วไป ส่วน A* ตรงนี้คือการ "วางแผนเส้นทางเฉพาะเจาะจง" ไปยังสถานที่ที่รู้อยู่แล้วว่าผู้ป่วยชอบไป 
         familiar_paths = self._astar_familiar(last_lat, last_lng, search_radius_m, known_places)
 
         # Add familiar-path endpoints to the simulation pool so KDE includes them
+        # บรรทัดที่ 3-5: เอาปลายทางจาก A* ไปรวมกับ Monte Carlo
         for fp in familiar_paths:
             if fp["waypoints"]:
                 endpoints.append(fp["waypoints"][-1])
@@ -202,6 +197,12 @@ class PathSimulator:
         # Biased samples
         for _ in range(biased_count):
             # Choose bearing: historical bias if available, else last direction
+            """
+            ในลูปนี้ เลือก "ทิศทางตั้งต้น" (base bearing) โดยมีลำดับความสำคัญ 3 ระดับ:
+                ถ้ามีข้อมูลประวัติทิศทางการเดิน (self._historical_bearings — น่าจะมาจากตอน sim.fit(gps_history) ที่เรียนรู้จาก 30 วันที่ผ่านมา) → สุ่มเลือก 1 ทิศจากประวัติจริง ของผู้ป่วยคนนี้
+                ถ้าไม่มีประวัติ แต่มีทิศทางล่าสุดตอนหาย → ใช้ทิศทางนั้นเป็นฐาน
+                ถ้าไม่มีข้อมูลอะไรเลย → สุ่มทิศทางแบบเปิดกว้าง (-π ถึง π คือ -180° ถึง 180°)
+            """
             if self._historical_bearings:
                 base_b = rng.choice(self._historical_bearings)
             elif last_bearing_rad is not None:
@@ -215,6 +216,7 @@ class PathSimulator:
             endpoints.append([lat, lng])
 
         # Random exploratory samples
+        # 30% ที่เหลือสุ่มทิศทาง แบบเปิดกว้างเต็ม 360° ทุกจุด แล้วคำนวณจุดปลายทางเหมือนกัน
         for _ in range(random_count):
             bearing = rng.uniform(-math.pi, math.pi)
             dist = self._sample_distance(rng, radius_m)

@@ -121,7 +121,7 @@ def extract_last_known(last_gps_record) -> dict:
     }
 
 
-if __name__ == "__main__":
+if __name__ == "__main__": # test function
     # ── calculate_search_radius ──────────────────────────────────────────────
     assert calculate_search_radius(0.8, 25) == 1200.0, "0.8 m/s × 25 min = 1200 m"
     assert calculate_search_radius(None, 10) == _DEFAULT_SPEED_MS * 10 * 60, "None speed → default"

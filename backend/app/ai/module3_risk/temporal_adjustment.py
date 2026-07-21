@@ -1,5 +1,5 @@
 # pathguard/backend/app/ai/module3_risk/temporal_adjustment.py
-"""Module 3.5 — Temporal Rules.
+"""Module 3.4 — Temporal Rules.
 
 Pure logic: given the current round's score plus the patient's recent score
 HISTORY, apply history-based rules that a single-reading score can't express.

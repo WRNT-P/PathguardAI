@@ -11,9 +11,7 @@ Pure function: no DB, no side effects.
 """
 from __future__ import annotations
 
-import math
-
-EARTH_RADIUS_KM = 6371.0
+from ._geo import haversine_m as _haversine_m
 
 # Expansion / contraction multipliers
 _EXPAND_NO_FAMILIAR = 1.50   # no known places inside radius → +50%
@@ -22,14 +20,6 @@ _CONTRACT_LOW_WANDER = 0.80  # low wandering score (≤ 0.30) → −20%
 
 _HIGH_WANDER_THRESHOLD = 0.75
 _LOW_WANDER_THRESHOLD = 0.30
-
-
-def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    dlat = math.radians(lat2 - lat1)
-    dlng = math.radians(lng2 - lng1)
-    a = (math.sin(dlat / 2) ** 2
-         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2)
-    return EARTH_RADIUS_KM * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)) * 1000.0
 
 
 def adjust_radius(
@@ -67,7 +57,8 @@ def adjust_radius(
         plng = p.get("longitude")
         if plat is None or plng is None:
             continue
-        if _haversine_m(origin_lat, origin_lng, float(plat), float(plng)) <= base_radius_m:
+        if _haversine_m(origin_lat, origin_lng, float(plat), float(plng)) <= base_radius_m: 
+            # ถ้าระยะห่างนั้นน้อยกว่าหรือเท่ากับรัศมีค้นหาเบื้องต้น (base_radius_m) → แปลว่าสถานที่นี้ 'อยู่ในระยะที่น่าจะไปถึงได้' ให้เพิ่มเข้า list places_in_radius
             places_in_radius.append(p)
 
     if not places_in_radius:

@@ -1,4 +1,4 @@
-"""Module 3.3 — GPS failure handling (gap detection, safety-biased).
+"""Module 3.6 — GPS failure handling (gap detection, safety-biased).
 
 ``threshold_s`` is passed explicitly (600.0 mirrors the KB seed's
 ``gps_gap_seconds``) — the detector no longer has a hardcoded default.

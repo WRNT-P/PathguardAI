@@ -1,5 +1,5 @@
 # pathguard/backend/app/ai/module3_risk/risk_data_collection.py
-"""Module 3.5 — Risk Data Collection (orchestrator).
+"""Module 3.1 — Risk Data Collection (orchestrator).
 
 Takes ALREADY-FETCHED data (never touches the DB — api/risk.py owns all I/O),
 fits the Module 2 detectors, computes each risk factor, and assembles the RAW

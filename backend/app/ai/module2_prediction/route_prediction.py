@@ -41,18 +41,7 @@ from typing import Optional
 
 import numpy as np
 
-from app.ai.module2_prediction.cluster_matcher import haversine_km
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _get_lat_lng(record) -> tuple[float, float]:
-    """รองรับทั้ง GPSData ORM object และ plain dict."""
-    if isinstance(record, dict):
-        return float(record["latitude"]), float(record["longitude"])
-    return float(record.latitude), float(record.longitude)
+from app.ai.module2_prediction.cluster_matcher import haversine_km, get_lat_lng as _get_lat_lng
 
 
 def _get_timestamp(record):
@@ -65,7 +54,7 @@ def _get_timestamp(record):
 def _nearest_cluster(lat: float, lng: float, known_places: list[dict],
                      max_dist_km: float = 0.15) -> int | None:
     """คืน cluster_id ที่ใกล้ที่สุดภายใน max_dist_km หรือ None ถ้าไม่มี."""
-    best_id, best_dist = None, float("inf")
+    best_id, best_dist = None, float("inf") # ตั้งระยะเริ่มต้นเป็น "อนันต์" เพื่อให้ระยะจริงตัวแรกที่เจอน้อยกว่าเสมอ (trick มาตรฐานตอนหา minimum)
     for p in known_places:
         d = haversine_km(lat, lng, p["latitude"], p["longitude"])
         if d < best_dist:
@@ -134,6 +123,7 @@ class RoutePredictor:
             day_seq.append(ts.strftime("%Y-%m-%d") if ts else "unknown")
 
         # ── Transition count matrix ──────────────────────────────────────────
+        #นับการย้าย (prev→curr) ทุกคู่ ──► normalize ──► transition_matrix (n×n)
         A_count = np.zeros((n, n), dtype=float)
         for i in range(1, len(cluster_seq)):
             prev, curr = cluster_seq[i - 1], cluster_seq[i]
@@ -297,7 +287,7 @@ class RoutePredictor:
                  known_places: list[dict]) -> list[int]:
         """
         Viterbi decoding: GPS observations → cluster sequence ที่น่าจะเป็นที่สุด
-
+        ใช้ Viterbi algorithm (เทคนิคมาตรฐานของ HMM) แปลง "ลำดับ GPS ดิบๆ" ให้เป็น "ลำดับ cluster_id ที่น่าจะเป็นที่สุด"
         ใช้ log-space เพื่อป้องกัน underflow ของ probability เล็ก ๆ
         """
         T = len(obs_lats)
@@ -402,6 +392,8 @@ class RoutePredictor:
         """
         คำนวณ Route Similarity Score จาก DTW distance (0.0–1.0)
 
+        เทียบว่า "เส้นทางที่ทำนายได้" (route_a) กับ "เส้นทางเก่าที่เคยเดินจริง" (route_b) เหมือนกันแค่ไหน ใช้เทคนิค DTW (Dynamic Time Warping) 
+        
         ใช้ haversine distance (km) ระหว่าง waypoints
         Normalize ด้วยความยาวเส้นทางที่ยาวกว่า → score ไม่ขึ้นกับ scale
 

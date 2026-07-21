@@ -23,6 +23,7 @@ async def predict_destination(
     lng: float = Query(..., ge=-180, le=180, description="Current longitude"),
     db: AsyncSession = Depends(get_db),
 ) -> PredictionResponse:
+
     predictor = _get_predictor(patient_id)
     result = await predictor.predict(db, patient_id, lat, lng)
 

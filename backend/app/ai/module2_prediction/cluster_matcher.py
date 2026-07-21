@@ -37,3 +37,32 @@ def get_familiarity(known_places: list[dict], cluster_id: int) -> float:
         if p['cluster_id'] == cluster_id:
             return min(p.get('visit_frequency', 0) / max_freq, 1.0)
     return 0.0
+
+
+def bearing(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Bearing from point 1 -> point 2, in degrees (0-360)."""
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dl = math.radians(lng2 - lng1)
+    x = math.sin(dl) * math.cos(phi2)
+    y = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dl)
+    return (math.degrees(math.atan2(x, y)) + 360) % 360
+
+
+def angle_diff(a: float, b: float) -> float:
+    """Circular difference between two bearings, in degrees (0-180)."""
+    d = abs(a - b) % 360
+    return d if d <= 180 else 360 - d
+
+
+def get_lat_lng(record) -> tuple[float, float]:
+    """Read latitude/longitude from either a dict or an ORM-style object."""
+    if isinstance(record, dict):
+        return float(record["latitude"]), float(record["longitude"])
+    return float(record.latitude), float(record.longitude)
+
+
+def get_speed(record) -> float | None:
+    """Read speed from either a dict or an ORM-style object."""
+    if isinstance(record, dict):
+        return record.get("speed")
+    return getattr(record, "speed", None)

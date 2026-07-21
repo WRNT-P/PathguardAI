@@ -1,4 +1,4 @@
-"""Module 3.2 — risk score calculation (weighted sum, level mapping).
+"""Module 3.3 — risk score calculation (weighted sum, level mapping).
 
 Pure-function tests: weights and level boundaries are passed explicitly (the
 values below mirror the KB seed — tests hardcode EXPECTATIONS, the app does

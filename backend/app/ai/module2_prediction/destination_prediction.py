@@ -3,6 +3,8 @@ Predicts patient's destination cluster_id from travel behavior + current GPS.
 
 Reads Module 1's output (BehavioralProfile.known_places) and GPS history from DB.
 Uses shared SequencePredictor from lstm_utils.
+
+_parse_known_places → _build_training_data → train_from_db → ensure_loaded → predict
 """
 import json
 from datetime import datetime, timezone, timedelta
@@ -24,18 +26,26 @@ def _parse_known_places(raw: str | None) -> list[dict]:
         places = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
         return []
-    return places if isinstance(places, list) else []
+    return places if isinstance(places, list) else [] #เช็คอีกทีว่าผลลัพธ์ที่ parse ได้เป็น list จริงไหม (เผื่อ JSON เป็นรูปแบบอื่น เช่น dict เดี่ยวๆ) ถ้าไม่ใช่ list ก็ return
 
 
 class DestinationPredictor:
-    def __init__(self, sequence_length: int = 3):
+    def __init__(self, sequence_length: int = 3): #จำนวนสถานที่ล่าสุดที่จะใช้ทำนายขั้นถัดไป = 3
         self.sequence_length = sequence_length
         self.predictor: Optional[SequencePredictor] = None
 
     def _build_training_data(self, gps_records: list, known_places: list[dict]) -> tuple[list, list]:
+
+        """
+        แปลง GPS history ดิบๆ (พิกัด lat/lng รายจุด) ให้กลายเป็น "โจทย์-เฉลย" สำหรับสอนโมเดล LSTM
+        เปรียบเทียบ: เหมือนทำการ์ดฝึกทายผล เช่น "ผู้ป่วยอยู่ที่ Home → Street A → Coffee Shop (3 จุดล่าสุด) แล้วไปที่ไหนต่อ?
+        → คำตอบ: Park" ทำแบบนี้ซ้ำๆ กับทุกช่วงของ GPS history เพื่อสร้างชุดข้อมูลสอนโมเดลจำนวนมาก
+        พร้อมทิ้งข้อมูลที่ไม่สมบูรณ์ (จุดที่หาสถานที่ไม่เจอ) ออกไป
+        """
+
         """Map GPS history → sequences of cluster_ids for LSTM training."""
         if len(gps_records) < self.sequence_length + 1:
-            return [], []
+            return [], [] #กรณีมีข้อมูล GPS น้อยกว่าลำดับที่ต้องการใช้ทำนาย (เช่น sequence_length=3 แต่ GPS มีแค่ 3 จุด) ก็จะคืนค่า list ว่างเปล่าให้ทันที
 
         clusters = []
         timestamps = []

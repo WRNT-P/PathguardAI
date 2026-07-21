@@ -1,4 +1,4 @@
-"""Module 3.1 — data normalization (pure math, no DB/ML)."""
+"""Module 3.2 — data normalization (pure math, no DB/ML)."""
 import math
 
 import pytest

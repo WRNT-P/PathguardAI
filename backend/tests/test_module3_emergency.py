@@ -1,4 +1,4 @@
-"""Module 3.4 — emergency decision engine (danger-zone OR score > threshold).
+"""Module 3.5 — emergency decision engine (danger-zone OR score > threshold).
 
 The emergency threshold is passed explicitly (80.0 mirrors the KB seed's
 ``emergency_score``). Includes the boundary-parity pin: exactly AT the

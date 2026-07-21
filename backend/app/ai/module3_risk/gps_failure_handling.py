@@ -1,5 +1,5 @@
 # pathguard/backend/app/ai/module3_risk/gps_failure_handling.py
-"""Module 3.3 — GPS Failure Handling.
+"""Module 3.6 — GPS Failure Handling.
 
 Pure detector: decides whether a patient's GPS feed has gone silent for too
 long, and packages the last known fix for downstream search. No DB, no Module 2
@@ -17,6 +17,8 @@ missing/unparseable timestamp, and a timestamp that can't be compared to
 
 Timestamp parsing mirrors Module 2's wandering_detection (accept ``recorded_at``
 or ``timestamp``; parse ISO strings with a ``Z`` -> ``+00:00`` fallback).
+ มีหน้าที่เดียว: ดูข้อมูล GPS ล่าสุดของผู้ป่วย แล้วตัดสินว่า "สัญญาณขาดหายไปนานเกินไปหรือยัง" 
+ พร้อมแพ็กพิกัดล่าสุดที่มีไว้ส่งต่อให้ Module 4 (Search Area Prediction) ใช้คำนวณรัศมีค้นหาต่อ (Distance = Speed × Time)
 """
 from __future__ import annotations
 

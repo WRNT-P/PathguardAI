@@ -37,7 +37,10 @@ from typing import Optional
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
-from app.ai.module2_prediction.cluster_matcher import haversine_km
+from app.ai.module2_prediction.cluster_matcher import (
+    haversine_km, bearing as _bearing, angle_diff as _angle_diff,
+    get_lat_lng as _get_lat_lng, get_speed as _get_speed,
+)
 
 # ─── Thresholds ─────────────────────────────────────────────────────────────
 # anomaly score จาก Isolation Forest อยู่ใน [-1, 1]
@@ -53,38 +56,11 @@ _WINDOW_SIZE = 15
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_lat_lng(r) -> tuple[float, float]:
-    if isinstance(r, dict):
-        return float(r["latitude"]), float(r["longitude"])
-    return float(r.latitude), float(r.longitude)
-
-
-def _get_speed(r) -> float | None:
-    if isinstance(r, dict):
-        return r.get("speed")
-    return getattr(r, "speed", None)
-
-
 def _get_timestamp(r):
     """คืน recorded_at หรือ timestamp จาก ORM object หรือ dict"""
     if isinstance(r, dict):
         return r.get("recorded_at") or r.get("timestamp")
     return getattr(r, "recorded_at", getattr(r, "timestamp", None))
-
-
-def _bearing(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    """คำนวณทิศทาง (bearing) จากจุด 1 → จุด 2 (0–360 องศา)."""
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dl = math.radians(lng2 - lng1)
-    x = math.sin(dl) * math.cos(phi2)
-    y = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dl)
-    return (math.degrees(math.atan2(x, y)) + 360) % 360
-
-
-def _angle_diff(a: float, b: float) -> float:
-    """ผลต่างมุม (circular) 0–180 องศา."""
-    d = abs(a - b) % 360
-    return d if d <= 180 else 360 - d
 
 
 # ─────────────────────────────────────────────────────────────────────────────

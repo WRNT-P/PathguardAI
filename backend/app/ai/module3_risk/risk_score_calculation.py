@@ -1,5 +1,5 @@
 # pathguard/backend/app/ai/module3_risk/risk_score_calculation.py
-"""Module 3.2 — Risk Score Calculation.
+"""Module 3.3 — Risk Score Calculation.
 
 Pure logic: blends the five already-normalized factors (each 0–1, produced by
 ``data_normalization``) into a single 0–100 risk score with a transparent,

@@ -1,4 +1,4 @@
-"""Module 3.5 — temporal adjustment (pure logic, no DB/ML).
+"""Module 3.4 — temporal adjustment (pure logic, no DB/ML).
 
 Rule values are passed explicitly (mirroring the KB seed) — tests hardcode
 EXPECTATIONS, the engine hardcodes nothing.
