@@ -60,6 +60,7 @@ emergency → search area → ranked places to check.
 ## Tests
 
 ```bash
+pip install -r requirements-dev.txt   # once, adds pytest
 python -m pytest tests/test_import_geolife.py tests/test_phase4_integration.py -q
 ```
 

@@ -19,6 +19,11 @@ pip install -r backend/requirements.txt
 `tensorflow` (Module 1 LSTM only) is heavy; if you're not on that module you can
 install everything else and skip it — the rest of the backend runs without it.
 
+To also run the test suite, install the dev deps too:
+```bash
+pip install -r backend/requirements-dev.txt
+```
+
 ### 2. Create `backend/.env` (not in git — make it yourself)
 ```env
 FIREBASE_CREDENTIALS_PATH=./serviceAccountKey.json
@@ -91,22 +96,41 @@ everyone has the key.
 uvicorn app.main:app --reload
 ```
 Then open **http://127.0.0.1:8000/docs** for the interactive API docs.
-Endpoints live today: `POST /api/register`, `POST /api/gps`, `GET /`.
+
+Endpoints live today:
+| Method | Path | Module |
+|---|---|---|
+| POST | `/api/register` | user registration |
+| POST | `/api/gps` | GPS ingestion (see TODO below) |
+| GET | `/api/predict-destination/{patient_id}` | Module 2 — Destination Prediction |
+| GET | `/api/risk/{patient_id}` | Module 3 — Risk Scoring |
+| GET | `/api/search-area/{patient_id}` | Module 4 — Search Area Prediction |
+| GET | `/api/recommendation/{patient_id}` | Module 5 — Smart Recommendation |
+| GET | `/api/admin/rules`, `/api/admin/rules/history` | rule knowledge-base admin |
+| GET | `/` | service info |
 
 ---
 
-## Latest additions (DB side) — ✅ done, on `feature/database`
+## AI Core Engine (Modules 1–5) — ✅ implemented & tested
 
-| Item | Where | Notes |
-|------|-------|-------|
-| **`POST /api/register`** | `app/api/users.py` | Creates a `users` row from `firebase_uid`; returns the int `users.id`. 201 created · 409 duplicate uid · 422 bad role. Verified over real HTTP. |
-| **`firebase_uid → users.id` lookup** | `crud.get_user_id_by_firebase_uid` | Resolves the Flutter string UID to the int FK before writing GPS/AI data. |
-| **`create_user`** | `crud.create_user` | Insert helper (flush; caller owns the tx). |
-| **`direction` + `device_motion` columns** | `models.GPSData`, `gps_data` table (live), `GPSDataCreate/Response` | Stored end-to-end. Module 2 (wandering) needs `direction`. |
-| **Module 1 ↔ DB connector** | `app/ai/module1_behavior/behavior_pipeline.py` | `analyze_behavior(db, patient_id)`: reads GPS history → preprocess + cluster → writes `behavioral_profiles`. Verified against Neon. |
-| **App entry point** | `app/main.py` | Minimal FastAPI app; mounts users + gps. |
+All 5 AI modules described in the architecture doc are implemented under
+`backend/app/ai/` and wired into the API above. Verified with the full test
+suite (`python -m pytest -q` from `backend/`, 146 tests passing) plus an
+end-to-end integration test (`tests/test_phase4_integration.py`) that drives
+Module 1 → 2 → 3 → 4 → 5 back to back and asserts a high-risk emergency is
+correctly triggered and traced back to an injected wandering episode.
 
-Key team decisions affecting GPS ingestion (int `patient_id` FK, UTC timestamps, stored `direction`/`device_motion`) are folded into the **GPS endpoint owner** task below.
+See `backend/scripts/README.md` for a runnable demo against real GeoLife GPS
+data (`python -m scripts.demo_run --patient <id>`).
+
+### Running the tests
+```bash
+cd backend
+python -m pytest -q
+```
+No PostgreSQL or Firebase needed — the suite runs against an in-memory SQLite
+DB (see `tests/conftest.py`). Requires `requirements-dev.txt` installed (step 1
+above).
 
 ---
 
@@ -144,11 +168,11 @@ Key team decisions affecting GPS ingestion (int `patient_id` FK, UTC timestamps,
   trigger/endpoint when you want to (re)learn places. Also tune the Kalman params
   in `preprocess_gps` (`R=1e-3 ≫ Q=1e-5`): they currently smooth across location
   jumps, so distinct places ~1 km apart collapse into one cluster.
-- **Module 2–5 owners** — create your router in `api/` and mount it in
-  `app/main.py` at the marked `TODO (teammates)` line. Read/write data **only**
-  through `crud.py`, never raw SQL.
 - **Flutter dev** — after Firebase sign-in, call `POST /api/register` once so the
   `users` row exists before any GPS is sent. Send timestamps as **UTC ISO**
   strings ending in `Z`.
-- **Still unimplemented:** `services/notification.py`, AI modules 2–5, Flutter
-  `location_service.dart`.
+- **Still unimplemented:** `services/notification.py` (Push/FCM — currently an
+  empty file, alerts only ever reach the `alerts` table, nothing is pushed out),
+  and the Flutter mobile app itself (Patient/Caregiver screens, Maps SDK, SOS,
+  chat — `flutter_app/` currently has no `pubspec.yaml`, only
+  `lib/services/location_service.dart`).

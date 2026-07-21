@@ -3,6 +3,7 @@ uvicorn[standard]
 firebase-admin
 asyncpg
 sqlalchemy
+greenlet
 psycopg2-binary
 python-dotenv
 filterpy

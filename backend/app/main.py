@@ -1,10 +1,8 @@
 # pathguard/backend/app/main.py
 """FastAPI application entry point.
 
-
-Mounts the routers that exist today (users, gps). Teammates register their own
-module routers (risk, search_area, recommendation) where marked below, once
-those routers exist.
+Mounts all routers: users, gps, recommendation, prediction, risk, search_area,
+admin_rules.
 
 Run locally:  uvicorn app.main:app --reload
 """
