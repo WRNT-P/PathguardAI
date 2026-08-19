@@ -22,14 +22,21 @@ async def get_user_id_by_firebase_uid(
 ) -> int | None:
     """Resolve a Firebase/Flutter string UID to the internal int ``users.id``.
 
-    The GPS endpoint calls this before writing a reading: incoming payloads carry
-    the string ``firebase_uid``, but ``gps_data.patient_id`` is an int FK to
-    ``users.id``. Returns None if no user is registered for that UID.
+    The app calls ``/api/register`` once after sign-in and keeps the int id it
+    gets back; every later request (GPS, risk, alerts) carries that int, because
+    ``gps_data.patient_id`` is an int FK to ``users.id``. Returns None if no user
+    is registered for that UID.
     """
     result = await db.execute(
         select(User.id).where(User.firebase_uid == firebase_uid)
     )
     return result.scalar_one_or_none()
+
+
+async def user_exists(db: AsyncSession, user_id: int) -> bool:
+    """True if ``users.id`` exists — lets callers reject a bad FK with a 404."""
+    result = await db.execute(select(User.id).where(User.id == user_id))
+    return result.scalar_one_or_none() is not None
 
 
 async def create_user(

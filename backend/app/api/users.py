@@ -3,9 +3,8 @@
 references by FK.
 
 The Flutter app calls this once (e.g. after Firebase sign-in) so an internal
-int ``users.id`` exists before any GPS for that patient is ingested. The GPS
-endpoint then resolves ``firebase_uid -> users.id`` via
-``crud.get_user_id_by_firebase_uid``.
+int ``users.id`` exists before any GPS for that patient is ingested. The app
+keeps the returned id and sends it as ``patient_id`` on every later request.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession

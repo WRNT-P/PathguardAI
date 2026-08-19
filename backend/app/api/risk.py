@@ -39,13 +39,54 @@ from app.ai.module3_risk import (
 # raw wandering_score >= 0.55 counts as "wandering detected".
 _WANDERING_DETECTED_THRESHOLD = 0.55
 
+# The three factors that need no behavioral profile, so they work on a patient's
+# first day: wandering fits on raw GPS alone (wandering_detection.py:229 states
+# known_places is unused in v1), confusion is a rule-based scorer, and danger_zone
+# comes from the rule KB. route_deviation and unfamiliarity both require
+# known_places (route_prediction.py:106-109) and are dropped until one exists.
+_PARTIAL_FACTORS = ("wandering", "confusion", "danger_zone")
+
+# Recompute risk at most this often per patient. One /api/risk pass loads 30 days
+# of GPS and fits IsolationForest + RoutePredictor, so running it on every 30 s
+# reading would mean ~2,880 fits a day over a table that grows to ~86k rows.
+RISK_RECOMPUTE_INTERVAL_S = 60
+
+
+def _renormalize(weights: dict, keep: tuple[str, ...]) -> dict:
+    """Scale a subset of the KB weights back up to sum 1.0.
+
+    Derived from the loaded weights rather than hardcoded, so an admin editing
+    ``risk_factor_weights`` can't silently desynchronise partial from full mode.
+    With the seeded values (0.25/0.20/0.15) this yields 0.42/0.33/0.25.
+    """
+    subset = {k: weights[k] for k in keep if k in weights}
+    total = sum(subset.values())
+    if total <= 0:  # every usable factor disabled in the KB — nothing to score
+        return {}
+    return {k: v / total for k, v in subset.items()}
+
+
+def _known_places(profile) -> list:
+    """The patient's learned/pinned places, or [] when there is no usable profile."""
+    if profile is None or not profile.known_places:
+        return []
+    try:
+        places = json.loads(profile.known_places)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return places if isinstance(places, list) else []
+
 router = APIRouter()
 
 
 class RiskResponse(BaseModel):
     patient_id: int
-    status: Literal["ok", "no_data"]
+    status: Literal["ok", "partial", "no_data"]
     message: str
+    # "partial" means the patient has no known_places yet, so route_deviation and
+    # unfamiliarity were dropped and the remaining weights renormalized to 1.0.
+    # The app must not present a partial score as if it were a full one.
+    factors_used: list[str] | None = None
     risk_score: float | None = None
     risk_level: str | None = None
     contributions: dict[str, float] | None = None
@@ -60,17 +101,18 @@ class RiskResponse(BaseModel):
     temporal_rules_triggered: list[str] = []
 
 
-@router.get(
-    "/api/risk/{patient_id}",
-    response_model=RiskResponse,
-    summary="Compute, persist, and alert on a patient's wandering risk score",
-)
-async def get_risk(
+async def evaluate_risk(
+    db: AsyncSession,
     patient_id: int,
-    lat: float | None = Query(None, ge=-90, le=90),
-    lng: float | None = Query(None, ge=-180, le=180),
-    db: AsyncSession = Depends(get_db),
+    lat: float | None = None,
+    lng: float | None = None,
 ) -> RiskResponse:
+    """Score one patient now, persisting the RiskScore and any Alert.
+
+    Extracted from the endpoint so GPS ingestion can drive it: until this was
+    callable, nothing in the system ever computed risk on its own, so no alert
+    could fire unless a human opened /api/risk by hand.
+    """
     # ── 0. Load the rule knowledge base (fresh per request — no cache, so a
     #       rule change in the DB affects the very next call) ──────────────────
     weights = await rule_repository.get_active_weights(db)
@@ -80,12 +122,30 @@ async def get_risk(
     # ── 1. Fetch inputs ───────────────────────────────────────────────────────
     profile = await crud.get_behavioral_profile(db, patient_id)
     gps_30d = await crud.get_gps_history(db, patient_id, days=30)
-    if profile is None or not gps_30d:
+    if not gps_30d:
         return RiskResponse(
             patient_id=patient_id,
             status="no_data",
-            message="No behavioral profile or GPS history yet — cannot score risk.",
+            message="No GPS history yet — cannot score risk.",
         )
+
+    # A patient with no known_places yet (day one, before Module 1 has clustered
+    # anything and before the caregiver has pinned places) still gets a score,
+    # from the three factors that need no profile. Dropping the other two and
+    # renormalizing is not the same as leaving them in: collect_risk_factors
+    # returns safety-biased defaults for them (risk_data_collection.py:21-26 —
+    # familiarity 0.0, route_deviation 350 m), which alone score 31% for a
+    # patient sitting still at home. Renormalizing removes them from the sum
+    # instead of feeding a guess into it.
+    partial = not _known_places(profile)
+    if partial:
+        weights = _renormalize(weights, _PARTIAL_FACTORS)
+        if not weights:
+            return RiskResponse(
+                patient_id=patient_id,
+                status="no_data",
+                message="No profile yet and every profile-free factor is disabled in the rule KB.",
+            )
 
     recent_gps = gps_30d[-30:]  # no last-N crud helper — slice the tail (oldest-first)
 
@@ -97,7 +157,7 @@ async def get_risk(
 
     # ── 2. Adapt profile (ORM -> dict collect_risk_factors expects) ───────────
     # known_places is a JSON string; collect_risk_factors json.loads-es it itself.
-    profile_dict = {"known_places": profile.known_places}
+    profile_dict = {"known_places": profile.known_places if profile else None}
 
     # ── 3. RAW factors from the pure ai/ layer (KB zones passed in) ───────────
     raw = collect_risk_factors(gps_30d, recent_gps, profile_dict, lat, lng,
@@ -194,8 +254,13 @@ async def get_risk(
     # ── 11. Response (mirrors RecommendationResponse's status + data shape) ───
     return RiskResponse(
         patient_id=patient_id,
-        status="ok",
-        message=f"Risk {adj_score}% ({adj_level}).",
+        status="partial" if partial else "ok",
+        message=(
+            f"Risk {adj_score}% ({adj_level}) — partial score, "
+            f"no known places for this patient yet."
+            if partial else f"Risk {adj_score}% ({adj_level})."
+        ),
+        factors_used=list(weights.keys()),
         risk_score=adj_score,
         risk_level=adj_level,
         contributions=result["contributions"],
@@ -207,3 +272,17 @@ async def get_risk(
         temporal_adjustment=round(adj_score - base_score, 1),
         temporal_rules_triggered=triggered,
     )
+
+
+@router.get(
+    "/api/risk/{patient_id}",
+    response_model=RiskResponse,
+    summary="Compute, persist, and alert on a patient's wandering risk score",
+)
+async def get_risk(
+    patient_id: int,
+    lat: float | None = Query(None, ge=-90, le=90),
+    lng: float | None = Query(None, ge=-180, le=180),
+    db: AsyncSession = Depends(get_db),
+) -> RiskResponse:
+    return await evaluate_risk(db, patient_id, lat, lng)
