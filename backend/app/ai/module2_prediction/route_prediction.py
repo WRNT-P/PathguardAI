@@ -53,14 +53,21 @@ def _get_timestamp(record):
 
 def _nearest_cluster(lat: float, lng: float, known_places: list[dict],
                      max_dist_km: float = 0.15) -> int | None:
-    """คืน cluster_id ที่ใกล้ที่สุดภายใน max_dist_km หรือ None ถ้าไม่มี."""
+    """คืน cluster_id ที่ใกล้ที่สุดที่จุดนี้ตกอยู่ในรัศมีของมัน หรือ None ถ้าไม่มี.
+
+    แต่ละหมุดมี ``radius_m`` ของตัวเองได้ (บ้าน 150 ม. แต่ รพ. ทั้งคอมเพล็กซ์กว้างกว่านั้น)
+    หมุดที่ไม่มีค่านี้ใช้ ``max_dist_km`` ตามเดิม — ต้องเทียบรัศมีของแต่ละหมุดก่อน
+    แล้วค่อยเลือกตัวใกล้สุด ไม่ใช่หาตัวใกล้สุดก่อนแล้วค่อยเทียบรัศมี
+    """
     best_id, best_dist = None, float("inf") # ตั้งระยะเริ่มต้นเป็น "อนันต์" เพื่อให้ระยะจริงตัวแรกที่เจอน้อยกว่าเสมอ (trick มาตรฐานตอนหา minimum)
     for p in known_places:
         d = haversine_km(lat, lng, p["latitude"], p["longitude"])
-        if d < best_dist:
+        radius_m = p.get("radius_m")
+        radius_km = radius_m / 1000.0 if radius_m else max_dist_km
+        if d <= radius_km and d < best_dist:
             best_dist = d
             best_id = p["cluster_id"]
-    return best_id if best_dist <= max_dist_km else None
+    return best_id
 
 
 # ─────────────────────────────────────────────────────────────────────────────
