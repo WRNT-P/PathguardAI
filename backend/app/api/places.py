@@ -20,6 +20,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.module1_behavior.known_places import (
+    VISIT_FREQUENCY, decode, renumber,
+)
 from app.db import crud
 from app.db.database import get_db
 
@@ -32,13 +35,9 @@ StayRank = Literal["all_day", "few_hours", "about_hour", "brief"]
 # visit_frequency by the largest one — so a caregiver typing similar numbers into
 # every pin would make every place equally familiar and the system would quietly
 # stop flagging strange ones. Ranks keep the values apart by construction, which is
-# why the API refuses raw numbers.
-VISIT_FREQUENCY: dict[str, int] = {
-    "daily_live": 100,   # lives here / sleeps here
-    "most_days": 40,
-    "weekly": 10,
-    "rare": 3,
-}
+# why the API refuses raw numbers. The numbers themselves live in
+# ai/module1_behavior/known_places.py, which is also what rescales Module 1's
+# learned places onto this same axis before the two are ever mixed.
 
 # Seconds. Module 5 uses this to tell a place the patient passes through from one
 # they spend their life in (recommendation_generation.py:69-74).
@@ -103,17 +102,6 @@ async def _require_patient(db: AsyncSession, patient_id: int) -> None:
         )
 
 
-def _stored_places(profile) -> list[dict]:
-    """Decode the known_places JSON column, tolerating anything unusable."""
-    if profile is None or not profile.known_places:
-        return []
-    try:
-        places = json.loads(profile.known_places)
-    except (json.JSONDecodeError, TypeError):
-        return []
-    return [p for p in places if isinstance(p, dict)] if isinstance(places, list) else []
-
-
 def _to_record(place: PlaceIn) -> dict:
     """One pin in the shape every AI module reads.
 
@@ -132,11 +120,6 @@ def _to_record(place: PlaceIn) -> dict:
         "stay_rank": place.stay_rank,
         "source": "manual",
     }
-
-
-def _numbered(places: list[dict]) -> list[dict]:
-    """Re-hand cluster_ids as 0, 1, 2 … in list order (see PlacesIn)."""
-    return [{**place, "cluster_id": i} for i, place in enumerate(places)]
 
 
 def _to_response(place: dict) -> PlaceOut:
@@ -164,11 +147,12 @@ async def set_places(
     await _require_patient(db, patient_id)
 
     profile = await crud.get_behavioral_profile(db, patient_id)
-    # Replace the caregiver's pins, keep whatever Module 1 learned. Wiping the
-    # learned ones here would be the same silent data loss that
-    # behavior_pipeline.py:60 inflicts in the other direction.
-    learned = [p for p in _stored_places(profile) if p.get("source") != "manual"]
-    places = _numbered([_to_record(p) for p in payload.places] + learned)
+    # Replace the caregiver's pins, keep whatever Module 1 learned — the mirror
+    # of what analyze_behavior does from the other side. Neither writer of this
+    # column may delete the other's rows.
+    stored = decode(profile.known_places if profile else None)
+    learned = [p for p in stored if p.get("source") != "manual"]
+    places = renumber([_to_record(p) for p in payload.places] + learned)
 
     await crud.upsert_behavioral_profile(
         db, patient_id, known_places=json.dumps(places, ensure_ascii=False)
@@ -190,7 +174,8 @@ async def get_places(
 ) -> PlacesOut:
     await _require_patient(db, patient_id)
     profile = await crud.get_behavioral_profile(db, patient_id)
-    places = [p for p in _stored_places(profile) if "cluster_id" in p]
+    stored = decode(profile.known_places if profile else None)
+    places = [p for p in stored if "cluster_id" in p]
     return PlacesOut(
         patient_id=patient_id,
         places=[_to_response(p) for p in places],
