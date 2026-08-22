@@ -77,7 +77,7 @@ async def client(session_factory):
 
     from app.api import (
         admin_rules, alerts, danger_zones, devices, gps, places, recommendation,
-        risk, tracking, users,
+        risk, search_area, tracking, users,
     )
 
     app = FastAPI(title="PathGuard AI (test)")
@@ -85,6 +85,7 @@ async def client(session_factory):
     app.include_router(gps.router)
     app.include_router(recommendation.router)
     app.include_router(risk.router)
+    app.include_router(search_area.router)
     app.include_router(admin_rules.router)
     app.include_router(places.router)
     app.include_router(danger_zones.router)

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud, rule_repository
 from app.db.database import get_db
+from app.services.auth import Caller, verify_patient_access
 from app.ai.module3_risk import (
     collect_risk_factors,
     normalize_route_deviation,
@@ -294,5 +295,6 @@ async def get_risk(
     lat: float | None = Query(None, ge=-90, le=90),
     lng: float | None = Query(None, ge=-180, le=180),
     db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
 ) -> RiskResponse:
     return await evaluate_risk(db, patient_id, lat, lng)

@@ -21,6 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
 from app.db.database import get_db
+from app.services.auth import (
+    Caller, assert_may_access_patient, current_caller, verify_patient_access,
+)
 
 router = APIRouter()
 
@@ -70,6 +73,7 @@ async def list_alerts(
     patient_id: int,
     limit: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
 ) -> AlertsOut:
     if not await crud.user_exists(db, patient_id):
         raise HTTPException(
@@ -90,12 +94,19 @@ async def list_alerts(
     summary="ทำเครื่องหมายว่าจัดการแล้ว (หรือย้อนกลับ)",
 )
 async def patch_alert(
-    alert_id: int, payload: AlertPatch, db: AsyncSession = Depends(get_db)
+    alert_id: int,
+    payload: AlertPatch,
+    db: AsyncSession = Depends(get_db),
+    caller: Caller = Depends(current_caller),
 ) -> AlertOut:
-    alert = await crud.set_alert_resolved(db, alert_id, payload.resolved)
-    if alert is None:
+    existing = await crud.get_alert(db, alert_id)
+    if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"alert {alert_id} not found",
         )
+    # Authorize on the alert's patient, checked before anything is written.
+    await assert_may_access_patient(db, caller, existing.patient_id)
+
+    alert = await crud.set_alert_resolved(db, alert_id, payload.resolved)
     return _to_out(alert)

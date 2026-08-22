@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.db.database import init_db, init_firebase
+from app.services.auth import log_startup_state
 from app.api import (
     users, gps, recommendation, risk, search_area, admin_rules,
     places, danger_zones, devices, tracking, alerts,
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Ensure PostgreSQL tables exist on startup (idempotent).
     await init_db()
+    log_startup_state()
 
     # Firebase carries the live caregiver map only; PostgreSQL is the source of
     # truth. Starting without serviceAccountKey.json is a supported dev mode, so

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
 from app.db.database import get_db
+from app.services.auth import verified_uid
 from app.models.user_profile import UserCreate, UserResponse
 
 router = APIRouter()
@@ -23,8 +24,17 @@ router = APIRouter()
     summary="ลงทะเบียนผู้ใช้ใหม่ (สร้าง users row จาก firebase_uid)",
 )
 async def register_user(
-    payload: UserCreate, db: AsyncSession = Depends(get_db)
+    payload: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    uid: str | None = Depends(verified_uid),
 ) -> UserResponse:
+    # Registering under someone else's uid would hand you their patient's
+    # data for the life of the account, so the claim has to match the token.
+    if uid is not None and uid != payload.firebase_uid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="firebase_uid does not match the signed-in account",
+        )
     if await crud.get_user_id_by_firebase_uid(db, payload.firebase_uid) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

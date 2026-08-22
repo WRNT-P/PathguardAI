@@ -25,6 +25,7 @@ from app.ai.module1_behavior.known_places import (
 )
 from app.db import crud
 from app.db.database import get_db
+from app.services.auth import Caller, verify_patient_access
 
 router = APIRouter()
 
@@ -142,7 +143,10 @@ def _to_response(place: dict) -> PlaceOut:
     summary="บันทึกหมุดสถานที่ทั้งชุดของผู้ป่วยหนึ่งคน",
 )
 async def set_places(
-    patient_id: int, payload: PlacesIn, db: AsyncSession = Depends(get_db)
+    patient_id: int,
+    payload: PlacesIn,
+    db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
 ) -> PlacesOut:
     await _require_patient(db, patient_id)
 
@@ -170,7 +174,9 @@ async def set_places(
     summary="อ่านหมุดสถานที่ของผู้ป่วย (ไว้แสดงตอนแก้ไข)",
 )
 async def get_places(
-    patient_id: int, db: AsyncSession = Depends(get_db)
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
 ) -> PlacesOut:
     await _require_patient(db, patient_id)
     profile = await crud.get_behavioral_profile(db, patient_id)

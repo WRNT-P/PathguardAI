@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.risk import RISK_RECOMPUTE_INTERVAL_S, evaluate_risk
 from app.db import crud
 from app.db.database import get_db
+from app.services.auth import Caller, assert_may_access_patient, current_caller
 from app.models.gps_data import GPSDataCreate
 from app.services import gps_processor
 
@@ -82,8 +83,11 @@ async def _score_risk_after_ingest(db: AsyncSession, patient_id: int) -> None:
     summary="รับพิกัด GPS หนึ่งจุดจากแอปคนไข้",
 )
 async def receive_gps(
-    reading: GPSDataCreate, db: AsyncSession = Depends(get_db)
+    reading: GPSDataCreate,
+    db: AsyncSession = Depends(get_db),
+    caller: Caller = Depends(current_caller),
 ) -> GPSAck:
+    await assert_may_access_patient(db, caller, reading.patient_id)
     await _require_patient(db, reading.patient_id)
     await gps_processor.process_gps_point(db, reading)
     await _score_risk_after_ingest(db, reading.patient_id)
@@ -96,7 +100,9 @@ async def receive_gps(
     summary="รับพิกัดหลายจุดรวดเดียว (คิวออฟไลน์ของแอปคนไข้)",
 )
 async def receive_gps_batch(
-    payload: GPSBatch, db: AsyncSession = Depends(get_db)
+    payload: GPSBatch,
+    db: AsyncSession = Depends(get_db),
+    caller: Caller = Depends(current_caller),
 ) -> GPSAck:
     patient_ids = {p.patient_id for p in payload.points}
     if len(patient_ids) > 1:
@@ -105,6 +111,7 @@ async def receive_gps_batch(
             detail="all points in a batch must belong to the same patient",
         )
     patient_id = patient_ids.pop()
+    await assert_may_access_patient(db, caller, patient_id)
     await _require_patient(db, patient_id)
 
     # The Kalman filter is sequential state: feeding a shuffled queue would fuse

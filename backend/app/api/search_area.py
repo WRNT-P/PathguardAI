@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud, rule_repository
 from app.db.database import get_db
+from app.services.auth import Caller, verify_patient_access
 from app.ai.module3_risk import detect_gps_gap
 from app.services.notification import notify_alert
 from app.ai.module4_search_area import (
@@ -67,6 +68,7 @@ async def get_search_area(
     time_missing_minutes: int | None = Query(None, ge=1,
                                              description="Minutes since patient was last seen"),
     db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
 ) -> SearchAreaResponse:
 
     # ── 1. Fetch inputs ───────────────────────────────────────────────────────

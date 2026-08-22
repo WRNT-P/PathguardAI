@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import rule_repository
 from app.db.database import get_db
+from app.services.auth import Caller, current_caller
 from app.db.models import DangerZone
 from app.db.rule_repository import RuleValidationError
 
@@ -81,7 +82,9 @@ async def _get_zone(db: AsyncSession, zone_id: int) -> DangerZone:
     summary="เพิ่มเขตอันตรายหนึ่งเขต",
 )
 async def create_danger_zone(
-    payload: DangerZoneCreate, db: AsyncSession = Depends(get_db)
+    payload: DangerZoneCreate,
+    db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(current_caller),
 ) -> DangerZoneOut:
     try:
         zone_id = await rule_repository.add_danger_zone(
@@ -108,7 +111,10 @@ async def create_danger_zone(
     response_model=list[DangerZoneOut],
     summary="อ่านเขตอันตรายที่ยังใช้งานอยู่ทั้งหมด",
 )
-async def list_danger_zones(db: AsyncSession = Depends(get_db)) -> list[DangerZoneOut]:
+async def list_danger_zones(
+    db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(current_caller),
+) -> list[DangerZoneOut]:
     rows = (await db.execute(
         select(DangerZone).where(DangerZone.active).order_by(DangerZone.id)
     )).scalars().all()
@@ -121,7 +127,9 @@ async def list_danger_zones(db: AsyncSession = Depends(get_db)) -> list[DangerZo
     summary="ปิดการใช้งานเขตอันตราย (ไม่ลบจริง เก็บประวัติไว้)",
 )
 async def deactivate_danger_zone(
-    zone_id: int, db: AsyncSession = Depends(get_db)
+    zone_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(current_caller),
 ) -> Response:
     # Deactivated, never deleted: the audit trail has to keep pointing at a row
     # that still exists, and a zone that was live during an incident stays part of

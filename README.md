@@ -178,7 +178,11 @@ above).
   strings ending in `Z`. Then `POST /api/devices/token` with the caregiver's FCM
   token, or alerts are written and never delivered — full contract and push
   payload in `backend/API_CONTRACT_APP.md`.
+- **Auth is built but off.** `app/services/auth.py` verifies a Firebase ID token,
+  maps it to `users.id`, and allows only the patient or their caregiver. It is
+  gated behind `AUTH_ENABLED` (default `false`); see `.env.example`. Send the
+  `Authorization: Bearer <id token>` header from the start so turning it on is a
+  one-line change on the server and none in the app.
 - **Still unimplemented:** the Flutter mobile app itself (Patient/Caregiver
   screens, Maps SDK, SOS, chat — `flutter_app/` currently has no `pubspec.yaml`,
-  only `lib/services/location_service.dart`), and auth (no Firebase ID token is
-  verified on any endpoint yet).
+  only `lib/services/location_service.dart`).

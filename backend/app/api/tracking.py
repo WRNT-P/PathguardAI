@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
 from app.db.database import get_db
+from app.services.auth import Caller, verify_patient_access
 
 router = APIRouter()
 
@@ -59,6 +60,7 @@ async def get_track(
     patient_id: int,
     hours: int = Query(6, ge=1, le=720),
     db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
 ) -> TrackOut:
     await _require_patient(db, patient_id)
     rows = await crud.get_recent_track(db, patient_id, hours=hours)

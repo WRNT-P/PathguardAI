@@ -402,3 +402,13 @@ async def set_alert_resolved(
     alert.resolved_at = datetime.now(timezone.utc) if resolved else None
     await db.flush()
     return alert
+
+
+async def get_caregiver_id(db: AsyncSession, patient_id: int) -> int | None:
+    """The caregiver responsible for this patient, or None if nobody is."""
+    return await db.scalar(select(User.caregiver_id).where(User.id == patient_id))
+
+
+async def get_alert(db: AsyncSession, alert_id: int) -> Alert | None:
+    """One alert by id — the authorization check needs its ``patient_id``."""
+    return await db.get(Alert, alert_id)
