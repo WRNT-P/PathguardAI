@@ -17,6 +17,7 @@ Open:  http://127.0.0.1:8000        (dashboard)
        http://127.0.0.1:8000/docs   (Swagger UI — try the raw APIs)
 """
 import json
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -31,6 +32,8 @@ from app.api import (
 )
 from app.db.database import get_db, init_db
 from app.db.models import BehavioralProfile, GPSData, User
+from app.services import auth
+from app.services.auth import Caller, verify_patient_access
 
 _HERE = Path(__file__).parent
 
@@ -38,6 +41,15 @@ _HERE = Path(__file__).parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # This process mounts the same guarded routers app.main does, and the page it
+    # serves has no Firebase sign-in — so with auth on, every panel on the
+    # dashboard 401s. Say so at boot rather than letting it look like a bug.
+    if auth.AUTH_ENABLED:
+        logging.getLogger(__name__).warning(
+            "AUTH_ENABLED is on and dashboard.html cannot sign in — every panel "
+            "will fail with 401. Run this process with AUTH_ENABLED=false, on "
+            "localhost only, and point the tunnel at app.main instead."
+        )
     yield
 
 
@@ -60,7 +72,11 @@ async def health():
 
 
 @app.get("/demo/patient/{patient_id}", summary="Header info for the dashboard")
-async def demo_patient(patient_id: int, db: AsyncSession = Depends(get_db)):
+async def demo_patient(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
+):
     user = await db.get(User, patient_id)
     total = (await db.execute(
         select(func.count()).select_from(GPSData)
