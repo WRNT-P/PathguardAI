@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from app.db.database import init_db, init_firebase
 from app.api import (
     users, gps, recommendation, risk, search_area, admin_rules,
-    places, danger_zones, devices,
+    places, danger_zones, devices, tracking, alerts,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,8 @@ app.include_router(admin_rules.router)      # GET  /api/admin/rules, /api/admin/
 app.include_router(places.router)           # POST/GET /api/patients/{id}/places
 app.include_router(danger_zones.router)     # POST/GET/DELETE /api/danger-zones
 app.include_router(devices.router)          # POST /api/devices/token
+app.include_router(tracking.router)         # GET  /api/patients/{id}/track
+app.include_router(alerts.router)           # GET  /api/patients/{id}/alerts, PATCH /api/alerts/{id}
 
 
 @app.get("/", summary="Service info")

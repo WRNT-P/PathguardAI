@@ -236,16 +236,16 @@ function drawTrack(track) {
   layers.real.clearLayers(); layers.inj.clearLayers(); layers.pos.clearLayers();
   const pts = track.points;
   if (!pts.length) return;
-  const seg = flag => pts.filter(p => p.injected === flag).map(p => [p.lat, p.lng]);
+  const seg = flag => pts.filter(p => p.synthetic_injected === flag).map(p => [p.latitude, p.longitude]);
   const real = seg(false), inj = seg(true);
   if (real.length > 1) L.polyline(real, {color:'#0891B2', weight:3, opacity:.8}).addTo(layers.real);
   if (inj.length > 1)  L.polyline(inj,  {color:'#DC2626', weight:3, opacity:.85}).addTo(layers.inj);
   const last = pts[pts.length - 1];
-  L.marker([last.lat, last.lng], {
+  L.marker([last.latitude, last.longitude], {
     icon: L.divIcon({className:'', html:'<div class="pmark"></div>', iconSize:[18,18], iconAnchor:[9,9]}),
     title: 'ตำแหน่งล่าสุด',
-  }).addTo(layers.pos).bindPopup(`ตำแหน่งล่าสุด<br>${fmtT(last.t)}`);
-  const fit = inj.length > 1 ? inj : pts.map(p => [p.lat, p.lng]);
+  }).addTo(layers.pos).bindPopup(`ตำแหน่งล่าสุด<br>${fmtT(last.recorded_at)}`);
+  const fit = inj.length > 1 ? inj : pts.map(p => [p.latitude, p.longitude]);
   map.fitBounds(L.latLngBounds(fit).pad(0.3));
 }
 
@@ -342,7 +342,7 @@ function renderAlerts(list) {
       <svg class="ic" viewBox="0 0 24 24">${warn}</svg>
       <div>
         <div><b>[${a.severity}]</b> ${a.message}</div>
-        <div class="when">${a.type} · ${fmtT(a.created_at)}</div>
+        <div class="when">${a.alert_type} · ${fmtT(a.created_at)}</div>
       </div>
     </div>`).join('');
 }
@@ -353,9 +353,9 @@ async function toggleSearch() {
   if (searchShown) { layers.search.clearLayers(); searchShown = false; btn.classList.remove('primary'); return; }
   btn.disabled = true;
   try {
-    const t = await j(`/demo/track/${P}?hours=6`);
+    const t = await j(`/api/patients/${P}/track?hours=6`);
     const last = t.points[t.points.length - 1];
-    const sa = await j(`/api/search-area/${P}?last_lat=${last.lat}&last_lng=${last.lng}&time_missing_minutes=25`);
+    const sa = await j(`/api/search-area/${P}?last_lat=${last.latitude}&last_lng=${last.longitude}&time_missing_minutes=25`);
     if (sa.status !== 'ok') { alert(sa.message); return; }
     layers.search.clearLayers();
     L.circle([sa.last_known_location.latitude, sa.last_known_location.longitude], {
@@ -375,14 +375,14 @@ async function loadAll() {
   $('updated').textContent = 'กำลังโหลด…';
   try {
     const [patient, track, rules, alerts] = await Promise.all([
-      j(`/demo/patient/${P}`), j(`/demo/track/${P}?hours=6`),
-      j('/api/admin/rules'), j(`/demo/alerts/${P}`),
+      j(`/demo/patient/${P}`), j(`/api/patients/${P}/track?hours=6`),
+      j('/api/admin/rules'), j(`/api/patients/${P}/alerts`),
     ]);
-    renderPatient(patient); drawTrack(track); drawZones(rules); renderAlerts(alerts);
+    renderPatient(patient); drawTrack(track); drawZones(rules); renderAlerts(alerts.alerts);
     // risk คำนวณหนักสุด (fit IsolationForest) — แยกรอทีหลังเพื่อให้แผนที่ขึ้นก่อน
     const [rk, recs] = await Promise.all([j(`/api/risk/${P}`), j(`/api/recommendation/${P}`)]);
     renderRisk(rk); renderFactors(rk); renderRecs(recs); drawRecs(recs);
-    j(`/demo/alerts/${P}`).then(renderAlerts);  // risk อาจเพิ่งเขียน alert ใหม่
+    j(`/api/patients/${P}/alerts`).then(r => renderAlerts(r.alerts));  // risk อาจเพิ่งเขียน alert ใหม่
     $('updated').textContent = 'อัปเดตล่าสุด ' + new Date().toLocaleTimeString('th-TH');
   } catch (e) {
     $('updated').textContent = 'โหลดไม่สำเร็จ: ' + e.message;

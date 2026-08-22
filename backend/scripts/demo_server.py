@@ -3,9 +3,14 @@
 
 Mounts every real API router except Module 2's ``prediction`` (its LSTM path
 imports TensorFlow, which isn't installed in this venv), and serves the
-single-page dashboard (``dashboard.html``) plus a small read-only ``/demo``
-layer the page needs for the map: recent track points, alert feed, and patient
-header info. No app/ code is changed — this file composes what already exists.
+single-page dashboard (``dashboard.html``).
+
+Track and alert feeds used to live here as ``/demo/track`` and ``/demo/alerts``.
+They were never fake — "demo" was a URL prefix over the real tables — so when the
+caregiver app needed the same reads they were promoted to ``app/api/tracking.py``
+and ``app/api/alerts.py`` rather than copied. The dashboard now calls those, the
+same endpoints the phone does. What is left under ``/demo`` is the one thing that
+really is demo-only: a header counting injected versus real points.
 
 Run:   venv\\Scripts\\python.exe -m uvicorn scripts.demo_server:app --port 8000
 Open:  http://127.0.0.1:8000        (dashboard)
@@ -13,7 +18,6 @@ Open:  http://127.0.0.1:8000        (dashboard)
 """
 import json
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
@@ -21,9 +25,12 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api import admin_rules, gps, recommendation, risk, search_area, users
+from app.api import (
+    admin_rules, alerts, gps, recommendation, risk, search_area, tracking,
+    users,
+)
 from app.db.database import get_db, init_db
-from app.db.models import Alert, BehavioralProfile, GPSData, User
+from app.db.models import BehavioralProfile, GPSData, User
 
 _HERE = Path(__file__).parent
 
@@ -36,7 +43,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="PathGuard AI — Demo Dashboard", lifespan=lifespan)
 
-for module in (users, gps, recommendation, risk, search_area, admin_rules):
+for module in (users, gps, recommendation, risk, search_area, admin_rules,
+               tracking, alerts):
     app.include_router(module.router)
 
 
@@ -85,39 +93,3 @@ async def demo_patient(patient_id: int, db: AsyncSession = Depends(get_db)):
     }
 
 
-@app.get("/demo/track/{patient_id}", summary="Recent GPS points for the map")
-async def demo_track(patient_id: int, hours: int = 6,
-                     db: AsyncSession = Depends(get_db)):
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    rows = (await db.execute(
-        select(GPSData)
-        .where(GPSData.patient_id == patient_id, GPSData.recorded_at >= since)
-        .order_by(GPSData.recorded_at))).scalars().all()
-    if len(rows) < 2:  # no recent session — fall back to the latest 300 points
-        rows = list(reversed((await db.execute(
-            select(GPSData).where(GPSData.patient_id == patient_id)
-            .order_by(GPSData.recorded_at.desc()).limit(300))).scalars().all()))
-    return {
-        "patient_id": patient_id,
-        "count": len(rows),
-        "points": [
-            {"lat": r.latitude, "lng": r.longitude,
-             "t": r.recorded_at.isoformat(),
-             "injected": r.synthetic_injected, "speed": r.speed}
-            for r in rows
-        ],
-    }
-
-
-@app.get("/demo/alerts/{patient_id}", summary="Latest alerts, newest first")
-async def demo_alerts(patient_id: int, limit: int = 10,
-                      db: AsyncSession = Depends(get_db)):
-    rows = (await db.execute(
-        select(Alert).where(Alert.patient_id == patient_id)
-        .order_by(Alert.created_at.desc()).limit(limit))).scalars().all()
-    return [
-        {"id": a.id, "type": a.alert_type, "severity": a.severity,
-         "message": a.message, "lat": a.latitude, "lng": a.longitude,
-         "resolved": a.resolved, "created_at": a.created_at.isoformat()}
-        for a in rows
-    ]

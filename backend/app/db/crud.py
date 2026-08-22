@@ -344,3 +344,61 @@ async def record_push(
     db.add(row)
     await db.flush()
     return row
+
+
+# ── Tracking / alert reads (caregiver app) ───────────────────────────────────
+
+async def get_recent_track(
+    db: AsyncSession, patient_id: int, hours: int = 6, fallback_limit: int = 300,
+) -> list[GPSData]:
+    """The patient's last ``hours`` of movement, oldest first.
+
+    Falls back to the most recent ``fallback_limit`` readings when that window
+    holds fewer than two points. A caregiver who opens the map after a push
+    needs to see *something*: a phone that has been off since this morning would
+    otherwise render an empty screen, which reads as "no data" when the truth is
+    "no data recently".
+    """
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    result = await db.execute(
+        select(GPSData)
+        .where(GPSData.patient_id == patient_id, GPSData.recorded_at >= since)
+        .order_by(GPSData.recorded_at)
+    )
+    rows = list(result.scalars().all())
+    if len(rows) >= 2:
+        return rows
+
+    result = await db.execute(
+        select(GPSData)
+        .where(GPSData.patient_id == patient_id)
+        .order_by(desc(GPSData.recorded_at))
+        .limit(fallback_limit)
+    )
+    return list(reversed(result.scalars().all()))
+
+
+async def get_alerts(
+    db: AsyncSession, patient_id: int, limit: int = 20,
+) -> list[Alert]:
+    """A patient's alerts, newest first — the caregiver's history feed."""
+    result = await db.execute(
+        select(Alert)
+        .where(Alert.patient_id == patient_id)
+        .order_by(desc(Alert.created_at))
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def set_alert_resolved(
+    db: AsyncSession, alert_id: int, resolved: bool,
+) -> Alert | None:
+    """Mark an alert handled (or un-handle it). None if there is no such alert."""
+    alert = await db.get(Alert, alert_id)
+    if alert is None:
+        return None
+    alert.resolved = resolved
+    alert.resolved_at = datetime.now(timezone.utc) if resolved else None
+    await db.flush()
+    return alert
