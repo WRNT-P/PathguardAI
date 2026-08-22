@@ -12,7 +12,10 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Alert, BehavioralProfile, GPSData, RiskScore, User
+from app.db.models import (
+    Alert, BehavioralProfile, DeviceToken, GPSData, PushNotification,
+    RiskScore, User,
+)
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -248,3 +251,96 @@ async def upsert_behavioral_profile(
 
     await db.flush()
     return profile
+
+
+# ── Push notification ─────────────────────────────────────────────────────────
+
+async def upsert_device_token(
+    db: AsyncSession, user_id: int, token: str, platform: str,
+) -> DeviceToken:
+    """Register a caregiver device, or re-point an existing token at this user.
+
+    The app re-POSTs its token on every launch, and Firebase hands the *same*
+    token to a different account when a phone is shared, so the token — not the
+    user — is the identity here.
+    """
+    result = await db.execute(select(DeviceToken).where(DeviceToken.token == token))
+    row = result.scalar_one_or_none()
+
+    if row is None:
+        row = DeviceToken(user_id=user_id, token=token, platform=platform)
+        db.add(row)
+    else:
+        row.user_id = user_id
+        row.platform = platform
+        row.last_seen_at = datetime.now(timezone.utc)
+
+    await db.flush()
+    return row
+
+
+async def get_caregiver_tokens(db: AsyncSession, patient_id: int) -> list[str]:
+    """FCM tokens of the caregiver responsible for this patient.
+
+    Follows ``users.caregiver_id``, the FK the schema already carries — no
+    separate pairing table or invite code is needed. Returns [] when the patient
+    has no caregiver on file or that caregiver has never opened the app.
+    """
+    caregiver_id = await db.scalar(
+        select(User.caregiver_id).where(User.id == patient_id)
+    )
+    if caregiver_id is None:
+        return []
+
+    result = await db.execute(
+        select(DeviceToken.token).where(DeviceToken.user_id == caregiver_id)
+    )
+    return list(result.scalars().all())
+
+
+async def delete_device_token(db: AsyncSession, token: str) -> None:
+    """Drop a token Firebase has rejected as unregistered (app uninstalled).
+
+    Left in place it would fail on every future push and keep the error log
+    warm forever.
+    """
+    result = await db.execute(select(DeviceToken).where(DeviceToken.token == token))
+    row = result.scalar_one_or_none()
+    if row is not None:
+        await db.delete(row)
+        await db.flush()
+
+
+async def seconds_since_last_push(
+    db: AsyncSession, patient_id: int, alert_type: str,
+) -> float | None:
+    """Age of the last push of this alert type, or None if there has never been one."""
+    last = await db.scalar(
+        select(PushNotification.sent_at)
+        .where(PushNotification.patient_id == patient_id,
+               PushNotification.alert_type == alert_type)
+        .order_by(desc(PushNotification.sent_at))
+        .limit(1)
+    )
+    if last is None:
+        return None
+    if last.tzinfo is None:            # SQLite drops tzinfo; Postgres keeps it
+        last = last.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - last).total_seconds()
+
+
+async def record_push(
+    db: AsyncSession, patient_id: int, alert_id: int, alert_type: str,
+    recipients: int,
+) -> PushNotification:
+    """Log a delivered push — this row is what the next cooldown check reads."""
+    row = PushNotification(
+        patient_id=patient_id,
+        alert_id=alert_id,
+        alert_type=alert_type,
+        recipients=recipients,
+        sent_at=datetime.now(timezone.utc),
+    )
+    db.add(row)
+    await db.flush()
+    return row

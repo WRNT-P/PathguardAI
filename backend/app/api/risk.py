@@ -34,6 +34,7 @@ from app.ai.module3_risk import (
     detect_gps_gap,
     apply_temporal_rules,
 )
+from app.services.notification import notify_alert
 
 # Module 2's mild-wandering threshold (wandering_detection._MILD_THRESHOLD):
 # raw wandering_score >= 0.55 counts as "wandering detected".
@@ -228,7 +229,7 @@ async def evaluate_risk(
             message = f"Sustained elevated risk ({adj_score}%) over recent readings — escalating."
         else:
             message = f"High risk ({adj_score}%) — {decision['reason']}."
-        await crud.save_alert(
+        alert = await crud.save_alert(
             db,
             patient_id,
             alert_type=decision["alert_type"],
@@ -237,11 +238,17 @@ async def evaluate_risk(
             latitude=lat,
             longitude=lng,
         )
+        # Push to the caregiver. The alert row above is written every round the
+        # condition holds; the cooldown that stops that becoming a push a minute
+        # lives in notification.py, keyed on push_notifications.
+        await notify_alert(
+            db, alert, thresholds[rule_repository.PUSH_COOLDOWN_SECONDS]
+        )
 
     # ── 10. GPS-loss alert ────────────────────────────────────────────────────
     if gap["gps_lost"]:
         last_known = gap["last_known"] or {}
-        await crud.save_alert(
+        alert = await crud.save_alert(
             db,
             patient_id,
             alert_type="gps_loss",
@@ -249,6 +256,9 @@ async def evaluate_risk(
             message=f"GPS signal lost (gap {gap['gap_seconds']}s) — last known location forwarded",
             latitude=last_known.get("latitude"),
             longitude=last_known.get("longitude"),
+        )
+        await notify_alert(
+            db, alert, thresholds[rule_repository.PUSH_COOLDOWN_SECONDS]
         )
 
     # ── 11. Response (mirrors RecommendationResponse's status + data shape) ───

@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import crud, rule_repository
 from app.db.database import get_db
 from app.ai.module3_risk import detect_gps_gap
+from app.services.notification import notify_alert
 from app.ai.module4_search_area import (
     calculate_search_radius,
     extract_last_known,
@@ -168,7 +169,7 @@ async def get_search_area(
     # override coordinates to plan a search proactively (while GPS is still
     # active) must not generate a false gps_lost alert.
     if gap["gps_lost"]:
-        await crud.save_alert(
+        alert = await crud.save_alert(
             db,
             patient_id,
             alert_type="gps_lost",
@@ -180,6 +181,9 @@ async def get_search_area(
             latitude=origin_lat,
             longitude=origin_lng,
         )
+        cooldown_s = await rule_repository.get_threshold(
+            db, rule_repository.PUSH_COOLDOWN_SECONDS)
+        await notify_alert(db, alert, cooldown_s)
 
     # ── 10. Build response ────────────────────────────────────────────────────
     def _to_zones(zone_list: list[dict]) -> list[ProbabilityZone]:
