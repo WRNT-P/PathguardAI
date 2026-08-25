@@ -23,8 +23,9 @@ from app.db.models import RiskScore
 pytestmark = pytest.mark.asyncio
 
 # Partial mode drops route_deviation and unfamiliarity (both need known_places)
-# and renormalizes what is left — see risk.py:_PARTIAL_FACTORS.
-PARTIAL_FACTORS = {"wandering", "confusion", "danger_zone"}
+# and confusion (rule-based but not profile-free — see risk.py:_PARTIAL_FACTORS
+# for the measurement), then renormalizes what is left.
+PARTIAL_FACTORS = {"wandering", "danger_zone"}
 
 # The score a patient sitting still at home would get if the two profile-hungry
 # factors were left in with their safety-biased defaults instead of dropped:
@@ -111,23 +112,6 @@ async def test_gps_ingestion_scores_risk_with_nobody_calling_the_endpoint(
     assert set(json.loads(score.factors)) == PARTIAL_FACTORS
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "MEASURED DEFECT, not a flaky test. Partial mode scores a patient sitting "
-        "still at home 39.2 and a patient walking in circles 12.5 — inverted. The "
-        "cause is `confusion`, which the plan assumed was profile-free because it "
-        "is rule-based: of its five sub-rules (stop_confusion_classification.py:"
-        "173-198) two are pure no-profile penalties — familiarity is 0 without "
-        "known_places (+0.20) and route deviation defaults to 300 m when there is "
-        "no predicted route (+0.15) — and two more fire for anyone at rest: "
-        "stopped 900 s (+0.30) and speed < 0.6 m/s (+0.15). Total 0.80, and it "
-        "only fires at all when `stopped` is true, so resting outscores wandering. "
-        "Rule-based is not the same as profile-free: confusion asks whether a stop "
-        "is abnormal, and abnormality is defined by place familiarity. Remove this "
-        "marker when partial mode is fixed."
-    ),
-)
 async def test_stationary_patient_scores_below_the_no_profile_floor(client, db_session):
     """Gotcha #3: dropping the no_data gate the lazy way alarms at rest.
 
@@ -149,6 +133,33 @@ async def test_stationary_patient_scores_below_the_no_profile_floor(client, db_s
         f"{NO_PROFILE_FLOOR}-point floor partial mode exists to avoid"
     )
     assert score.level == "low"
+
+
+async def test_resting_never_outscores_moving_in_partial_mode(client, db_session):
+    """The inversion _PARTIAL_FACTORS was narrowed to fix, pinned directly.
+
+    The floor test above catches today's version of this bug only because
+    confusion happened to score 39.2, above the 31-point floor. A factor that
+    added 15 points at rest would slip under that floor and restore the
+    inversion, so assert the invariant itself: with no profile, a patient who has
+    not moved must never read as more at risk than one walking in circles.
+    """
+    still = await _register_patient(client, "chain-invert-still")
+    moving = await _register_patient(client, "chain-invert-moving")
+
+    for patient_id, points in ((still, _sit_still), (moving, _walk_in_circles)):
+        resp = await client.post(
+            "/api/gps/batch", json={"points": points(patient_id, 30)}
+        )
+        assert resp.status_code == 200
+
+    still_score = await crud.get_latest_risk_score(db_session, still)
+    moving_score = await crud.get_latest_risk_score(db_session, moving)
+
+    assert still_score.score <= moving_score.score, (
+        f"a resting patient scored {still_score.score} against {moving_score.score} "
+        f"for one walking in circles — partial mode is inverted again"
+    )
 
 
 async def test_rapid_points_are_throttled_to_at_most_two_scores(client, db_session):

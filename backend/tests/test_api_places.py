@@ -126,8 +126,9 @@ async def test_pinning_switches_scoring_from_partial_to_full(client):
     """Why this endpoint exists.
 
     Same patient, same GPS, one difference: pins. Without them risk.py drops
-    route_deviation and unfamiliarity and tags the result "partial"; with them the
-    patient is scored on all five factors from their first day, with no history.
+    route_deviation, unfamiliarity and confusion — all three need known_places —
+    and tags the result "partial"; with them the patient is scored on all five
+    factors from their first day, with no history.
     """
     patient_id = await _register_patient(client, "pin-unlock")
     now = datetime.now(timezone.utc)
@@ -142,7 +143,7 @@ async def test_pinning_switches_scoring_from_partial_to_full(client):
 
     before = (await client.get(f"/api/risk/{patient_id}")).json()
     assert before["status"] == "partial"
-    assert set(before["contributions"]) == {"wandering", "confusion", "danger_zone"}
+    assert set(before["contributions"]) == {"wandering", "danger_zone"}
 
     await client.post(f"/api/patients/{patient_id}/places", json={"places": [HOME, MARKET]})
 

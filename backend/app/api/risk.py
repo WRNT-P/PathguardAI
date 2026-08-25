@@ -41,12 +41,28 @@ from app.services.notification import notify_alert
 # raw wandering_score >= 0.55 counts as "wandering detected".
 _WANDERING_DETECTED_THRESHOLD = 0.55
 
-# The three factors that need no behavioral profile, so they work on a patient's
-# first day: wandering fits on raw GPS alone (wandering_detection.py:229 states
-# known_places is unused in v1), confusion is a rule-based scorer, and danger_zone
-# comes from the rule KB. route_deviation and unfamiliarity both require
-# known_places (route_prediction.py:106-109) and are dropped until one exists.
-_PARTIAL_FACTORS = ("wandering", "confusion", "danger_zone")
+# The factors that need no behavioral profile, so they work on a patient's first
+# day: wandering fits on raw GPS alone (wandering_detection.py:229 states
+# known_places is unused in v1) and danger_zone comes from the rule KB.
+# route_deviation and unfamiliarity both require known_places
+# (route_prediction.py:106-109) and are dropped until one exists.
+#
+# confusion was in this set until it was measured. Rule-based is not the same as
+# profile-free: _rule_based_score (stop_confusion_classification.py:173-198) adds
+# (1 - familiarity) * 0.20 and min(deviation / 250, 0.15), and with no known_places
+# familiarity is 0.0 and deviation falls back to the 300 m default
+# (risk_data_collection.py:21-26) — 0.35 of pure "we have no profile", not of
+# anything the patient did. Two more sub-rules fire for anyone at rest (stopped
+# 900 s +0.30, speed < 0.6 m/s +0.15), and the whole scorer only runs when
+# stopped is true. Measured on 30 points: a patient sitting still at home scored
+# 39.2 while one walking in circles scored 12.5 — inverted, because confusion asks
+# whether a stop is abnormal and abnormality is defined by place familiarity.
+# Dropping it costs no detection: both cases now score 18.8, which is honest about
+# the fact that 30 points and no pins cannot tell them apart (wandering needs ~600
+# points to separate them). Note the full 5-factor model is untouched — this is
+# only the no-profile path, and the medical weights in risk_factor_weights are
+# unchanged; _renormalize keeps wandering:danger_zone at the KB's 0.25:0.15.
+_PARTIAL_FACTORS = ("wandering", "danger_zone")
 
 # Recompute risk at most this often per patient. One /api/risk pass loads 30 days
 # of GPS and fits IsolationForest + RoutePredictor, so running it on every 30 s
@@ -59,7 +75,7 @@ def _renormalize(weights: dict, keep: tuple[str, ...]) -> dict:
 
     Derived from the loaded weights rather than hardcoded, so an admin editing
     ``risk_factor_weights`` can't silently desynchronise partial from full mode.
-    With the seeded values (0.25/0.20/0.15) this yields 0.42/0.33/0.25.
+    With the seeded values (0.25/0.15) this yields 0.625/0.375.
     """
     subset = {k: weights[k] for k in keep if k in weights}
     total = sum(subset.values())
@@ -133,7 +149,7 @@ async def evaluate_risk(
 
     # A patient with no known_places yet (day one, before Module 1 has clustered
     # anything and before the caregiver has pinned places) still gets a score,
-    # from the three factors that need no profile. Dropping the other two and
+    # from the two factors that need no profile. Dropping the other three and
     # renormalizing is not the same as leaving them in: collect_risk_factors
     # returns safety-biased defaults for them (risk_data_collection.py:21-26 —
     # familiarity 0.0, route_deviation 350 m), which alone score 31% for a
