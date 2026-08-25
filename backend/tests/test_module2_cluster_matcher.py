@@ -58,3 +58,44 @@ def test_familiarity_is_normalized_by_max_frequency():
 
 def test_familiarity_unknown_cluster_is_zero():
     assert get_familiarity(KNOWN_PLACES, 99) == 0.0
+
+
+# ── per-place radius ─────────────────────────────────────────────────────────
+# A caregiver pins a hospital compound, not a doorstep. Matching one against the
+# 150 m default reads every walk across the grounds as leaving a familiar place.
+
+WIDE_PLACE = {"cluster_id": 5, "latitude": 13.7500, "longitude": 100.5000,
+              "visit_frequency": 40, "radius_m": 800}
+
+
+def test_place_radius_widens_the_match():
+    # ~330 m north: outside the 150 m default, inside this place's own 800 m.
+    assert find_nearest_cluster(13.7530, 100.5000, [WIDE_PLACE]) == 5
+
+
+def test_place_without_radius_still_uses_the_default():
+    no_radius = {**WIDE_PLACE, "radius_m": None}
+    assert find_nearest_cluster(13.7530, 100.5000, [no_radius]) is None
+    assert find_nearest_cluster(13.7500, 100.5000, [no_radius]) == 5
+
+
+def test_a_tight_pin_does_not_swallow_a_wider_neighbour():
+    """The reason each place is tested against its own radius before distance.
+
+    Thresholding only the single nearest place would return None here: the house
+    is nearer but the point is outside it, and the hospital that does contain the
+    point never gets considered.
+    """
+    house = {"cluster_id": 0, "latitude": 13.7500, "longitude": 100.5000,
+             "visit_frequency": 100}                       # 150 m default, ~330 m away
+    hospital = {"cluster_id": 1, "latitude": 13.7470, "longitude": 100.5000,
+                "visit_frequency": 10, "radius_m": 800}    # ~670 m away, contains the point
+    assert find_nearest_cluster(13.7530, 100.5000, [house, hospital]) == 1
+
+
+def test_route_predictions_own_matcher_agrees():
+    """route_prediction keeps a second copy of this logic; keep them in step."""
+    from app.ai.module2_prediction.route_prediction import _nearest_cluster
+
+    assert _nearest_cluster(13.7530, 100.5000, [WIDE_PLACE]) == 5
+    assert _nearest_cluster(13.7530, 100.5000, [{**WIDE_PLACE, "radius_m": None}]) is None

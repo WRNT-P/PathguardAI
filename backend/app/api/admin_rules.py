@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
+from app.services.auth import Caller, current_caller
 from app.db.models import (
     DangerZone, RiskFactorWeight, RiskThreshold, RuleAuditLog, TemporalRule,
 )
@@ -95,7 +96,10 @@ class AuditHistoryResponse(BaseModel):
     response_model=RulesResponse,
     summary="All active risk rules with medical sources and rationale",
 )
-async def get_rules(db: AsyncSession = Depends(get_db)) -> RulesResponse:
+async def get_rules(
+    db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(current_caller),
+) -> RulesResponse:
     weights = (await db.execute(
         select(RiskFactorWeight)
         .where(RiskFactorWeight.active)
@@ -130,6 +134,7 @@ async def get_rules_history(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(current_caller),
 ) -> AuditHistoryResponse:
     rows = (await db.execute(
         select(RuleAuditLog)

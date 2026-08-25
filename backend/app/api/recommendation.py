@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
 from app.db.database import get_db
+from app.services.auth import Caller, verify_patient_access
 from app.ai.module5_recommend import (
     build_user_context,
     generate_recommendations,
@@ -42,6 +43,7 @@ async def get_recommendations(
     lat: float | None = Query(None, ge=-90, le=90),
     lng: float | None = Query(None, ge=-180, le=180),
     db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
 ) -> RecommendationResponse:
     profile = await crud.get_behavioral_profile(db, patient_id)
 

@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PathGuard AI — แดชบอร์ดผู้ดูแล</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F0F9FB; --card:#FFFFFF; --ink:#0F3A47; --muted:#4A6B77;
+    --primary:#0891B2; --primary-dark:#0E7490; --border:#D8EBF0;
+    --green:#059669; --amber:#D97706; --red:#DC2626; --red-bg:#FEF2F2;
+    --shadow:0 1px 3px rgba(15,58,71,.08),0 4px 16px rgba(15,58,71,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Noto Sans Thai',system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:16px;line-height:1.55}
+  svg.ic{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+  header{background:var(--card);border-bottom:1px solid var(--border);padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--primary-dark));display:flex;align-items:center;justify-content:center;color:#fff}
+  header h1{font-size:1.15rem;font-weight:700}
+  header .sub{font-size:.83rem;color:var(--muted)}
+  .spacer{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--card);color:var(--ink);padding:9px 16px;border-radius:10px;font:inherit;font-size:.9rem;font-weight:600;cursor:pointer;transition:background .2s,border-color .2s;min-height:44px}
+  .btn:hover{background:#EBF6F9;border-color:var(--primary)}
+  .btn:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+  .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn.primary:hover{background:var(--primary-dark)}
+  .updated{font-size:.8rem;color:var(--muted)}
+
+  #banner{display:none;margin:16px 20px 0;padding:14px 18px;border-radius:12px;background:var(--red-bg);border:1px solid #FECACA;color:var(--red);font-weight:600;align-items:center;gap:10px}
+  #banner.show{display:flex}
+
+  .grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);gap:16px;padding:16px 20px;max-width:1440px;margin:0 auto}
+  @media(max-width:960px){.grid{grid-template-columns:1fr}}
+  .col{display:flex;flex-direction:column;gap:16px;min-width:0}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+  .card .hd{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:.95rem}
+  .card .hd .ic{color:var(--primary)}
+  .card .bd{padding:16px 18px}
+
+  #map{height:520px;min-height:380px}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;padding:10px 18px;font-size:.8rem;color:var(--muted);border-top:1px solid var(--border);align-items:center}
+  .key{display:inline-flex;align-items:center;gap:6px}
+  .swatch{width:14px;height:5px;border-radius:3px;display:inline-block}
+  .dot{width:11px;height:11px;border-radius:50%;display:inline-block}
+
+  .patient-row{display:flex;flex-wrap:wrap;gap:10px 24px;font-size:.88rem}
+  .patient-row b{font-weight:700}
+  .patient-row .lbl{color:var(--muted)}
+
+  .risk-wrap{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+  .donut{position:relative;width:130px;height:130px;flex:none}
+  .donut svg{transform:rotate(-90deg)}
+  .donut .val{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .donut .val b{font-size:1.9rem;line-height:1}
+  .donut .val span{font-size:.72rem;color:var(--muted)}
+  .chips{display:flex;flex-direction:column;gap:8px;min-width:150px}
+  .chip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-size:.82rem;font-weight:600;width:max-content}
+  .chip .ic{width:15px;height:15px}
+  .chip.green{background:#ECFDF5;color:var(--green)}
+  .chip.amber{background:#FFFBEB;color:var(--amber)}
+  .chip.red{background:var(--red-bg);color:var(--red)}
+  .chip.gray{background:#F1F5F9;color:var(--muted)}
+
+  .bar-row{margin-bottom:12px}
+  .bar-row .t{display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:4px}
+  .bar-row .t span:last-child{font-weight:700;font-variant-numeric:tabular-nums}
+  .bar{height:8px;background:#EDF5F7;border-radius:6px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--primary);border-radius:6px;transition:width .4s ease}
+
+  .rec{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+  .rec:last-child{border-bottom:0}
+  .rank{width:30px;height:30px;border-radius:9px;background:var(--primary);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;font-size:.9rem}
+  .rec .meta{flex:1;min-width:0}
+  .rec .meta .coords{font-size:.82rem;color:var(--muted);font-variant-numeric:tabular-nums}
+  .conf{font-weight:700;font-variant-numeric:tabular-nums}
+
+  .alert-item{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);font-size:.85rem}
+  .alert-item:last-child{border-bottom:0}
+  .alert-item .ic{margin-top:2px}
+  .alert-item.critical .ic,.alert-item.high .ic{color:var(--red)}
+  .alert-item.medium .ic{color:var(--amber)}
+  .alert-item .when{color:var(--muted);font-size:.76rem}
+  #alerts .bd{max-height:260px;overflow-y:auto}
+
+  .loading{color:var(--muted);font-size:.88rem;display:flex;align-items:center;gap:8px}
+  .spin{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .pmark{position:relative;width:18px;height:18px}
+  .pmark::before{content:"";position:absolute;inset:0;border-radius:50%;background:var(--red);border:3px solid #fff;box-shadow:0 0 0 2px var(--red)}
+  .pmark::after{content:"";position:absolute;inset:-8px;border-radius:50%;border:2px solid var(--red);opacity:.6;animation:pulse 1.6s ease-out infinite}
+  @keyframes pulse{from{transform:scale(.5);opacity:.8}to{transform:scale(1.4);opacity:0}}
+  .recmark{width:26px;height:26px;border-radius:8px;background:var(--primary);color:#fff;font:700 .85rem 'Noto Sans Thai',sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+  @media(prefers-reduced-motion:reduce){.pmark::after,.spin{animation:none}}
+
+  .note{padding:8px 20px 20px;max-width:1440px;margin:0 auto;font-size:.78rem;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+  </div>
+  <div>
+    <h1>PathGuard AI</h1>
+    <div class="sub">แดชบอร์ดผู้ดูแล — ข้อมูล GPS จริง (GeoLife) ผ่าน AI ทั้ง 5 โมดูล</div>
+  </div>
+  <div class="spacer"></div>
+  <span class="updated" id="updated">กำลังโหลด…</span>
+  <button class="btn primary" id="refresh">
+    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
+    รีเฟรชข้อมูล
+  </button>
+</header>
+
+<div id="banner" role="alert">
+  <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></svg>
+  <span id="banner-text"></span>
+</div>
+
+<main class="grid">
+  <div class="col">
+    <section class="card">
+      <div class="hd">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        แผนที่ติดตามตำแหน่ง
+        <div class="spacer"></div>
+        <button class="btn" id="searchBtn">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          คำนวณพื้นที่ค้นหา
+        </button>
+      </div>
+      <div id="map" role="img" aria-label="แผนที่แสดงตำแหน่งและเส้นทางของผู้ป่วย"></div>
+      <div class="legend">
+        <span class="key"><span class="swatch" style="background:#0891B2"></span> เส้นทางจริง</span>
+        <span class="key"><span class="swatch" style="background:#DC2626"></span> ช่วงเดินวน (สังเคราะห์)</span>
+        <span class="key"><span class="dot" style="background:#DC2626;opacity:.35;border:1px solid #DC2626"></span> เขตอันตราย</span>
+        <span class="key"><span class="dot" style="background:#0891B2"></span> จุดแนะนำให้ตามหา</span>
+        <span class="key"><span class="dot" style="background:#F59E0B;opacity:.5"></span> พื้นที่ค้นหา (ความน่าจะเป็น)</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="hd">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 14 0v1"/></svg>
+        ข้อมูลผู้ป่วย
+      </div>
+      <div class="bd"><div class="patient-row" id="patient"><span class="loading"><span class="spin"></span> กำลังโหลด…</span></div></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card">
+      <div class="hd">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        คะแนนความเสี่ยง (Module 3)
+      </div>
+      <div class="bd">
+        <div class="risk-wrap">
+          <div class="donut">
+            <svg width="130" height="130" viewBox="0 0 130 130" aria-hidden="true">
+              <circle cx="65" cy="65" r="54" stroke="#EDF5F7" stroke-width="12" fill="none"/>
+              <circle id="gauge" cx="65" cy="65" r="54" stroke="#059669" stroke-width="12" fill="none"
+                      stroke-linecap="round" stroke-dasharray="339.3" stroke-dashoffset="339.3"/>
+            </svg>
+            <div class="val"><b id="score">–</b><span>/ 100</span></div>
+          </div>
+          <div class="chips" id="chips"><span class="loading"><span class="spin"></span> กำลังคำนวณ…</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="hd">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15v3M12 10v8M17 6v12"/></svg>
+        ปัจจัยความเสี่ยง
+      </div>
+      <div class="bd" id="factors"><span class="loading"><span class="spin"></span> กำลังคำนวณ…</span></div>
+    </section>
+
+    <section class="card">
+      <div class="hd">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+        สถานที่ที่ควรไปตามหา (Module 5)
+      </div>
+      <div class="bd" id="recs"><span class="loading"><span class="spin"></span> กำลังโหลด…</span></div>
+    </section>
+
+    <section class="card" id="alerts">
+      <div class="hd">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        การแจ้งเตือนล่าสุด
+      </div>
+      <div class="bd" id="alerts-body"><span class="loading"><span class="spin"></span> กำลังโหลด…</span></div>
+    </section>
+  </div>
+</main>
+
+<p class="note">ข้อมูลฐาน: Microsoft GeoLife (ผู้ใช้จริง 025) + เหตุการณ์เดินวนสังเคราะห์ (ติดธง synthetic_injected) — ทุกตัวเลขคำนวณสดจาก API: /api/risk, /api/search-area, /api/recommendation, /api/admin/rules</p>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const P = new URLSearchParams(location.search).get('patient') || '13';
+const $ = id => document.getElementById(id);
+const j = async url => { const r = await fetch(url); if (!r.ok) throw new Error(url + ' → HTTP ' + r.status); return r.json(); };
+const fmtT = iso => new Date(iso).toLocaleString('th-TH', {dateStyle:'short', timeStyle:'medium'});
+
+const FACTOR_TH = {
+  route_deviation: 'ออกนอกเส้นทางประจำ',
+  wandering: 'พฤติกรรมเดินวน',
+  confusion: 'อาการสับสน / หยุดนิ่ง',
+  danger_zone: 'อยู่ในเขตอันตราย',
+  unfamiliarity: 'พื้นที่ไม่คุ้นเคย',
+};
+const LEVEL = {
+  low:    {th:'ความเสี่ยงต่ำ',    color:'#059669', chip:'green'},
+  medium: {th:'ความเสี่ยงปานกลาง', color:'#D97706', chip:'amber'},
+  high:   {th:'ความเสี่ยงสูง',    color:'#DC2626', chip:'red'},
+};
+
+const map = L.map('map').setView([31.6192, 120.3388], 15);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {maxZoom: 19, attribution: '&copy; OpenStreetMap'}).addTo(map);
+const layers = {
+  real: L.layerGroup().addTo(map), inj: L.layerGroup().addTo(map),
+  zones: L.layerGroup().addTo(map), recs: L.layerGroup().addTo(map),
+  search: L.layerGroup().addTo(map), pos: L.layerGroup().addTo(map),
+};
+
+function drawTrack(track) {
+  layers.real.clearLayers(); layers.inj.clearLayers(); layers.pos.clearLayers();
+  const pts = track.points;
+  if (!pts.length) return;
+  const seg = flag => pts.filter(p => p.synthetic_injected === flag).map(p => [p.latitude, p.longitude]);
+  const real = seg(false), inj = seg(true);
+  if (real.length > 1) L.polyline(real, {color:'#0891B2', weight:3, opacity:.8}).addTo(layers.real);
+  if (inj.length > 1)  L.polyline(inj,  {color:'#DC2626', weight:3, opacity:.85}).addTo(layers.inj);
+  const last = pts[pts.length - 1];
+  L.marker([last.latitude, last.longitude], {
+    icon: L.divIcon({className:'', html:'<div class="pmark"></div>', iconSize:[18,18], iconAnchor:[9,9]}),
+    title: 'ตำแหน่งล่าสุด',
+  }).addTo(layers.pos).bindPopup(`ตำแหน่งล่าสุด<br>${fmtT(last.recorded_at)}`);
+  const fit = inj.length > 1 ? inj : pts.map(p => [p.latitude, p.longitude]);
+  map.fitBounds(L.latLngBounds(fit).pad(0.3));
+}
+
+function drawZones(rules) {
+  layers.zones.clearLayers();
+  for (const z of rules.danger_zones) {
+    L.circle([z.center_latitude, z.center_longitude], {
+      radius: z.radius_meters, color:'#DC2626', weight:2,
+      fillColor:'#DC2626', fillOpacity:.12, dashArray:'6 4',
+    }).addTo(layers.zones).bindPopup(
+      `<b>เขตอันตราย: ${z.name}</b><br>ประเภท: ${z.zone_type} · รัศมี ${z.radius_meters} ม.`);
+  }
+}
+
+function drawRecs(recs) {
+  layers.recs.clearLayers();
+  for (const r of recs.recommendations) {
+    L.marker([r.latitude, r.longitude], {
+      icon: L.divIcon({className:'', html:`<div class="recmark">${r.rank}</div>`, iconSize:[26,26], iconAnchor:[13,13]}),
+      title: `อันดับ ${r.rank}`,
+    }).addTo(layers.recs).bindPopup(`อันดับ ${r.rank} — ความมั่นใจ ${r.confidence_pct}%`);
+  }
+}
+
+function renderRisk(rk) {
+  const lv = LEVEL[rk.risk_level] || LEVEL.low;
+  $('score').textContent = rk.risk_score ?? '–';
+  $('score').style.color = lv.color;
+  const g = $('gauge');
+  g.setAttribute('stroke', lv.color);
+  g.setAttribute('stroke-dashoffset', (339.3 * (1 - (rk.risk_score || 0) / 100)).toFixed(1));
+  const chip = (cls, svg, text) =>
+    `<span class="chip ${cls}"><svg class="ic" viewBox="0 0 24 24">${svg}</svg>${text}</span>`;
+  const warn = '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/>';
+  const ok = '<path d="M20 6 9 17l-5-5"/>';
+  const sat = '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/>';
+  let html = chip(lv.chip, warn, lv.th);
+  html += rk.wandering_detected
+    ? chip('red', warn, 'ตรวจพบการเดินวน (wandering)')
+    : chip('green', ok, 'ไม่พบการเดินวน');
+  html += rk.gps_available
+    ? chip('green', sat, 'สัญญาณ GPS ปกติ')
+    : chip('red', sat, 'สัญญาณ GPS ขาดหาย');
+  if (rk.temporal_adjustment) html += chip('gray', warn, `ปรับตามแนวโน้ม +${rk.temporal_adjustment}`);
+  $('chips').innerHTML = html;
+
+  if (rk.emergency) {
+    const reason = {danger_zone:'ผู้ป่วยเข้าเขตอันตราย', sustained_risk:'ความเสี่ยงสูงต่อเนื่อง'}[rk.reason] || rk.reason;
+    $('banner-text').textContent = `เหตุฉุกเฉิน! ${reason} — คะแนนความเสี่ยง ${rk.risk_score}/100 (ระบบบันทึก alert แล้ว)`;
+    $('banner').classList.add('show');
+  } else {
+    $('banner').classList.remove('show');
+  }
+}
+
+function renderFactors(rk) {
+  if (!rk.contributions) { $('factors').innerHTML = '<span class="loading">ไม่มีข้อมูล</span>'; return; }
+  const entries = Object.entries(rk.contributions).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(...entries.map(e => e[1]), 1);
+  $('factors').innerHTML = entries.map(([k, v]) => `
+    <div class="bar-row">
+      <div class="t"><span>${FACTOR_TH[k] || k}</span><span>${v.toFixed(1)}</span></div>
+      <div class="bar"><i style="width:${(v / max * 100).toFixed(0)}%"></i></div>
+    </div>`).join('');
+}
+
+function renderRecs(recs) {
+  if (!recs.recommendations.length) { $('recs').innerHTML = '<span class="loading">ยังไม่มีคำแนะนำ</span>'; return; }
+  $('recs').innerHTML = recs.recommendations.map(r => `
+    <div class="rec">
+      <div class="rank">${r.rank}</div>
+      <div class="meta">
+        <div>จุดที่คุ้นเคย #${r.cluster_id}</div>
+        <div class="coords">${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}</div>
+      </div>
+      <div class="conf">${r.confidence_pct}%</div>
+    </div>`).join('');
+}
+
+function renderPatient(p) {
+  $('patient').innerHTML = `
+    <span><span class="lbl">ผู้ป่วย:</span> <b>${p.name}</b> (id ${p.patient_id})</span>
+    <span><span class="lbl">จุด GPS จริง:</span> <b>${p.real_points.toLocaleString()}</b></span>
+    <span><span class="lbl">จุดสังเคราะห์:</span> <b>${p.injected_points.toLocaleString()}</b></span>
+    <span><span class="lbl">สถานที่ที่เรียนรู้ (Module 1):</span> <b>${p.known_places}</b> แห่ง</span>
+    <span><span class="lbl">อัปเดตล่าสุด:</span> <b>${p.last_recorded_at ? fmtT(p.last_recorded_at) : '–'}</b></span>`;
+}
+
+function renderAlerts(list) {
+  if (!list.length) { $('alerts-body').innerHTML = '<span class="loading">ยังไม่มีการแจ้งเตือน</span>'; return; }
+  const warn = '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/>';
+  $('alerts-body').innerHTML = list.map(a => `
+    <div class="alert-item ${a.severity}">
+      <svg class="ic" viewBox="0 0 24 24">${warn}</svg>
+      <div>
+        <div><b>[${a.severity}]</b> ${a.message}</div>
+        <div class="when">${a.alert_type} · ${fmtT(a.created_at)}</div>
+      </div>
+    </div>`).join('');
+}
+
+let searchShown = false;
+async function toggleSearch() {
+  const btn = $('searchBtn');
+  if (searchShown) { layers.search.clearLayers(); searchShown = false; btn.classList.remove('primary'); return; }
+  btn.disabled = true;
+  try {
+    const t = await j(`/api/patients/${P}/track?hours=6`);
+    const last = t.points[t.points.length - 1];
+    const sa = await j(`/api/search-area/${P}?last_lat=${last.latitude}&last_lng=${last.longitude}&time_missing_minutes=25`);
+    if (sa.status !== 'ok') { alert(sa.message); return; }
+    layers.search.clearLayers();
+    L.circle([sa.last_known_location.latitude, sa.last_known_location.longitude], {
+      radius: sa.adjusted_radius_meters, color:'#D97706', weight:2, dashArray:'8 6', fill:false,
+    }).addTo(layers.search).bindPopup(`รัศมีค้นหา ${Math.round(sa.adjusted_radius_meters)} ม.`);
+    const tiers = [[sa.high_probability_zone, '#DC2626', .45], [sa.medium_probability_zone, '#F59E0B', .3], [sa.low_probability_zone, '#FDE68A', .2]];
+    for (const [zone, color, op] of tiers)
+      for (const c of zone)
+        L.circleMarker([c.latitude, c.longitude], {radius:4, stroke:false, fillColor:color, fillOpacity:op}).addTo(layers.search);
+    map.fitBounds(L.latLngBounds([[sa.last_known_location.latitude, sa.last_known_location.longitude]]).pad(0.5), {maxZoom:14});
+    searchShown = true; btn.classList.add('primary');
+  } catch (e) { alert('คำนวณพื้นที่ค้นหาไม่สำเร็จ: ' + e.message); }
+  finally { btn.disabled = false; }
+}
+
+async function loadAll() {
+  $('updated').textContent = 'กำลังโหลด…';
+  try {
+    const [patient, track, rules, alerts] = await Promise.all([
+      j(`/demo/patient/${P}`), j(`/api/patients/${P}/track?hours=6`),
+      j('/api/admin/rules'), j(`/api/patients/${P}/alerts`),
+    ]);
+    renderPatient(patient); drawTrack(track); drawZones(rules); renderAlerts(alerts.alerts);
+    // risk คำนวณหนักสุด (fit IsolationForest) — แยกรอทีหลังเพื่อให้แผนที่ขึ้นก่อน
+    const [rk, recs] = await Promise.all([j(`/api/risk/${P}`), j(`/api/recommendation/${P}`)]);
+    renderRisk(rk); renderFactors(rk); renderRecs(recs); drawRecs(recs);
+    j(`/api/patients/${P}/alerts`).then(r => renderAlerts(r.alerts));  // risk อาจเพิ่งเขียน alert ใหม่
+    $('updated').textContent = 'อัปเดตล่าสุด ' + new Date().toLocaleTimeString('th-TH');
+  } catch (e) {
+    $('updated').textContent = 'โหลดไม่สำเร็จ: ' + e.message;
+  }
+}
+
+$('refresh').addEventListener('click', loadAll);
+$('searchBtn').addEventListener('click', toggleSearch);
+loadAll();
+setInterval(loadAll, 60000);
+</script>
+</body>
+</html>

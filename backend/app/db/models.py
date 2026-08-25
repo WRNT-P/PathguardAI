@@ -202,3 +202,47 @@ class TemporalRule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (Index("ix_temporal_rule_name_active", "rule_name", "active"),)
+
+
+# ── Push notification (Module: caregiver alerting) ────────────────────────────
+
+class DeviceToken(Base):
+    """An FCM registration token for one caregiver device.
+
+    A caregiver may sign in on more than one phone, so this is many-per-user.
+    The token itself is unique — Firebase reissues it on reinstall, and the app
+    re-POSTs on every launch, so ``POST /api/devices/token`` upserts.
+    """
+    __tablename__ = "device_tokens"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
+    token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)     # "android" | "ios" | "web"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (Index("ix_device_token_user", "user_id"),)
+
+
+class PushNotification(Base):
+    """One row per push actually sent — and the state the send cooldown reads.
+
+    ``alerts`` deliberately stays untouched: risk.py writes a row every scoring
+    round a condition holds, which at the 60 s ingest throttle means one row a
+    minute for as long as a patient sits in a danger zone. That is the right
+    audit trail, but it is not a push schedule. Rate limiting lives here instead,
+    so nothing about how alerts are recorded has to change.
+    """
+    __tablename__ = "push_notifications"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    patient_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
+    alert_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("alerts.id"), nullable=False)
+    alert_type: Mapped[str] = mapped_column(String(50), nullable=False)   # cooldown is per type
+    recipients: Mapped[int] = mapped_column(Integer, nullable=False)      # devices reached
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_push_patient_type_sent", "patient_id", "alert_type", "sent_at"),)

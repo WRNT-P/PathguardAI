@@ -12,7 +12,10 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Alert, BehavioralProfile, GPSData, RiskScore, User
+from app.db.models import (
+    Alert, BehavioralProfile, DeviceToken, GPSData, PushNotification,
+    RiskScore, User,
+)
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -22,14 +25,21 @@ async def get_user_id_by_firebase_uid(
 ) -> int | None:
     """Resolve a Firebase/Flutter string UID to the internal int ``users.id``.
 
-    The GPS endpoint calls this before writing a reading: incoming payloads carry
-    the string ``firebase_uid``, but ``gps_data.patient_id`` is an int FK to
-    ``users.id``. Returns None if no user is registered for that UID.
+    The app calls ``/api/register`` once after sign-in and keeps the int id it
+    gets back; every later request (GPS, risk, alerts) carries that int, because
+    ``gps_data.patient_id`` is an int FK to ``users.id``. Returns None if no user
+    is registered for that UID.
     """
     result = await db.execute(
         select(User.id).where(User.firebase_uid == firebase_uid)
     )
     return result.scalar_one_or_none()
+
+
+async def user_exists(db: AsyncSession, user_id: int) -> bool:
+    """True if ``users.id`` exists — lets callers reject a bad FK with a 404."""
+    result = await db.execute(select(User.id).where(User.id == user_id))
+    return result.scalar_one_or_none() is not None
 
 
 async def create_user(
@@ -241,3 +251,164 @@ async def upsert_behavioral_profile(
 
     await db.flush()
     return profile
+
+
+# ── Push notification ─────────────────────────────────────────────────────────
+
+async def upsert_device_token(
+    db: AsyncSession, user_id: int, token: str, platform: str,
+) -> DeviceToken:
+    """Register a caregiver device, or re-point an existing token at this user.
+
+    The app re-POSTs its token on every launch, and Firebase hands the *same*
+    token to a different account when a phone is shared, so the token — not the
+    user — is the identity here.
+    """
+    result = await db.execute(select(DeviceToken).where(DeviceToken.token == token))
+    row = result.scalar_one_or_none()
+
+    if row is None:
+        row = DeviceToken(user_id=user_id, token=token, platform=platform)
+        db.add(row)
+    else:
+        row.user_id = user_id
+        row.platform = platform
+        row.last_seen_at = datetime.now(timezone.utc)
+
+    await db.flush()
+    return row
+
+
+async def get_caregiver_tokens(db: AsyncSession, patient_id: int) -> list[str]:
+    """FCM tokens of the caregiver responsible for this patient.
+
+    Follows ``users.caregiver_id``, the FK the schema already carries — no
+    separate pairing table or invite code is needed. Returns [] when the patient
+    has no caregiver on file or that caregiver has never opened the app.
+    """
+    caregiver_id = await db.scalar(
+        select(User.caregiver_id).where(User.id == patient_id)
+    )
+    if caregiver_id is None:
+        return []
+
+    result = await db.execute(
+        select(DeviceToken.token).where(DeviceToken.user_id == caregiver_id)
+    )
+    return list(result.scalars().all())
+
+
+async def delete_device_token(db: AsyncSession, token: str) -> None:
+    """Drop a token Firebase has rejected as unregistered (app uninstalled).
+
+    Left in place it would fail on every future push and keep the error log
+    warm forever.
+    """
+    result = await db.execute(select(DeviceToken).where(DeviceToken.token == token))
+    row = result.scalar_one_or_none()
+    if row is not None:
+        await db.delete(row)
+        await db.flush()
+
+
+async def seconds_since_last_push(
+    db: AsyncSession, patient_id: int, alert_type: str,
+) -> float | None:
+    """Age of the last push of this alert type, or None if there has never been one."""
+    last = await db.scalar(
+        select(PushNotification.sent_at)
+        .where(PushNotification.patient_id == patient_id,
+               PushNotification.alert_type == alert_type)
+        .order_by(desc(PushNotification.sent_at))
+        .limit(1)
+    )
+    if last is None:
+        return None
+    if last.tzinfo is None:            # SQLite drops tzinfo; Postgres keeps it
+        last = last.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - last).total_seconds()
+
+
+async def record_push(
+    db: AsyncSession, patient_id: int, alert_id: int, alert_type: str,
+    recipients: int,
+) -> PushNotification:
+    """Log a delivered push — this row is what the next cooldown check reads."""
+    row = PushNotification(
+        patient_id=patient_id,
+        alert_id=alert_id,
+        alert_type=alert_type,
+        recipients=recipients,
+        sent_at=datetime.now(timezone.utc),
+    )
+    db.add(row)
+    await db.flush()
+    return row
+
+
+# ── Tracking / alert reads (caregiver app) ───────────────────────────────────
+
+async def get_recent_track(
+    db: AsyncSession, patient_id: int, hours: int = 6, fallback_limit: int = 300,
+) -> list[GPSData]:
+    """The patient's last ``hours`` of movement, oldest first.
+
+    Falls back to the most recent ``fallback_limit`` readings when that window
+    holds fewer than two points. A caregiver who opens the map after a push
+    needs to see *something*: a phone that has been off since this morning would
+    otherwise render an empty screen, which reads as "no data" when the truth is
+    "no data recently".
+    """
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    result = await db.execute(
+        select(GPSData)
+        .where(GPSData.patient_id == patient_id, GPSData.recorded_at >= since)
+        .order_by(GPSData.recorded_at)
+    )
+    rows = list(result.scalars().all())
+    if len(rows) >= 2:
+        return rows
+
+    result = await db.execute(
+        select(GPSData)
+        .where(GPSData.patient_id == patient_id)
+        .order_by(desc(GPSData.recorded_at))
+        .limit(fallback_limit)
+    )
+    return list(reversed(result.scalars().all()))
+
+
+async def get_alerts(
+    db: AsyncSession, patient_id: int, limit: int = 20,
+) -> list[Alert]:
+    """A patient's alerts, newest first — the caregiver's history feed."""
+    result = await db.execute(
+        select(Alert)
+        .where(Alert.patient_id == patient_id)
+        .order_by(desc(Alert.created_at))
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def set_alert_resolved(
+    db: AsyncSession, alert_id: int, resolved: bool,
+) -> Alert | None:
+    """Mark an alert handled (or un-handle it). None if there is no such alert."""
+    alert = await db.get(Alert, alert_id)
+    if alert is None:
+        return None
+    alert.resolved = resolved
+    alert.resolved_at = datetime.now(timezone.utc) if resolved else None
+    await db.flush()
+    return alert
+
+
+async def get_caregiver_id(db: AsyncSession, patient_id: int) -> int | None:
+    """The caregiver responsible for this patient, or None if nobody is."""
+    return await db.scalar(select(User.caregiver_id).where(User.id == patient_id))
+
+
+async def get_alert(db: AsyncSession, alert_id: int) -> Alert | None:
+    """One alert by id — the authorization check needs its ``patient_id``."""
+    return await db.get(Alert, alert_id)

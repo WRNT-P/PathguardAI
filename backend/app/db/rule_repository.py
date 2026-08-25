@@ -36,9 +36,10 @@ MEDIUM_CEILING = "medium_ceiling"
 EMERGENCY_SCORE = "emergency_score"
 ROUTE_DEVIATION_CEILING_M = "route_deviation_ceiling_m"
 GPS_GAP_SECONDS = "gps_gap_seconds"
+PUSH_COOLDOWN_SECONDS = "push_cooldown_seconds"
 KNOWN_THRESHOLDS = frozenset(
     {LOW_CEILING, MEDIUM_CEILING, EMERGENCY_SCORE, ROUTE_DEVIATION_CEILING_M,
-     GPS_GAP_SECONDS}
+     GPS_GAP_SECONDS, PUSH_COOLDOWN_SECONDS}
 )
 
 ZONE_TYPES = frozenset({"highway", "waterway", "construction", "other"})

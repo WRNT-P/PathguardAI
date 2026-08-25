@@ -82,6 +82,17 @@ SEED_THRESHOLDS = [
      "source_reference": "Ali et al. wandering injury study",
      "rationale": ("10-min gap aligns with the initial critical window before "
                    "injury risk increases sharply.")},
+    {"threshold_name": "push_cooldown_seconds", "value": 600.0, "unit": "second",
+     "source_reference": "MOPH ED Triage 2561 Level 1-2 (0-10 min intervention)",
+     "rationale": ("Minimum spacing between two pushes of the SAME alert type to "
+                   "the same caregiver. Alerts are written every scoring round the "
+                   "condition holds — at the 60 s ingest throttle that is one row a "
+                   "minute for as long as a patient stays in a danger zone, and a "
+                   "caregiver pushed once a minute mutes the app. MOPH Level 1-2 "
+                   "allows a 0-10 min intervention window, so re-notifying at 10 min "
+                   "is the fastest cadence the triage basis actually asks for. "
+                   "Tunable here rather than in code because pilot caregivers, not "
+                   "the guideline, decide what feels like nagging.")},
 ]
 
 # Temporal rules use a patient's score HISTORY. Tunables live in `parameters`

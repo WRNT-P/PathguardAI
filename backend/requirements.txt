@@ -14,5 +14,9 @@ scipy>=1.11
 httpx
 pydantic
 
-# Deep Learning (LSTM — AI module 1 sequence learning)
-tensorflow
+# Deep Learning (LSTM) — NOT installed: the 4-week plan cut the LSTM destination
+# model (section 08), and app/main.py no longer mounts app/api/prediction.py.
+# TensorFlow alone is ~600 MB, so keeping it out is what makes the image
+# deployable. Uninstalled it is also why `import app.api.prediction` fails.
+# To bring the LSTM back: uncomment, reinstall, re-mount the router in main.py.
+# tensorflow

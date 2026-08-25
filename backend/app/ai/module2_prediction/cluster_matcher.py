@@ -16,17 +16,28 @@ def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 def find_nearest_cluster(lat: float, lng: float, known_places: list[dict],
                          max_distance_km: float = 0.15) -> Optional[int]:
-    """Return cluster_id of the nearest known place, or None (unknown)."""
+    """Return cluster_id of the nearest known place the point falls inside, or None.
+
+    A place may carry its own ``radius_m``: a house is the 150 m default, but a
+    hospital or market compound is bigger, and matching those against 150 m reads
+    every walk across the grounds as leaving a familiar place. Places without a
+    radius fall back to ``max_distance_km``, so a profile written before radii
+    existed behaves exactly as it did.
+
+    Each place is tested against its OWN radius before the nearest one wins —
+    thresholding the single nearest place would let a tight pin next to a wide one
+    swallow the match and return None.
+    """
     best_id: Optional[int] = None
     best_dist = float('inf')
     for place in known_places:
         dist = haversine_km(lat, lng, place['latitude'], place['longitude'])
-        if dist < best_dist:
+        radius_m = place.get('radius_m')
+        radius_km = radius_m / 1000.0 if radius_m else max_distance_km
+        if dist <= radius_km and dist < best_dist:
             best_dist = dist
             best_id = place['cluster_id']
-    if best_dist <= max_distance_km:
-        return best_id
-    return None
+    return best_id
 
 
 def get_familiarity(known_places: list[dict], cluster_id: int) -> float:
