@@ -93,6 +93,20 @@ SEED_THRESHOLDS = [
                    "is the fastest cadence the triage basis actually asks for. "
                    "Tunable here rather than in code because pilot caregivers, not "
                    "the guideline, decide what feels like nagging.")},
+    {"threshold_name": "sos_cooldown_seconds", "value": 60.0, "unit": "second",
+     "source_reference": "MOPH ED Triage 2561 Level 1-2 + BPSD repetitive behaviour",
+     "rationale": ("Minimum spacing between two SOS pushes for the same patient. "
+                   "Separate from push_cooldown_seconds because the two are "
+                   "throttling different things: an automatic alert repeats because "
+                   "the condition persists, so 10 min is right; an SOS repeats "
+                   "because a person pressed again, and a second press is "
+                   "information the caregiver should get. It is not zero, though — "
+                   "repetitive behaviour is itself a BPSD symptom, so the patient "
+                   "most likely to press a button thirty times is exactly the "
+                   "patient this system is for, and thirty pushes mutes the app. "
+                   "60 s keeps a genuine repeat while collapsing a burst. Every "
+                   "press still writes its own alerts row regardless — the audit "
+                   "trail and the dashboard show all of them.")},
 ]
 
 # Temporal rules use a patient's score HISTORY. Tunables live in `parameters`

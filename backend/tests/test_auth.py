@@ -151,6 +151,19 @@ async def test_gps_cannot_be_written_in_someone_elses_name(client, people, auth_
     assert resp.status_code == 403
 
 
+async def test_sos_cannot_be_raised_in_someone_elses_name(client, people, auth_on):
+    """Same shape as GPS — patient_id is in the body — but a worse hole.
+
+    An SOS skips risk scoring entirely and lands as ``critical``, so a stranger
+    who could raise one would put an alert on another family's phone that the
+    system has no way to contradict.
+    """
+    resp = await client.post("/api/sos", headers=bearer("tok-stranger"),
+                             json={"patient_id": people["patient"]})
+
+    assert resp.status_code == 403
+
+
 async def test_pins_cannot_be_written_for_someone_elses_patient(
     client, people, auth_on
 ):
