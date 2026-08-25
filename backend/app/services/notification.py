@@ -36,6 +36,9 @@ _TITLES = {
     "gps_loss": "PathGuard — สัญญาณ GPS หาย",
     "gps_lost": "PathGuard — สัญญาณ GPS หาย",
     "wandering": "PathGuard — พบการเดินหลง",
+    # The patient pressed the button themselves — say so, because a caregiver
+    # triages "the app thinks something is wrong" differently from "they asked".
+    "sos": "PathGuard — ผู้ป่วยกดขอความช่วยเหลือ",
 }
 
 
