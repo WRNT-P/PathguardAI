@@ -93,7 +93,7 @@ class BehavioralProfile(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     patient_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False, unique=True)
     known_places: Mapped[str | None] = mapped_column(Text, nullable=True)          # JSON: [{lat, lon, label, visits}]
-    routine_patterns: Mapped[str | None] = mapped_column(Text, nullable=True)      # JSON: [{hour, place_id, probability}]
+    routine_patterns: Mapped[str | None] = mapped_column(Text, nullable=True)      # JSON: [{hour, cluster_id, probability, samples}] — ai/module1_behavior/routine_patterns.py
     typical_range_km: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_trained_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
