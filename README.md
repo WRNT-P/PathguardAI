@@ -5,6 +5,20 @@ GPS-based wandering detection system for dementia patients.
 
 ---
 
+## 📌 อ่านก่อน — เอกสารกลางของทีม
+
+| ไฟล์ | ใช้ตอนไหน |
+|---|---|
+| **`backend/REPORT_VS_CODE.md`** | **รายงานอ้างอะไรไว้ แล้ว backend ทำได้จริงแค่ไหน** อ่านก่อนสร้างฟีเจอร์ตามรายงาน มีคำถามที่รอฝั่งแอปตอบอยู่ท้ายไฟล์ |
+| `backend/API_CONTRACT_APP.md` | สัญญาสำหรับแอปมือถือ — register, GPS, FCM token, push payload, การอ่าน track/alert |
+| `backend/API_CONTRACT_ADMIN.md` | สัญญาสำหรับหน้าผู้ดูแล — ปักหมุดสถานที่ (`places`) และเขตอันตราย |
+
+> เอกสารของโปรเจกต์เขียนคนละเวลา และโค้ดฝั่งแอปกับ backend อยู่คนละรีโป **ถ้าเจอที่ไม่ตรงกัน
+> ให้ยึดโค้ดกับสามไฟล์นี้ แล้วบอกกันทันที** — สามครั้งที่ผ่านมาเสียเวลาไปกับการสร้างของที่อีกฝั่ง
+> ตัดไปแล้ว หรือรอของที่อีกฝั่งไม่รู้ว่าต้องทำ
+
+---
+
 ## Setup (every teammate must do this after cloning)
 
 Installed packages and secrets are **not** in git — each person sets them up locally.
@@ -141,48 +155,30 @@ above).
 
 ## What each teammate should do next
 
-- **GPS endpoint owner** — **TODO (not done yet):** `api/gps.py` currently
-  persists GPS to an in-memory list (`data_collection.save_gps_data`), so nothing
-  reaches Postgres and the AI modules have no history to read. Repoint it to the
-  real single-writer path, `gps_processor.process_gps_point()` (Kalman-smooths →
-  writes Postgres → pushes live position to Firebase):
-  ```python
-  # app/api/gps.py
-  from fastapi import APIRouter, Depends
-  from sqlalchemy.ext.asyncio import AsyncSession
-
-  from app.db.database import get_db
-  from app.models.gps_data import GPSDataCreate
-  from app.services.gps_processor import process_gps_point
-
-  router = APIRouter()
-
-  @router.post("/api/gps")
-  async def receive_gps(data: GPSDataCreate, db: AsyncSession = Depends(get_db)):
-      point = await process_gps_point(db, data)
-      return {"status": "success", "patient_id": data.patient_id, "id": point.id}
-  ```
-  Reconcile the request model with `GPSDataCreate` (`app/models/gps_data.py`):
-  `patient_id` is an **int** FK to `users.id` (not the Flutter string UID — that
-  lives in `users.firebase_uid`; resolve it via `crud.get_user_id_by_firebase_uid`);
-  the time field is `recorded_at: datetime` (parse the app's UTC ISO string ending
-  in `Z`; server stamps `datetime.now(timezone.utc)` if missing); `accuracy` and
-  `altitude` are optional. Once repointed, `analyze_behavior(db, patient_id)` runs
-  the Module 1 pipeline with no further DB work.
-- **Module 1 (behavior) owner** — call `analyze_behavior(db, patient_id)` from a
-  trigger/endpoint when you want to (re)learn places. Also tune the Kalman params
-  in `preprocess_gps` (`R=1e-3 ≫ Q=1e-5`): they currently smooth across location
-  jumps, so distinct places ~1 km apart collapse into one cluster.
+- **GPS endpoint owner — ✅ done 2026-08-19.** `POST /api/gps` calls
+  `gps_processor.process_gps_point()` (Kalman-smooths → writes Postgres → pushes
+  live position to Firebase), and `POST /api/gps/batch` sorts by `recorded_at`
+  before feeding the filter. Note the request shape: `patient_id` is an **int** FK
+  to `users.id` (not the Firebase UID string — that lives in `users.firebase_uid`),
+  the time field is `recorded_at` (UTC ISO ending in `Z`), and `speed`/`direction`
+  default to `null`. Full contract in `backend/API_CONTRACT_APP.md`.
+- **Module 1 (behavior) — ⛔ ห้ามเรียก `analyze_behavior()` (ตัดสิน 2026-08-26).**
+  วัดแล้วว่า DBSCAN บนจุด GPS ดิบให้ "สถานที่" 142–156 แห่งต่อ 30 วัน ก้อนใหญ่สุดกินพื้นที่
+  1.5 กม. จากจุดศูนย์กลางตัวเอง และ `cluster_places` ไม่ใส่ชื่อสถานที่มาให้เลย — สถานที่ที่
+  ระบบเรียนรู้เองจึงบอกครอบครัวเป็นคำพูดไม่ได้ **production ใช้หมุดที่ผู้ดูแลปักเท่านั้น**
+  (`POST /api/patients/{id}/places`) โค้ดยังอยู่ในรีโปเพื่อใช้เป็นผลการทดลองในรายงาน
 - **Flutter dev** — after Firebase sign-in, call `POST /api/register` once so the
   `users` row exists before any GPS is sent. Send timestamps as **UTC ISO**
   strings ending in `Z`. Then `POST /api/devices/token` with the caregiver's FCM
   token, or alerts are written and never delivered — full contract and push
-  payload in `backend/API_CONTRACT_APP.md`.
+  payload in `backend/API_CONTRACT_APP.md`. หน้าผู้ดูแลที่เพิ่มผู้ป่วยต้องส่ง
+  **สถานที่ที่ผู้ป่วยไปเป็นกิจวัตรให้ครบ ไม่ใช่แค่บ้าน** — วัดแล้วว่าปักแค่บ้านทำให้วัด ตลาด
+  และบ้านลูกหลานได้คะแนนเสี่ยง 56 (medium) เท่ากับหลงห่างบ้าน 2.5 กม. ทุกครั้งที่ไป
+  ดู `backend/API_CONTRACT_ADMIN.md` และ `POST /api/sos` ก็พร้อมใช้แล้ว
 - **Auth is built but off.** `app/services/auth.py` verifies a Firebase ID token,
   maps it to `users.id`, and allows only the patient or their caregiver. It is
   gated behind `AUTH_ENABLED` (default `false`); see `.env.example`. Send the
   `Authorization: Bearer <id token>` header from the start so turning it on is a
   one-line change on the server and none in the app.
-- **Still unimplemented:** the Flutter mobile app itself (Patient/Caregiver
-  screens, Maps SDK, SOS, chat — `flutter_app/` currently has no `pubspec.yaml`,
-  only `lib/services/location_service.dart`).
+- **แอป Flutter ไม่ได้อยู่ในรีโปนี้** — `git ls-files` ไม่มีไฟล์ Flutter สักไฟล์ งานฝั่งแอป
+  อยู่ที่อื่น ซึ่งเป็นเหตุผลที่เอกสารสองฝั่งหลุดจากกันได้ง่าย ถ้าจะย้ายเข้ามารวมกัน คุยกันก่อน
