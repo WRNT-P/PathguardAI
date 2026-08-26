@@ -274,3 +274,95 @@ async def test_a_profile_pinned_before_the_flag_existed_does_not_get_two_homes(
 
     assert [p["place_name"] for p in body["places"]] == ["บ้านใหม่", "ตลาด"]
     assert [p["is_home"] for p in body["places"]] == [True, False]
+
+
+# ── the pin set and the learned routine ───────────────────────────────────────
+# routine_patterns refers to places by cluster_id, and renumber() hands those out
+# by position on every write. A routine that outlives a re-pin therefore changes
+# meaning without changing content.
+
+ROUTINE = json.dumps([{"hour": 9, "cluster_id": 1, "probability": 0.9, "samples": 20}])
+
+
+async def test_repinning_drops_the_learned_routine(client, db_session):
+    """Measured before the fix: the routine said hour 9 -> cluster 1 -> "วัด";
+    after a re-pin that reordered the list, cluster 1 was "บ้าน" and the routine
+    silently claimed the patient is usually home at 9 a.m."""
+    patient_id = await _register_patient(client, "routine-repin")
+    await client.post(
+        f"/api/patients/{patient_id}/places", json={"places": [HOME, MARKET]})
+    await crud.upsert_behavioral_profile(
+        db_session, patient_id, routine_patterns=ROUTINE)
+    await db_session.commit()
+    db_session.expire_all()
+
+    await client.post(
+        f"/api/patients/{patient_id}/places", json={"places": [MARKET, HOME]})
+    db_session.expire_all()
+
+    profile = await crud.get_behavioral_profile(db_session, patient_id)
+    assert json.loads(profile.routine_patterns) == []
+
+
+async def test_setting_the_home_drops_the_learned_routine(client, db_session):
+    patient_id = await _register_patient(client, "routine-home")
+    await client.post(
+        f"/api/patients/{patient_id}/places", json={"places": [HOME, MARKET]})
+    await crud.upsert_behavioral_profile(
+        db_session, patient_id, routine_patterns=ROUTINE)
+    await db_session.commit()
+    db_session.expire_all()
+
+    await client.put(f"/api/patients/{patient_id}/places/home", json=NEW_HOME)
+    db_session.expire_all()
+
+    profile = await crud.get_behavioral_profile(db_session, patient_id)
+    assert json.loads(profile.routine_patterns) == []
+
+
+# ── which pin is the home ─────────────────────────────────────────────────────
+
+async def test_the_caller_says_which_pin_is_the_home(client):
+    """Guessing it from list order let a reordered save move the home silently,
+    and the next home update then deleted a real place."""
+    body = (await client.post(
+        f"/api/patients/{await _register_patient(client, 'home-explicit')}/places",
+        json={"places": [MARKET, {**HOME, "is_home": True}]})).json()
+
+    flags = {p["place_name"]: p["is_home"] for p in body["places"]}
+    assert flags == {"ตลาด": False, "บ้าน": True}
+
+
+async def test_reordering_the_save_no_longer_moves_the_home(client):
+    """The exact sequence that used to delete the market."""
+    patient_id = await _register_patient(client, "home-reorder")
+    marked = [{**HOME, "is_home": True}, MARKET]
+    await client.post(f"/api/patients/{patient_id}/places", json={"places": marked})
+    await client.post(f"/api/patients/{patient_id}/places",
+                      json={"places": [MARKET, {**HOME, "is_home": True}]})
+
+    body = (await client.put(
+        f"/api/patients/{patient_id}/places/home", json=NEW_HOME)).json()
+
+    # The market survives. Before the fix it was flagged as the home by position
+    # and this call replaced it.
+    assert [p["place_name"] for p in body["places"]] == ["บ้านใหม่", "ตลาด"]
+
+
+async def test_two_pins_cannot_both_be_the_home(client):
+    patient_id = await _register_patient(client, "home-two")
+    resp = await client.post(
+        f"/api/patients/{patient_id}/places",
+        json={"places": [{**HOME, "is_home": True}, {**MARKET, "is_home": True}]})
+
+    assert resp.status_code == 422
+
+
+async def test_a_client_that_never_sends_is_home_still_works(client):
+    """Older callers said nothing; the first pin stays the fallback."""
+    patient_id = await _register_patient(client, "home-fallback")
+    body = (await client.post(
+        f"/api/patients/{patient_id}/places",
+        json={"places": [HOME, MARKET]})).json()
+
+    assert [p["is_home"] for p in body["places"]] == [True, False]

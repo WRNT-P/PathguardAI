@@ -12,7 +12,14 @@ move or rename a place, and with no pins on file it writes nothing at all.
 
 Run it against Neon whenever a patient has accumulated history worth learning
 from; there is no scheduler and it does not need one, because a routine that is
-a week stale is still a routine:
+a week stale is still a routine.
+
+**Re-run it after a caregiver changes the pins.** ``api/places.py`` clears this
+column on every pin write, because a routine refers to places by ``cluster_id``
+and ``renumber`` reassigns those by position — a routine kept across a re-pin can
+say "usually at the temple at 9" and mean "usually at home at 9", with identical
+content. Until this runs again Module 5 is back to three factors, which is honest;
+a stale routine would not be.
 
     python -m scripts.build_routine_patterns                 # every patient with pins
     python -m scripts.build_routine_patterns --patient 42
