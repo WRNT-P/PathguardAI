@@ -19,7 +19,7 @@
 | **L2-1** | ~~ส่ง `API_CONTRACT_APP.md` ให้คนที่ 1~~ **ส่งแล้ว 26 ส.ค.** | รอคนที่ 1 ตอบ |
 | **L2-4** | ~~`pairing_codes` + `POST /api/patients` + `POST /api/pair`~~ ✅ **เสร็จ 26 ส.ค.** merge เป็น `d75c757` | — |
 | **L2-3** | flip `AUTH_ENABLED=true` | คำตอบของ L2-1 (คนที่ 1 ต้องรับ `/api/pair`) |
-| **L2-2** | `cloudflared tunnel --url http://localhost:8000` แล้วส่ง URL ให้คนที่ 1 — **ตัวที่อยู่บนพอร์ตนั้นต้องเป็น `app.main` ไม่ใช่ `demo_server`** ดู §2 · `cloudflared` ยังไม่ได้ติดตั้ง | คุณ |
+| **L2-2** | `cloudflared tunnel --url http://localhost:8000` แล้วส่ง URL ให้คนที่ 1 — **ตัวที่อยู่บนพอร์ตนั้นต้องเป็น `app.main` ไม่ใช่ `demo_server`** ดู §2 · `cloudflared 2026.8.2` ติดตั้งแล้ว 26 ส.ค. (ต้องเปิด terminal ใหม่ถึงจะเจอคำสั่ง) | คุณ · หลัง L2-3 |
 
 **ก่อน deploy ต้องรัน 2 คำสั่งกับ Neon ไม่ใช่คำสั่งเดียว**
 
@@ -214,9 +214,14 @@ cloudflared tunnel --url http://localhost:8000
 venv/Scripts/python.exe -m uvicorn scripts.demo_server:app --port 8001
 ```
 
-**ต้องใช้มือคุณ:** รัน `cloudflared` แล้วส่ง URL ให้คนที่ 1
-**`cloudflared` ยังไม่ได้ติดตั้งบนเครื่องนี้** (`which cloudflared` ไม่เจอ ณ 26 ส.ค.)
-ต้องโหลดก่อน ไม่ใช่แค่พิมพ์คำสั่ง
+**ติดตั้งแล้ว 26 ส.ค.** — `cloudflared 2026.8.2` ผ่าน
+`winget install --id Cloudflare.cloudflared --scope user` (ไม่ต้อง admin, winget ตรวจ
+hash ของ installer แล้ว, ไบนารีมาจาก GitHub release ทางการของ Cloudflare)
+⚠️ winget แก้ PATH ให้แล้วแต่ **หน้าต่าง terminal ที่เปิดค้างอยู่ก่อนติดตั้งจะยังไม่เห็น**
+ต้องเปิด terminal ใหม่ ไม่งั้นจะขึ้นว่าไม่รู้จักคำสั่ง
+
+**ต้องใช้มือคุณ:** รัน `cloudflared` แล้วส่ง URL ให้คนที่ 1 — **ยังไม่รัน เพราะยังไม่ได้เปิด
+auth (L2-3)** การติดตั้งกับการเปิด tunnel เป็นคนละเรื่อง อันแรกทำล่วงหน้าได้ อันหลังทำไม่ได้
 
 > **R5 ในแผน 4 สัปดาห์ (หมุนกุญแจ Firebase) ยกเลิกแล้ว 2026-08-20** — ผู้ใช้ยืนยันว่า
 > กุญแจไม่เคยหลุด และ `git log --all --diff-filter=A` ยืนยันว่าไม่เคยถูก commit
