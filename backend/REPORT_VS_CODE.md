@@ -20,7 +20,7 @@
 |---|---|---|
 | **Smart Recommendation** — Top 3 (L1) / Top 5 (L2) | ✅ **แก้แล้ว 2026-08-26** อ่าน `users.severity_level` แล้วเลือก 3 หรือ 5 ให้เอง ไม่ระบุระดับ = 3 เท่าเดิม | `/api/recommendation/{id}` ไม่ต้องส่งพารามิเตอร์เพิ่ม |
 | **Smart Recommendation ปรับตามช่วงเวลา** ("เช้าแนะนำตลาด เย็นแนะนำสวน") | 🔴 **ไม่ทำงาน** | `recommendation_generation.py:35` ตั้ง `time_match` weight = **0.0** และบรรทัด 84 ฮาร์ดโค้ด `time_match = 0.0` เพราะไม่มีใครเขียน `routine_patterns` — **คำแนะนำไม่รู้จักเวลาเลย** |
-| **Push Notification** ออกนอกบ้าน / นอกจุดหมาย / นอกเส้นทาง = 3 เหตุการณ์ | 🔴 **ไม่ตรง** ระบบมี alert แค่ 5 ชนิด และ **ไม่มี off-route** | เขียนจริงได้แค่ `geofence`, `emergency`, `gps_loss`, `gps_lost`, `sos` การออกนอกเส้นทางเป็น *ปัจจัยคะแนน* (`route_deviation` 30%) ไม่ใช่ event — เดินออกจากบ้านไปที่ที่ไม่ได้ปักหมุดได้ 56 = medium = **ไม่ยิงอะไรเลย** |
+| **Push Notification** ออกนอกบ้าน / นอกจุดหมาย / นอกเส้นทาง = 3 เหตุการณ์ | 🔴 **ไม่ตรง** ระบบมี alert แค่ 5 ชนิด และ **ไม่มี off-route** | เขียนจริงได้แค่ `geofence`, `emergency`, `gps_loss`, `sos`, `trip_denied` การออกนอกเส้นทางเป็น *ปัจจัยคะแนน* (`route_deviation` 30%) ไม่ใช่ event — เดินออกจากบ้านไปที่ที่ไม่ได้ปักหมุดได้ 56 = medium = **ไม่ยิงอะไรเลย** |
 | **Real-time Navigation** "เลี้ยวซ้าย อีก 80 เมตร" | 🔴 **ไม่มีเลย** | ไม่มี routing/directions ที่ไหนใน `app/` `route_prediction` ทำนายลำดับ *cluster* ไม่ใช่คำสั่งเลี้ยว **ต้องมีผู้ให้บริการเส้นทาง (Google Directions / OSRM) ที่โปรเจกต์ยังไม่มี** |
 | **Off-route Detection** → "AI คำนวณเส้นทางกลับทันที แสดงคำสั่งทีละขั้นตอน" | 🔴 **ไม่มี** | ต้องใช้ routing เหมือนข้อบน |
 | **Zero-UI Mode** | ✅ ไม่ต้องใช้ backend | ฝั่งแอปล้วน |

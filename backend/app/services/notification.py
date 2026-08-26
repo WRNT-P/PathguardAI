@@ -34,7 +34,6 @@ _TITLES = {
     "emergency": "PathGuard — ต้องการความช่วยเหลือ",
     "geofence": "PathGuard — เข้าเขตอันตราย",
     "gps_loss": "PathGuard — สัญญาณ GPS หาย",
-    "gps_lost": "PathGuard — สัญญาณ GPS หาย",
     "wandering": "PathGuard — พบการเดินหลง",
     # The patient pressed the button themselves — say so, because a caregiver
     # triages "the app thinks something is wrong" differently from "they asked".

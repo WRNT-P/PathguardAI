@@ -14,7 +14,7 @@ Flow:
   5. Adjust radius using behavioral data
   6. Simulate 10 000 paths (Monte Carlo + A*)
   7. Estimate probability zones via KDE
-  8. Persist a gps_lost alert
+  8. Persist a gps_loss alert
   9. Return SearchAreaResponse
 """
 from __future__ import annotations
@@ -174,12 +174,12 @@ async def get_search_area(
     # ── 9. Persist GPS-loss alert ─────────────────────────────────────────────
     # Only raise the alert when GPS was actually lost. A caregiver supplying
     # override coordinates to plan a search proactively (while GPS is still
-    # active) must not generate a false gps_lost alert.
+    # active) must not generate a false gps_loss alert.
     if gap["gps_lost"]:
         alert = await crud.save_alert(
             db,
             patient_id,
-            alert_type="gps_lost",
+            alert_type="gps_loss",
             severity="high",
             message=(
                 f"Search area activated — patient missing for ~{t_missing} min. "
