@@ -2,6 +2,12 @@
 
 # Module 1 — Behavior
 
+> 🕗 **ขอบเขต: อธิบายโมดูล AI 1–5 ไม่ใช่ API ทั้งระบบ** ตรวจเมื่อ 27 ส.ค.
+> สิ่งที่สร้างวันที่ 26 และยังไม่อยู่ในนี้: ปุ่ม SOS · การจับคู่เครื่องด้วยรหัส ·
+> การขออนุมัติเดินทาง (C-3) พร้อม `trip_confidence.py` · `users.severity_level`
+> ที่ทำให้รัศมีค้นหาและจำนวนรายการแนะนำต่างกันตามระยะของโรค ·
+> `routine_patterns.py` ที่ทำให้ปัจจัยช่วงเวลาของ Module 5 มีค่าเป็นครั้งแรก
+
 > **Measured 2026-08-22: this does not work as described below.** On a real
 > 30-day window `cluster_places` returns **156 "places"**, 124 of them with an
 > average stay under five minutes, and the largest spanning **1,533 m** from its

@@ -1,5 +1,11 @@
 # PathGuard AI — โครงสร้างโปรเจกต์ (backend/app)
 
+> 🕗 **เขียน 22 ส.ค. 2026 · ไฟล์ที่เพิ่มหลังจากนั้นยังไม่อยู่ในนี้** ตรวจเมื่อ 27 ส.ค.
+> ที่ขาด: `app/api/sos.py` · `app/api/pairing.py` · `app/api/trip_requests.py` ·
+> `app/ai/module1_behavior/routine_patterns.py` · `app/ai/module5_recommend/trip_confidence.py` ·
+> `scripts/build_routine_patterns.py` · `scripts/migrate_add_severity_level.py`
+> **`ls` ที่โฟลเดอร์จริงคือคำตอบที่ถูกเสมอ** อันนี้ใช้ดูว่าแต่ละส่วนทำหน้าที่อะไร
+
 โครงสร้างไฟล์จริงของ backend พร้อมคำอธิบายภาษาไทยทุกโฟลเดอร์และทุกไฟล์
 (ชื่อไฟล์/โฟลเดอร์เป็นภาษาอังกฤษ คำอธิบายเป็นภาษาไทย)
 

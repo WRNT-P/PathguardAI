@@ -1,5 +1,13 @@
 # PathGuard AI — ชั้นฐานข้อมูล (Database Layer)
 
+> 🕗 **เขียน 22 ส.ค. 2026 · ขาดตาราง 7 จาก 14** ตรวจกับ `models.py` เมื่อ 27 ส.ค.
+> เอกสารนี้บอกว่าอ้างอิงจากโค้ดจริง ซึ่งจริง ณ วันที่เขียน แต่ตอนนี้**ไม่มี**:
+> `danger_zones` · `pairing_codes` · `trip_requests` · และตารางฐานความรู้ทั้งสี่
+> `risk_factor_weights` · `risk_thresholds` · `temporal_rules` · `rule_audit_log`
+> (สี่ตัวหลังคือหัวใจของ Module 3 ที่ทำให้กฎแก้ได้โดยไม่แตะโค้ด — ดู
+> `module3_rule_based_system.md`) และคอลัมน์ `users.severity_level`
+> **ยึด `app/db/models.py` เป็นหลักเสมอ** เอกสารนี้ใช้ดูภาพรวมได้ ใช้ตรวจความครบไม่ได้
+
 อ้างอิงจาก `app/db/models.py` (ORM/ตาราง) และ `app/db/crud.py` (ฟังก์ชันอ่าน/เขียน) จริง
 ระบบใช้ **PostgreSQL** เก็บประวัติ/ผล AI ทั้งหมด ส่วน **Firebase Realtime DB** เก็บตำแหน่งสด (live) แยกต่างหาก ไม่อยู่ใน ORM นี้
 
