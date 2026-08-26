@@ -12,8 +12,13 @@ venv/
 .claude/
 AGENTS.md
 
-# Documentation / walkthroughs — keep main to runnable code + tests only
-docs/
+# Documentation / walkthroughs. The .md files ARE tracked as of 2026-08-26:
+# ignoring the folder wholesale meant teammates could not read the API contracts
+# or the lane plans, which is exactly how the app side spent six days collecting
+# a "safe place" with no endpoint to send it to. The 30 MB of PDFs stays out
+# (see *.pdf below), and so does anything else that lands in here.
+docs/*
+!docs/*.md
 
 # Test/build artifacts
 .pytest_cache/
