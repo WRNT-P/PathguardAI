@@ -17,7 +17,7 @@ import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.module1_behavior.known_places import (
@@ -63,6 +63,11 @@ class PlaceIn(BaseModel):
     visit_rank: VisitRank
     stay_rank: StayRank
     radius_m: int = Field(default=DEFAULT_RADIUS_M, ge=20, le=5000)
+    # Which pin is the patient's residence. Say it explicitly: it decides what
+    # PUT .../places/home replaces, and guessing it from list order means a UI
+    # that sorts or lets the caregiver drag rows silently moves the home — and
+    # the next home update then deletes a real place.
+    is_home: bool = False
 
 
 class PlacesIn(BaseModel):
@@ -74,6 +79,15 @@ class PlacesIn(BaseModel):
     the thousands would size a matrix in the millions.
     """
     places: list[PlaceIn] = Field(..., min_length=1, max_length=_MAX_PLACES)
+
+    @model_validator(mode="after")
+    def _at_most_one_home(self) -> "PlacesIn":
+        marked = [p.place_name for p in self.places if p.is_home]
+        if len(marked) > 1:
+            raise ValueError(
+                f"only one place may be is_home, got {len(marked)}: {marked}"
+            )
+        return self
 
     # min_length=1 is deliberate, not an oversight. A caregiver correcting a
     # wrong pin re-sends the corrected set; the only state it forbids is *zero*
@@ -117,6 +131,17 @@ class PlacesOut(BaseModel):
     count: int
 
 
+# A learned routine is derived from the pin set, and it refers to places by
+# ``cluster_id`` — which ``renumber`` hands out by position and reassigns on every
+# write. So the moment the pins change, a stored routine can point at a different
+# place than the one it learned, with nothing to signal it: "usually at the temple
+# at 9" silently becomes "usually at home at 9". Both writers below therefore drop
+# the routine, and scripts/build_routine_patterns.py rebuilds it. Losing the
+# routine costs Module 5 one factor until that runs; keeping a stale one costs
+# correctness with no way to notice.
+_ROUTINE_INVALIDATED = "[]"
+
+
 async def _require_patient(db: AsyncSession, patient_id: int) -> None:
     if not await crud.user_exists(db, patient_id):
         raise HTTPException(
@@ -142,6 +167,7 @@ def _to_record(place: PlaceIn) -> dict:
         "visit_rank": place.visit_rank,
         "stay_rank": place.stay_rank,
         "source": "manual",
+        "is_home": place.is_home,
     }
 
 
@@ -180,14 +206,18 @@ async def set_places(
     stored = decode(profile.known_places if profile else None)
     learned = [p for p in stored if p.get("source") != "manual"]
     manual = [_to_record(p) for p in payload.places]
-    # The first pin is the home. PlacesIn.min_length=1 guarantees there is one,
-    # so every patient with pins has exactly one home and PUT .../places/home
-    # below always has a row to replace rather than a duplicate to create.
-    manual[0]["is_home"] = True
+    # Exactly one pin must end up flagged, so PUT .../places/home below always
+    # has a row to replace rather than a duplicate to append. The caller says
+    # which; falling back to the first pin only when they said nothing keeps
+    # older clients working, and min_length=1 guarantees there is a first pin.
+    if not any(p["is_home"] for p in manual):
+        manual[0]["is_home"] = True
     places = renumber(manual + learned)
 
     await crud.upsert_behavioral_profile(
-        db, patient_id, known_places=json.dumps(places, ensure_ascii=False)
+        db, patient_id,
+        known_places=json.dumps(places, ensure_ascii=False),
+        routine_patterns=_ROUTINE_INVALIDATED,
     )
     return PlacesOut(
         patient_id=patient_id,
@@ -245,7 +275,9 @@ async def set_home_place(
     places = renumber([home] + others + learned)
 
     await crud.upsert_behavioral_profile(
-        db, patient_id, known_places=json.dumps(places, ensure_ascii=False)
+        db, patient_id,
+        known_places=json.dumps(places, ensure_ascii=False),
+        routine_patterns=_ROUTINE_INVALIDATED,
     )
     return PlacesOut(
         patient_id=patient_id,
