@@ -27,8 +27,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import (
-    admin_rules, alerts, gps, recommendation, risk, search_area, tracking,
-    users,
+    admin_rules, alerts, danger_zones, devices, gps, pairing, places,
+    recommendation, risk, search_area, sos, tracking, trip_requests, users,
 )
 from app.db.database import get_db, init_db
 from app.db.models import BehavioralProfile, GPSData, User
@@ -55,8 +55,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="PathGuard AI — Demo Dashboard", lifespan=lifespan)
 
+# Keep this list identical to app/main.py's. It was short of `places` and five
+# others, so a caregiver pin sent at the dashboard's port came back 404 while the
+# same request against app.main worked — a difference nothing announced.
 for module in (users, gps, recommendation, risk, search_area, admin_rules,
-               tracking, alerts):
+               places, danger_zones, devices, tracking, alerts, sos, pairing,
+               trip_requests):
     app.include_router(module.router)
 
 

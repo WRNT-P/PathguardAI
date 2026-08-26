@@ -154,3 +154,94 @@ async def test_pinning_switches_scoring_from_partial_to_full(client):
     # Sitting at a pinned home is now recognisable as being somewhere it belongs.
     assert after["contributions"]["unfamiliarity"] == 0.0
     assert after["risk_level"] == "low"
+
+
+# ── PUT .../places/home — the narrow write ────────────────────────────────────
+# The whole-set POST above replaces the caregiver's manual pins. The app's "add a
+# patient" screen collects one safe place, so re-sending it against that endpoint
+# would delete every other pin with a 201 and no error, and the family would go
+# back to a 56-medium alert on every routine outing. These pin that it cannot.
+
+NEW_HOME = {"place_name": "บ้านใหม่", "latitude": 13.7500, "longitude": 100.5000}
+
+
+async def test_setting_the_home_cannot_delete_the_other_pins(client):
+    """The hazard this endpoint exists for."""
+    patient_id = await _register_patient(client, "home-keeps")
+    await client.post(
+        f"/api/patients/{patient_id}/places", json={"places": [HOME, MARKET]})
+
+    resp = await client.put(
+        f"/api/patients/{patient_id}/places/home", json=NEW_HOME)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["count"] == 2                                  # not 1
+    assert [p["place_name"] for p in body["places"]] == ["บ้านใหม่", "ตลาด"]
+
+
+async def test_setting_the_home_twice_replaces_it_rather_than_adding_one(client):
+    patient_id = await _register_patient(client, "home-upsert")
+    await client.put(f"/api/patients/{patient_id}/places/home", json=NEW_HOME)
+    resp = await client.put(
+        f"/api/patients/{patient_id}/places/home",
+        json={**NEW_HOME, "place_name": "บ้านลูกสาว"})
+
+    body = resp.json()
+    assert body["count"] == 1
+    assert body["places"][0]["place_name"] == "บ้านลูกสาว"   # renamed, not duplicated
+
+
+async def test_exactly_one_pin_is_ever_the_home(client):
+    """The invariant both writers hold, so the upsert always has a row to replace."""
+    patient_id = await _register_patient(client, "home-single")
+
+    whole_set = await client.post(
+        f"/api/patients/{patient_id}/places", json={"places": [HOME, MARKET]})
+    flags = [p["is_home"] for p in whole_set.json()["places"]]
+    assert flags == [True, False], "the first pin of a whole-set write is the home"
+
+    after = await client.put(
+        f"/api/patients/{patient_id}/places/home", json=NEW_HOME)
+    assert [p["is_home"] for p in after.json()["places"]] == [True, False]
+
+
+async def test_the_home_is_pinned_as_a_residence_not_at_whatever_rank_was_sent(
+    client, db_session
+):
+    """No ranks on the wire: a home pinned as ``rare`` reads the patient as a
+    stranger in their own living room, and the app has no reason to choose."""
+    patient_id = await _register_patient(client, "home-rank")
+    await client.put(f"/api/patients/{patient_id}/places/home", json=NEW_HOME)
+
+    profile = await crud.get_behavioral_profile(db_session, patient_id)
+    stored = json.loads(profile.known_places)[0]
+    assert stored["visit_frequency"] == VISIT_FREQUENCY["daily_live"]
+    assert stored["avg_stay_time"] == STAY_SECONDS["all_day"]
+    assert stored["source"] == "manual"
+
+
+async def test_setting_the_home_keeps_what_module_1_learned(client, db_session):
+    patient_id = await _register_patient(client, "home-learned")
+    learned = {"cluster_id": 7, "place_name": "clustered", "latitude": 13.80,
+               "longitude": 100.60, "visit_frequency": 22, "avg_stay_time": 500.0,
+               "source": "learned"}
+    await crud.upsert_behavioral_profile(
+        db_session, patient_id, known_places=json.dumps([learned]))
+    await db_session.commit()
+
+    resp = await client.put(
+        f"/api/patients/{patient_id}/places/home", json=NEW_HOME)
+
+    places = resp.json()["places"]
+    assert [p["source"] for p in places] == ["manual", "learned"]
+    assert [p["cluster_id"] for p in places] == [0, 1]
+
+
+async def test_home_endpoint_rejects_an_unknown_patient_and_a_bad_pin(client):
+    assert (await client.put(
+        "/api/patients/999999/places/home", json=NEW_HOME)).status_code == 404
+    patient_id = await _register_patient(client, "home-invalid")
+    assert (await client.put(
+        f"/api/patients/{patient_id}/places/home",
+        json={**NEW_HOME, "latitude": 999.0})).status_code == 422
