@@ -37,3 +37,8 @@ backend/app/ai/module4_search_area/module4_instruction.txt
 
 # Redundant standalone script (covered by tests/test_module2_detectors.py)
 backend/test_wandering_detection.py
+
+# Third-party binaries kept beside the project for convenience — never in git.
+# cloudflared alone is 52 MB, and a binary that lands in history stays there.
+# Teammates install their own: winget install --id Cloudflare.cloudflared
+tools/

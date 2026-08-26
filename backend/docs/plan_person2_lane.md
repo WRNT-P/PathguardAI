@@ -19,7 +19,7 @@
 | **L2-1** | ~~ส่ง `API_CONTRACT_APP.md` ให้คนที่ 1~~ **ส่งแล้ว 26 ส.ค.** | รอคนที่ 1 ตอบ |
 | **L2-4** | ~~`pairing_codes` + `POST /api/patients` + `POST /api/pair`~~ ✅ **เสร็จ 26 ส.ค.** merge เป็น `d75c757` | — |
 | **L2-3** | flip `AUTH_ENABLED=true` | คำตอบของ L2-1 (คนที่ 1 ต้องรับ `/api/pair`) |
-| **L2-2** | `cloudflared tunnel --url http://localhost:8000` แล้วส่ง URL ให้คนที่ 1 — **ตัวที่อยู่บนพอร์ตนั้นต้องเป็น `app.main` ไม่ใช่ `demo_server`** ดู §2 · `cloudflared 2026.8.2` ติดตั้งแล้ว 26 ส.ค. (ต้องเปิด terminal ใหม่ถึงจะเจอคำสั่ง) | คุณ · หลัง L2-3 |
+| **L2-2** | `cloudflared tunnel --url http://localhost:8000` แล้วส่ง URL ให้คนที่ 1 — **ตัวที่อยู่บนพอร์ตนั้นต้องเป็น `app.main` ไม่ใช่ `demo_server`** ดู §2 · `tools/cloudflared.exe` (2026.8.2) ติดตั้งแล้ว 26 ส.ค. ไม่ได้อยู่บน PATH ต้องเรียกด้วย path จากรากโปรเจกต์ | คุณ · หลัง L2-3 |
 
 **ก่อน deploy ต้องรัน 2 คำสั่งกับ Neon ไม่ใช่คำสั่งเดียว**
 
@@ -208,17 +208,25 @@ Android 9+ บล็อก HTTP ธรรมดา (เพื่อนต้อ�
 venv/Scripts/python.exe -m uvicorn app.main:app --port 8000
 
 # หน้าต่างที่ 2 — ได้ URL https://xxxx.trycloudflare.com ทันที ไม่ต้องสมัคร
-cloudflared tunnel --url http://localhost:8000
+# (รันจากรากโปรเจกต์ ไม่ใช่ backend/ — cloudflared ไม่ได้อยู่บน PATH)
+tools/cloudflared.exe tunnel --url http://localhost:8000
 
 # หน้าต่างที่ 3 (ถ้าจะใช้ dashboard) — คนละพอร์ต ไม่ออก tunnel เด็ดขาด
 venv/Scripts/python.exe -m uvicorn scripts.demo_server:app --port 8001
 ```
 
-**ติดตั้งแล้ว 26 ส.ค.** — `cloudflared 2026.8.2` ผ่าน
-`winget install --id Cloudflare.cloudflared --scope user` (ไม่ต้อง admin, winget ตรวจ
-hash ของ installer แล้ว, ไบนารีมาจาก GitHub release ทางการของ Cloudflare)
-⚠️ winget แก้ PATH ให้แล้วแต่ **หน้าต่าง terminal ที่เปิดค้างอยู่ก่อนติดตั้งจะยังไม่เห็น**
-ต้องเปิด terminal ใหม่ ไม่งั้นจะขึ้นว่าไม่รู้จักคำสั่ง
+**ติดตั้งแล้ว 26 ส.ค. — และย้ายมาไว้ในโปรเจกต์** `tools/cloudflared.exe` (2026.8.2)
+
+ได้มาจาก `winget install --id Cloudflare.cloudflared --scope user` (ไม่ต้อง admin,
+winget ตรวจ hash ของ installer, ไบนารีมาจาก GitHub release ทางการของ Cloudflare)
+แล้วย้ายเข้า `tools/` เพื่อให้รู้ว่าเครื่องมือตัวไหนของงานไหน จากนั้น
+`winget uninstall` เอาชุด winget ออก **เหลือสำเนาเดียวในเครื่อง** ตรวจ SHA256
+ตรงกับต้นฉบับแล้ว: `C29EEE2B...931357B5`
+
+* **ไม่ได้อยู่บน PATH แล้ว** (winget ถอน entry ออกตอน uninstall) เรียกด้วย path จาก
+  รากโปรเจกต์เสมอ — ตัวอย่างข้างล่างแก้ให้แล้ว
+* **`tools/` ถูก gitignore** (`.gitignore:41-44`) ไบนารี 52 MB ห้ามเข้า git
+  เพื่อนร่วมทีมต้องติดตั้งเอง คำสั่ง winget อยู่ในคอมเมนต์ของ `.gitignore`
 
 **ต้องใช้มือคุณ:** รัน `cloudflared` แล้วส่ง URL ให้คนที่ 1 — **ยังไม่รัน เพราะยังไม่ได้เปิด
 auth (L2-3)** การติดตั้งกับการเปิด tunnel เป็นคนละเรื่อง อันแรกทำล่วงหน้าได้ อันหลังทำไม่ได้
