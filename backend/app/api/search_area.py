@@ -146,8 +146,13 @@ async def get_search_area(
 
     # ── 6. Adjust radius using behavioral data ────────────────────────────────
     # Wandering score would come from Module 2; use None when unavailable
+    # Stage of illness — the report promises a narrower radius for a moderate-stage
+    # patient and a wider one for an early-stage patient. None when the caregiver
+    # never stated a stage, which changes nothing.
+    patient = await crud.get_user(db, patient_id)
     adjustment = adjust_radius(base_radius_m, known_places, origin_lat, origin_lng,
-                               wandering_score=None)
+                               wandering_score=None,
+                               severity_level=patient.severity_level if patient else None)
     adjusted_radius_m = adjustment["adjusted_radius_m"]
 
     # ── 7. Simulate paths ─────────────────────────────────────────────────────

@@ -1,11 +1,22 @@
 # pathguard/backend/app/ai/module4_search_area/search_radius_adjustment.py
 """Module 4 — Search Radius Adjustment.
 
-Refines the base search radius calculated from Speed × Time using two signals:
+Refines the base search radius calculated from Speed × Time using three signals:
   1. Familiar places density — if none exist inside the radius, expand (patient
      likely walked farther to reach a familiar spot).
   2. Wandering score (from Module 2) — high wandering → expand; low wandering
-     (mid-stage, tends to stay in familiar areas) → contract.
+     (tends to stay in familiar areas) → contract.
+  3. Stage of illness — the report promises a narrower radius for a moderate-stage
+     patient, who walks slowly and circles somewhere familiar, and a wider one for
+     an early-stage patient who can still cover ground.
+
+**Expansions compound; contractions do not.** Two signals both saying "expand"
+multiply, because an over-large search area costs volunteers time. Two signals
+both saying "contract" would multiply to 0.64, and an over-small one costs a
+missing patient the area they are actually standing in — so the largest single
+contraction wins instead of the product. This matters now that stage is a real
+input: the low-wandering contraction was already documented as a mid-stage proxy,
+so stage and wandering are partly the same signal counted twice.
 
 Pure function: no DB, no side effects.
 """
@@ -21,6 +32,14 @@ _CONTRACT_LOW_WANDER = 0.80  # low wandering score (≤ 0.30) → −20%
 _HIGH_WANDER_THRESHOLD = 0.75
 _LOW_WANDER_THRESHOLD = 0.30
 
+# Stage of illness (users.severity_level; 1 = early, 2 = moderate). Report lines
+# 261 and 353 give the direction and no numbers, so these match the magnitude the
+# module already uses for its other adjustments rather than inventing a scale.
+_STAGE_MULTIPLIER = {
+    1: 1.20,   # early — still travels independently, so look further out
+    2: 0.80,   # moderate — slow, and tends to circle somewhere familiar
+}
+
 
 def adjust_radius(
     base_radius_m: float,
@@ -28,6 +47,7 @@ def adjust_radius(
     origin_lat: float,
     origin_lng: float,
     wandering_score: float | None = None,
+    severity_level: int | None = None,
 ) -> dict:
     """Return a refined search radius and the reason for any adjustment.
 
@@ -36,6 +56,9 @@ def adjust_radius(
         known_places:     Behavioral profile places (dicts with 'latitude', 'longitude').
         origin_lat/lng:   Last known patient location.
         wandering_score:  0–1 score from Module 2 WanderingDetector (None if unavailable).
+        severity_level:   ``users.severity_level`` — 1 early, 2 moderate, None if
+                          the caregiver never stated one. None changes nothing;
+                          guessing a stage would be a clinical claim nobody made.
 
     Returns:
         {
@@ -46,6 +69,9 @@ def adjust_radius(
     """
     reasons: list[str] = []
     radius = base_radius_m
+    # Collected rather than applied in place — see the module docstring on why
+    # contractions must not compound.
+    contractions: list[float] = []
 
     # ── Check for familiar places within the base radius ─────────────────────
     # Use .get() with a None-guard (matching _astar_familiar and
@@ -71,8 +97,24 @@ def adjust_radius(
             radius *= _EXPAND_HIGH_WANDER
             reasons.append(f"high wandering score ({wandering_score:.2f}) → expanded 30%")
         elif wandering_score <= _LOW_WANDER_THRESHOLD:
-            radius *= _CONTRACT_LOW_WANDER
+            contractions.append(_CONTRACT_LOW_WANDER)
             reasons.append(f"low wandering score ({wandering_score:.2f}) → contracted 20%")
+
+    # ── Stage of illness ──────────────────────────────────────────────────────
+    stage_multiplier = _STAGE_MULTIPLIER.get(severity_level)
+    if stage_multiplier is not None:
+        pct = abs(round((stage_multiplier - 1.0) * 100))
+        if stage_multiplier >= 1.0:
+            radius *= stage_multiplier
+            reasons.append(f"early stage (level {severity_level}) → expanded {pct}%")
+        else:
+            contractions.append(stage_multiplier)
+            reasons.append(f"moderate stage (level {severity_level}) → contracted {pct}%")
+
+    # The gentlest contraction wins. Multiplying them would shrink the area a
+    # missing patient is searched in on the strength of one signal counted twice.
+    if contractions:
+        radius *= max(contractions)
 
     adjustment_reason = "; ".join(reasons) if reasons else "no adjustment needed"
 
@@ -83,6 +125,7 @@ def adjust_radius(
             "base_radius_m": base_radius_m,
             "familiar_places_in_radius": len(places_in_radius),
             "wandering_score": wandering_score,
+            "severity_level": severity_level,
         },
     }
 

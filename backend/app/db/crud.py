@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
     Alert, BehavioralProfile, DeviceToken, GPSData, PairingCode,
-    PushNotification, RiskScore, User,
+    PushNotification, RiskScore, TripRequest, User,
 )
 
 
@@ -457,3 +457,58 @@ async def get_caregiver_id(db: AsyncSession, patient_id: int) -> int | None:
 async def get_alert(db: AsyncSession, alert_id: int) -> Alert | None:
     """One alert by id — the authorization check needs its ``patient_id``."""
     return await db.get(Alert, alert_id)
+
+
+# ── Trip approval (report C-3) ───────────────────────────────────────────────
+
+async def create_trip_request(
+    db: AsyncSession,
+    patient_id: int,
+    destination_name: str,
+    latitude: float,
+    longitude: float,
+    confidence: float,
+    factors: str | None = None,
+) -> TripRequest:
+    """Record one request, with the confidence as it stood when it was asked."""
+    row = TripRequest(
+        patient_id=patient_id,
+        destination_name=destination_name,
+        latitude=latitude,
+        longitude=longitude,
+        confidence=confidence,
+        factors=factors,
+        status="pending",
+    )
+    db.add(row)
+    await db.flush()
+    return row
+
+
+async def get_trip_request(db: AsyncSession, request_id: int) -> TripRequest | None:
+    result = await db.execute(
+        select(TripRequest).where(TripRequest.id == request_id))
+    return result.scalar_one_or_none()
+
+
+async def get_trip_requests(
+    db: AsyncSession, patient_id: int, status: str | None = None, limit: int = 20,
+) -> list[TripRequest]:
+    """Newest first. ``status`` filters to pending/approved/rejected."""
+    stmt = select(TripRequest).where(TripRequest.patient_id == patient_id)
+    if status is not None:
+        stmt = stmt.where(TripRequest.status == status)
+    result = await db.execute(
+        stmt.order_by(desc(TripRequest.created_at), desc(TripRequest.id)).limit(limit))
+    return list(result.scalars().all())
+
+
+async def decide_trip_request(
+    db: AsyncSession, row: TripRequest, status: str, decided_by: int | None,
+) -> TripRequest:
+    """Approve or reject. The caller has already checked the row is pending."""
+    row.status = status
+    row.decided_by = decided_by
+    row.decided_at = datetime.now(timezone.utc)
+    await db.flush()
+    return row

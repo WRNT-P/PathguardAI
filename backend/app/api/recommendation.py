@@ -33,10 +33,20 @@ from app.models.recommendation import (
 router = APIRouter()
 
 
+# How many places the patient's home screen shows, by stage (report, features
+# table). A Level 2 patient's search box is locked, so the grid is the only way
+# they can reach anywhere — it has to hold everywhere they might want to go. A
+# Level 1 patient can search, so three suggestions plus a search box is enough,
+# and a shorter list is less to read. Unstated stage falls back to the Level 1
+# behaviour, which is what every caller got before this existed.
+_TOP_N_BY_LEVEL = {1: 3, 2: 5}
+_DEFAULT_TOP_N = 3
+
+
 @router.get(
     "/api/recommendation/{patient_id}",
     response_model=RecommendationResponse,
-    summary="Top 3 likely places for a patient, with confidence scores",
+    summary="สถานที่ที่น่าจะไป พร้อมคะแนนความมั่นใจ (3 อันดับ Level 1 / 5 อันดับ Level 2)",
 )
 async def get_recommendations(
     patient_id: int,
@@ -75,7 +85,10 @@ async def get_recommendations(
         else "rule-based fallback (no trained model)"
     )
 
-    top = prioritize(generate_recommendations(ctx, ranker=ranker), top_n=3)
+    patient = await crud.get_user(db, patient_id)
+    top_n = _TOP_N_BY_LEVEL.get(
+        patient.severity_level if patient else None, _DEFAULT_TOP_N)
+    top = prioritize(generate_recommendations(ctx, ranker=ranker), top_n=top_n)
     recommendations = [
         RecommendedPlace(
             rank=i,
