@@ -31,7 +31,7 @@
 
 | ฟีเจอร์ในรายงาน | backend รองรับไหม | หลักฐาน |
 |---|---|---|
-| **Trip Approval (C-3)** อนุมัติการเดินทาง Level 2 | 🔴 **ไม่มี** — ตัดสินใจแล้วว่าจะสร้าง | ไม่มีตาราง ไม่มี endpoint **และ Confidence Score ที่รายงานอ้าง (บรรทัด 536 = Smart Recommendation) ให้ที่ใหม่ได้สูงสุด 0.350 เสมอ** เพราะ `score_place` คิด frequency/familiarity เทียบ `known_places` ที่ที่ไม่เคยไปจึงได้ 0 ทั้งคู่ วัดแล้ว: ห่าง 2 กม. = 0.117, ระยะ 0 = 0.350 (เพดาน) |
+| **Trip Approval (C-3)** อนุมัติการเดินทาง Level 2 | ✅ **สร้างแล้ว 2026-08-26** `POST /api/trip-requests` · `GET /api/patients/{id}/trip-requests` · `PATCH /api/trip-requests/{id}` ดู `API_CONTRACT_APP.md` หัวข้อ 9 | เพดาน 0.350 ของ Confidence Score แก้แล้วด้วย `module5_recommend/trip_confidence.py` — นิยาม "คุ้นเคย" ใหม่สำหรับที่ที่ไม่เคยไปว่า *ใกล้ที่ที่รู้จักแค่ไหน* ตอนนี้ห่างบ้าน 200 ม. ได้ 0.900 (เดิม 0.292) **ต่างจากรายงาน 2 จุดโดยตั้งใจ** — alert เป็น `trip_denied` ไม่ใช่ `sos` (กัน cooldown ชนกัน) และข้าม push ให้คนที่เพิ่งกดปฏิเสธเอง |
 | **Realtime Tracking** | ✅ **มี** | `GET /api/patients/{id}/track` + Firebase live |
 | **Realtime Notification** | ✅ **มี** | FCM `services/notification.py` + `POST /api/devices/token` |
 | **SOS Notification แจ้งผู้ดูแล *ทุกคน* + จัดอันดับระยะทาง + กดว่า "ฉันจะไปรับ"** | 🔴 **ทำไม่ได้ทั้งข้อ** | `models.py:18` — `users.caregiver_id` เป็น FK **ตัวเดียว nullable** = ผู้ป่วย 1 คนมีผู้ดูแลได้ 1 คน · ไม่มีอะไรเก็บ GPS ของ *ผู้ดูแล* จึงคำนวณระยะทางไม่ได้ · ไม่มี action "ฉันจะไปรับ" |

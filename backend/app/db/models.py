@@ -289,3 +289,36 @@ class PairingCode(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (Index("ix_pairing_code_patient", "patient_id"),)
+
+
+class TripRequest(Base):
+    """A Level 2 patient asking to go somewhere they have never been (report C-3).
+
+    The report locks a Level 2 patient's search box and routes the request
+    through their caregiver, who sees a confidence score and a map preview
+    before deciding. ``confidence`` and ``factors`` are stored on the row rather
+    than recomputed when the caregiver opens it, because the caregiver is
+    deciding about the moment the patient asked — a score that drifted while the
+    phone sat in a pocket would be a different question than the one asked.
+
+    ``status`` is ``pending`` until somebody decides. There is deliberately no
+    automatic timeout: a request that expired on its own would look identical to
+    one nobody ever saw, and the difference matters to a family.
+    """
+    __tablename__ = "trip_requests"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    patient_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
+    destination_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    # 0–1 from module5_recommend.trip_confidence, frozen at request time.
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    # JSON — the familiarity/danger_zone breakdown, so the screen can say WHY.
+    factors: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    decided_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_trip_request_patient_status", "patient_id", "status"),)

@@ -39,6 +39,10 @@ _TITLES = {
     # The patient pressed the button themselves — say so, because a caregiver
     # triages "the app thinks something is wrong" differently from "they asked".
     "sos": "PathGuard — ผู้ป่วยกดขอความช่วยเหลือ",
+    # Trip Approval (report C-3). Its own key, not "sos": the cooldown is keyed
+    # on (patient, alert_type), and a denied trip must never be able to suppress
+    # a real button press.
+    "trip_denied": "PathGuard — คำขอเดินทางถูกปฏิเสธ",
 }
 
 

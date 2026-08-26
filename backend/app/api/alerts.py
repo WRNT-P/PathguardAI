@@ -31,7 +31,7 @@ router = APIRouter()
 class AlertOut(BaseModel):
     id: int
     patient_id: int
-    alert_type: str          # geofence | emergency | gps_loss | gps_lost | wandering
+    alert_type: str          # geofence | emergency | gps_loss | gps_lost | wandering | sos | trip_denied
     severity: str            # low | medium | high | critical
     message: str
     latitude: float | None = None
