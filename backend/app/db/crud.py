@@ -13,8 +13,8 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
-    Alert, BehavioralProfile, DeviceToken, GPSData, PushNotification,
-    RiskScore, User,
+    Alert, BehavioralProfile, DeviceToken, GPSData, PairingCode,
+    PushNotification, RiskScore, User,
 )
 
 
@@ -42,28 +42,73 @@ async def user_exists(db: AsyncSession, user_id: int) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+async def get_user(db: AsyncSession, user_id: int) -> User | None:
+    """The whole row, for the callers that need more than existence.
+
+    Device pairing needs ``firebase_uid`` to mint a custom token against, which
+    ``user_exists`` cannot give it.
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    return result.scalar_one_or_none()
+
+
 async def create_user(
     db: AsyncSession,
     firebase_uid: str,
     name: str,
     role: str,
     caregiver_id: int | None = None,
+    severity_level: int | None = None,
 ) -> User:
     """Create a user row (the FK target GPS/risk/alert data references).
 
     Written by the register endpoint so a ``users.id`` exists before any GPS for
-    that patient arrives. Caller should check ``get_user_id_by_firebase_uid``
-    first to keep ``firebase_uid`` unique.
+    that patient arrives, and by ``POST /api/patients`` when a caregiver creates
+    a patient who has no Firebase account yet. Caller should check
+    ``get_user_id_by_firebase_uid`` first to keep ``firebase_uid`` unique.
     """
     user = User(
         firebase_uid=firebase_uid,
         name=name,
         role=role,
         caregiver_id=caregiver_id,
+        severity_level=severity_level,
     )
     db.add(user)
     await db.flush()
     return user
+
+
+# ── Device pairing ───────────────────────────────────────────────────────────
+
+async def create_pairing_code(
+    db: AsyncSession, code: str, patient_id: int, expires_at: datetime,
+) -> PairingCode:
+    """Store one unredeemed code. ``code`` must already be normalised."""
+    row = PairingCode(code=code, patient_id=patient_id, expires_at=expires_at)
+    db.add(row)
+    await db.flush()
+    return row
+
+
+async def get_pairing_code(db: AsyncSession, code: str) -> PairingCode | None:
+    """Look up a code regardless of whether it is expired or already spent.
+
+    The endpoint decides what to tell the caller; keeping the three cases apart
+    here is what lets the logs say which one happened while the response does
+    not.
+    """
+    result = await db.execute(select(PairingCode).where(PairingCode.code == code))
+    return result.scalar_one_or_none()
+
+
+async def mark_pairing_code_used(
+    db: AsyncSession, row: PairingCode, now: datetime | None = None,
+) -> PairingCode:
+    """Spend a code. Single use is enforced by the caller checking ``used_at``."""
+    row.used_at = now or datetime.now(timezone.utc)
+    await db.flush()
+    return row
 
 
 # ── GPS history ─────────────────────────────────────────────────────────────
