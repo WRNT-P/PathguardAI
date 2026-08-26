@@ -14,14 +14,19 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from app.ai.module1_behavior.routine_patterns import decode as decode_routine
+
 
 @dataclass
 class UserContext:
     patient_id: int
     current_lat: float | None
     current_lng: float | None
-    now: datetime
+    # None where the caller has no clock to offer — trip_confidence scores a
+    # destination without one. Anything reading it must cope.
+    now: datetime | None
     known_places: list[dict] = field(default_factory=list)
+    routine_patterns: list[dict] = field(default_factory=list)
 
     @property
     def has_profile(self) -> bool:
@@ -30,6 +35,16 @@ class UserContext:
     @property
     def has_location(self) -> bool:
         return self.current_lat is not None and self.current_lng is not None
+
+    @property
+    def has_routine(self) -> bool:
+        """Whether time_match has anything to say.
+
+        Needs both a routine on file — empty until the patient has enough GPS
+        history for scripts/build_routine_patterns.py to find one — and a clock
+        to look up, which not every caller has.
+        """
+        return bool(self.routine_patterns) and self.now is not None
 
 
 def _parse_known_places(raw: str | None) -> list[dict]:
@@ -59,10 +74,12 @@ def build_user_context(
     (or None when Module 1 hasn't trained this patient yet).
     """
     raw_places = getattr(profile, "known_places", None) if profile else None
+    raw_routine = getattr(profile, "routine_patterns", None) if profile else None
     return UserContext(
         patient_id=profile.patient_id if profile else 0,
         current_lat=current_lat,
         current_lng=current_lng,
         now=now,
         known_places=_parse_known_places(raw_places),
+        routine_patterns=decode_routine(raw_routine),
     )

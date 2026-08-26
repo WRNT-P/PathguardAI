@@ -10,7 +10,7 @@ GPS-based wandering detection system for dementia patients.
 | ไฟล์ | ใช้ตอนไหน |
 |---|---|
 | **`backend/REPORT_VS_CODE.md`** | **รายงานอ้างอะไรไว้ แล้ว backend ทำได้จริงแค่ไหน** อ่านก่อนสร้างฟีเจอร์ตามรายงาน มีคำถามที่รอฝั่งแอปตอบอยู่ท้ายไฟล์ |
-| `backend/API_CONTRACT_APP.md` | สัญญาสำหรับแอปมือถือ — register, GPS, FCM token, push payload, การอ่าน track/alert |
+| `backend/API_CONTRACT_APP.md` | สัญญาสำหรับแอปมือถือ — register, จับคู่เครื่อง, GPS, FCM token, push payload, การอ่าน track/alert, SOS, ขออนุมัติเดินทาง, **ปักหมุดสถานที่ (§10)** |
 | `backend/API_CONTRACT_ADMIN.md` | สัญญาสำหรับหน้าผู้ดูแล — ปักหมุดสถานที่ (`places`) และเขตอันตราย |
 
 > เอกสารของโปรเจกต์เขียนคนละเวลา และโค้ดฝั่งแอปกับ backend อยู่คนละรีโป **ถ้าเจอที่ไม่ตรงกัน
@@ -134,7 +134,7 @@ Endpoints live today:
 
 All 5 AI modules described in the architecture doc are implemented under
 `backend/app/ai/` and wired into the API above. Verified with the full test
-suite (`python -m pytest -q` from `backend/`, 146 tests passing) plus an
+suite (`python -m pytest -q` from `backend/`, 325 tests passing) plus an
 end-to-end integration test (`tests/test_phase4_integration.py`) that drives
 Module 1 → 2 → 3 → 4 → 5 back to back and asserts a high-risk emergency is
 correctly triggered and traced back to an injected wandering episode.
@@ -174,7 +174,16 @@ above).
   payload in `backend/API_CONTRACT_APP.md`. หน้าผู้ดูแลที่เพิ่มผู้ป่วยต้องส่ง
   **สถานที่ที่ผู้ป่วยไปเป็นกิจวัตรให้ครบ ไม่ใช่แค่บ้าน** — วัดแล้วว่าปักแค่บ้านทำให้วัด ตลาด
   และบ้านลูกหลานได้คะแนนเสี่ยง 56 (medium) เท่ากับหลงห่างบ้าน 2.5 กม. ทุกครั้งที่ไป
-  ดู `backend/API_CONTRACT_ADMIN.md` และ `POST /api/sos` ก็พร้อมใช้แล้ว
+  **สัญญาอยู่ที่ `backend/API_CONTRACT_APP.md` §10 แล้ว** (เดิมอยู่แต่ใน `API_CONTRACT_ADMIN.md`
+  ซึ่งไม่เคยส่งให้ฝั่งแอป) หน้าจอเพิ่มผู้ป่วยส่งบ้านจุดเดียวด้วย
+  `PUT /api/patients/{id}/places/home` ซึ่ง**ลบหมุดอื่นไม่ได้** ส่วน
+  `POST /api/patients/{id}/places` ทับทั้งชุด — ใช้ผิดตัวแล้วหมุดหายเงียบ ๆ พร้อม `201`
+  และ `POST /api/sos` ก็พร้อมใช้แล้ว
+- **Module 5 (recommendation) — `time_match` มีข้อมูลแล้วตั้งแต่ 2026-08-26.**
+  `behavioral_profiles.routine_patterns` ไม่เคยมีคนเขียนมาก่อน ทำให้ตัวจัดอันดับวิ่งบน 3
+  ปัจจัยจาก 4 ตอนนี้มี `python -m scripts.build_routine_patterns` เป็นคนเขียน — มันเรียนแค่
+  *ช่วงเวลา* ที่ผู้ป่วยอยู่แต่ละหมุด **ไม่ได้เดาสถานที่เอง** ถ้าไม่มีหมุดก็ไม่เรียนอะไรเลย
+  ไม่ต้องตั้ง scheduler รันเมื่อผู้ป่วยมีประวัติมากพอก็พอ
 - **Auth is built but off.** `app/services/auth.py` verifies a Firebase ID token,
   maps it to `users.id`, and allows only the patient or their caregiver. It is
   gated behind `AUTH_ENABLED` (default `false`); see `.env.example`. Send the

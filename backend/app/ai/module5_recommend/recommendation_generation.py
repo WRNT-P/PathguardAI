@@ -20,18 +20,27 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from app.ai.module1_behavior.routine_patterns import local_hour, probability_at
+
 from .user_context_analysis import UserContext
 
 EARTH_RADIUS_KM = 6371.0
 
-# Tunable blend. time_match is wired but disabled (weight 0) because Module 1
-# does not yet populate ``routine_patterns``.
-# TODO: raise time_match weight once Module 1 writes routine_patterns.
+# Tunable blend. Weights are renormalized over whatever is active this request
+# (see score_place), so a factor with no data does not quietly drag the
+# confidence down — it simply does not vote.
+#
+# time_match carried weight 0.0 until 2026-08-26 because nothing wrote
+# ``routine_patterns``. It now has a writer (module1_behavior/routine_patterns.py)
+# and a weight. It sits below frequency deliberately: "she is usually at the
+# temple at this hour" is worth less than "she goes to the temple constantly",
+# because the routine is inferred from however much history exists while the
+# frequency came from the caregiver.
 WEIGHTS = {
     "frequency": 0.45,
     "proximity": 0.35,
     "familiarity": 0.20,
-    "time_match": 0.0,
+    "time_match": 0.25,
 }
 
 
@@ -81,7 +90,13 @@ def score_place(place: dict, ctx: UserContext, ml_score: float | None = None) ->
     else:
         proximity = 0.0
 
-    time_match = 0.0  # no routine_patterns data yet
+    # Zero for a patient with no routine on file, and kept out of the blend
+    # below in that case rather than counted as "never here at this hour".
+    time_match = (
+        probability_at(ctx.routine_patterns, local_hour(ctx.now),
+                       int(place["cluster_id"]))
+        if ctx.has_routine else 0.0
+    )
 
     factors = {
         "frequency": round(freq, 4),
@@ -94,7 +109,8 @@ def score_place(place: dict, ctx: UserContext, ml_score: float | None = None) ->
     active = {"frequency", "familiarity"}
     if ctx.has_location:
         active.add("proximity")
-    # time_match stays out while its weight is 0.
+    if ctx.has_routine:
+        active.add("time_match")
 
     weight_sum = sum(WEIGHTS[f] for f in active) or 1.0
     confidence = sum(WEIGHTS[f] * factors[f] for f in active) / weight_sum

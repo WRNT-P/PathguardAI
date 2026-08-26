@@ -75,6 +75,26 @@ class PlacesIn(BaseModel):
     """
     places: list[PlaceIn] = Field(..., min_length=1, max_length=_MAX_PLACES)
 
+    # min_length=1 is deliberate, not an oversight. A caregiver correcting a
+    # wrong pin re-sends the corrected set; the only state it forbids is *zero*
+    # pins, which drops scoring back to partial mode — measured, a patient
+    # sitting at home and a patient lost 2.5 km away both read 18.8 low there,
+    # so the system stops being able to tell them apart. It is also what lets
+    # places[0] be the home unconditionally, below.
+
+
+class HomePlaceIn(BaseModel):
+    """The single pin the caregiver's "add a patient" screen collects.
+
+    No ranks. The patient's residence is ``daily_live`` / ``all_day`` by
+    definition, and a home pinned as ``rare`` would read the patient as a
+    stranger in their own living room.
+    """
+    place_name: str = Field(..., min_length=1, max_length=255)
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    radius_m: int = Field(default=DEFAULT_RADIUS_M, ge=20, le=5000)
+
 
 class PlaceOut(BaseModel):
     cluster_id: int
@@ -87,6 +107,8 @@ class PlaceOut(BaseModel):
     stay_rank: StayRank | None = None
     radius_m: int | None = None
     source: str
+    # Exactly one pin per patient carries this — see set_home_place.
+    is_home: bool = False
 
 
 class PlacesOut(BaseModel):
@@ -133,6 +155,7 @@ def _to_response(place: dict) -> PlaceOut:
         stay_rank=place.get("stay_rank"),
         radius_m=place.get("radius_m"),
         source=place.get("source", "learned"),
+        is_home=bool(place.get("is_home")),
     )
 
 
@@ -156,7 +179,70 @@ async def set_places(
     # column may delete the other's rows.
     stored = decode(profile.known_places if profile else None)
     learned = [p for p in stored if p.get("source") != "manual"]
-    places = renumber([_to_record(p) for p in payload.places] + learned)
+    manual = [_to_record(p) for p in payload.places]
+    # The first pin is the home. PlacesIn.min_length=1 guarantees there is one,
+    # so every patient with pins has exactly one home and PUT .../places/home
+    # below always has a row to replace rather than a duplicate to create.
+    manual[0]["is_home"] = True
+    places = renumber(manual + learned)
+
+    await crud.upsert_behavioral_profile(
+        db, patient_id, known_places=json.dumps(places, ensure_ascii=False)
+    )
+    return PlacesOut(
+        patient_id=patient_id,
+        places=[_to_response(p) for p in places],
+        count=len(places),
+    )
+
+
+@router.put(
+    "/api/patients/{patient_id}/places/home",
+    response_model=PlacesOut,
+    summary="ตั้ง/แก้หมุดบ้าน (สถานที่ปลอดภัย) จุดเดียว โดยไม่แตะหมุดอื่น",
+)
+async def set_home_place(
+    patient_id: int,
+    payload: HomePlaceIn,
+    db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
+) -> PlacesOut:
+    """Upsert the home pin alone.
+
+    Exists because ``POST .../places`` replaces the caregiver's whole manual set.
+    The app's "add a patient" screen collects one safe place, so re-sending it
+    after a full set had been pinned would delete the rest — silently, with a
+    201, and scoring would degrade to 56-medium at every routine place the family
+    visits. That hazard is removed here rather than by asking the app to
+    remember: this route cannot delete a pin it did not write.
+    """
+    await _require_patient(db, patient_id)
+
+    profile = await crud.get_behavioral_profile(db, patient_id)
+    stored = decode(profile.known_places if profile else None)
+
+    home = _to_record(
+        PlaceIn(
+            place_name=payload.place_name,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            visit_rank="daily_live",
+            stay_rank="all_day",
+            radius_m=payload.radius_m,
+        )
+    )
+    home["is_home"] = True
+
+    manual = [p for p in stored if p.get("source") == "manual"]
+    learned = [p for p in stored if p.get("source") != "manual"]
+    if any(p.get("is_home") for p in manual):
+        others = [p for p in manual if not p.get("is_home")]
+    else:
+        # Pinned before the flag existed. The invariant is the same either way —
+        # places[0] is the home — so fall back to position, or a profile written
+        # last week would end up with the new home *and* the old one.
+        others = manual[1:]
+    places = renumber([home] + others + learned)
 
     await crud.upsert_behavioral_profile(
         db, patient_id, known_places=json.dumps(places, ensure_ascii=False)
