@@ -124,20 +124,56 @@ async def test_another_caregiver_may_not(client, people, auth_on):
     assert "not your patient" in resp.json()["detail"]
 
 
-@pytest.mark.parametrize("path", [
-    "/api/patients/{pid}/track",
-    "/api/patients/{pid}/alerts",
-    "/api/patients/{pid}/places",
-    "/api/risk/{pid}",
-    "/api/recommendation/{pid}",
-    "/api/search-area/{pid}",
-])
-async def test_every_patient_scoped_read_is_guarded(client, people, auth_on, path):
-    """One missed route is the whole hole, so this walks all of them."""
-    resp = await client.get(path.format(pid=people["patient"]),
-                            headers=bearer("tok-stranger"))
+def _patient_scoped_routes() -> list[tuple[str, str]]:
+    """Every mounted route carrying a ``{patient_id}``, read out of the app.
 
-    assert resp.status_code == 403, f"{path} is not guarded"
+    This used to be a hand-written list whose docstring claimed it walked all of
+    them. It did not: `PUT .../places/home` and `GET .../trip-requests` were both
+    added after it and neither was noticed, because nothing connected the list to
+    the router. A list that has to be maintained by hand is the same hole it was
+    written to close.
+    """
+    from app.main import app
+
+    def walk(routes):
+        for route in routes:
+            included = getattr(route, "original_router", None)
+            if included is not None:
+                yield from walk(included.routes)
+                continue
+            nested = getattr(route, "routes", None)
+            if nested:
+                yield from walk(nested)
+                continue
+            if hasattr(route, "path"):
+                yield route
+
+    found = []
+    for route in walk(app.routes):
+        if "{patient_id}" not in route.path:
+            continue
+        for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
+            found.append((method, route.path))
+    return sorted(found)
+
+
+@pytest.mark.parametrize("method,path", _patient_scoped_routes())
+async def test_every_patient_scoped_route_is_guarded(
+    client, people, auth_on, method, path
+):
+    """One missed route is the whole hole, so this walks all of them — for real.
+
+    Writes are included, not just reads: `PUT .../places/home` can overwrite a
+    patient's home, and `POST .../places` can replace their whole pin set, which
+    would take scoring down to 56-medium everywhere.
+    """
+    url = path.format(patient_id=people["patient"])
+    resp = await client.request(method, url, headers=bearer("tok-stranger"),
+                                json={})
+
+    # 403 before the body is looked at. A 422 here would mean the guard runs
+    # after validation, and a stranger could probe which payloads are valid.
+    assert resp.status_code == 403, f"{method} {path} is not guarded"
 
 
 async def test_gps_cannot_be_written_in_someone_elses_name(client, people, auth_on):
