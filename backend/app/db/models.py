@@ -16,6 +16,11 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # "patient" | "caregiver"
     caregiver_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
+    # 1 = early stage, 2 = moderate. The caregiver states it when creating the
+    # patient; the report builds two different patient interfaces on it. Nothing
+    # in app/ai reads it — a severity multiplier on the Module 3 weights would be
+    # the only number in the rule KB without a citation behind it.
+    severity_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     gps_records: Mapped[list["GPSData"]] = relationship("GPSData", back_populates="patient", cascade="all, delete-orphan")
@@ -246,3 +251,41 @@ class PushNotification(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (Index("ix_push_patient_type_sent", "patient_id", "alert_type", "sent_at"),)
+
+
+class PairingCode(Base):
+    """The short code a caregiver reads off their screen and types into the
+    patient's phone — and the only thing standing between the two devices.
+
+    A patient with dementia cannot be asked to hold an email address and a
+    password, so the patient device never signs itself up. The caregiver creates
+    the patient, the server picks that patient's Firebase uid up front, and this
+    row is the one-time claim on it. ``POST /api/pair`` trades the code for a
+    Firebase **custom token**; the app signs in with it and sends an ordinary
+    bearer token from then on, so ``services/auth.py`` needs no second code path
+    and its tests keep covering the only one there is.
+
+    Why the code is eight characters and not six digits: the thing behind this
+    door is a dementia patient's live position, and a six-digit code is a million
+    guesses. There is no distributed rate limiter here to make that safe — one
+    process-local counter would be a lie the moment a second worker starts — so
+    the safety comes from entropy instead. Eight characters of ``_ALPHABET``
+    (32 symbols, ambiguous ones removed) is ~1.1e12 codes, which at a hundred
+    guesses a second is several centuries, and a caregiver still only types it
+    once. Expiry and single use are what limit the damage if a code leaks; they
+    are not what stops guessing.
+    """
+    __tablename__ = "pairing_codes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # Stored normalised (upper case, no separator) — see api/pairing.normalise.
+    code: Mapped[str] = mapped_column(String(16), nullable=False, unique=True)
+    patient_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Set the moment the code is spent. A redeemed code is kept rather than
+    # deleted so "this code was already used" stays distinguishable from "no such
+    # code" in the logs, without the response telling an outsider which it was.
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_pairing_code_patient", "patient_id"),)
