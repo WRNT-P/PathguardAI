@@ -245,3 +245,32 @@ async def test_home_endpoint_rejects_an_unknown_patient_and_a_bad_pin(client):
     assert (await client.put(
         f"/api/patients/{patient_id}/places/home",
         json={**NEW_HOME, "latitude": 999.0})).status_code == 422
+
+
+async def test_a_profile_pinned_before_the_flag_existed_does_not_get_two_homes(
+    client, db_session
+):
+    """Every pin written before 2026-08-26 has no ``is_home``.
+
+    With nothing flagged there is no row to replace, so the upsert would prepend
+    a second home and leave the first one sitting there. The whole-set writer's
+    invariant — places[0] is the home — settles it by position instead.
+    """
+    patient_id = await _register_patient(client, "home-legacy")
+    legacy = [
+        {"cluster_id": 0, "place_name": "บ้าน", "latitude": 13.7563,
+         "longitude": 100.5018, "visit_frequency": 100, "avg_stay_time": 28800.0,
+         "source": "manual"},
+        {"cluster_id": 1, "place_name": "ตลาด", "latitude": 13.7600,
+         "longitude": 100.5060, "visit_frequency": 40, "avg_stay_time": 900.0,
+         "source": "manual"},
+    ]
+    await crud.upsert_behavioral_profile(
+        db_session, patient_id, known_places=json.dumps(legacy))
+    await db_session.commit()
+
+    body = (await client.put(
+        f"/api/patients/{patient_id}/places/home", json=NEW_HOME)).json()
+
+    assert [p["place_name"] for p in body["places"]] == ["บ้านใหม่", "ตลาด"]
+    assert [p["is_home"] for p in body["places"]] == [True, False]

@@ -233,9 +233,15 @@ async def set_home_place(
     )
     home["is_home"] = True
 
-    rest = [p for p in stored if not p.get("is_home")]
-    others = [p for p in rest if p.get("source") == "manual"]
-    learned = [p for p in rest if p.get("source") != "manual"]
+    manual = [p for p in stored if p.get("source") == "manual"]
+    learned = [p for p in stored if p.get("source") != "manual"]
+    if any(p.get("is_home") for p in manual):
+        others = [p for p in manual if not p.get("is_home")]
+    else:
+        # Pinned before the flag existed. The invariant is the same either way —
+        # places[0] is the home — so fall back to position, or a profile written
+        # last week would end up with the new home *and* the old one.
+        others = manual[1:]
     places = renumber([home] + others + learned)
 
     await crud.upsert_behavioral_profile(
