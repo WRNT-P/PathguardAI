@@ -2,11 +2,16 @@
 
 # Module 1 — Behavior
 
-> 🕗 **ขอบเขต: อธิบายโมดูล AI 1–5 ไม่ใช่ API ทั้งระบบ** ตรวจเมื่อ 27 ส.ค.
-> สิ่งที่สร้างวันที่ 26 และยังไม่อยู่ในนี้: ปุ่ม SOS · การจับคู่เครื่องด้วยรหัส ·
-> การขออนุมัติเดินทาง (C-3) พร้อม `trip_confidence.py` · `users.severity_level`
-> ที่ทำให้รัศมีค้นหาและจำนวนรายการแนะนำต่างกันตามระยะของโรค ·
-> `routine_patterns.py` ที่ทำให้ปัจจัยช่วงเวลาของ Module 5 มีค่าเป็นครั้งแรก
+> 🕗 **ขอบเขต: อธิบายโมดูล AI 1–5 ไม่ใช่ API ทั้งระบบ** อัปเดต 27 ส.ค. 2026
+> **เรื่องที่อยู่นอกขอบเขตโดยตั้งใจ** (ไม่ใช่ของที่ลืม) — ปุ่ม SOS · การจับคู่เครื่องด้วยรหัส ·
+> การขออนุมัติเดินทาง C-3 ทั้งหมดเป็นชั้น API ไม่ใช่โมดูล AI อยู่ที่ `data_flow.md`
+> และ `API_CONTRACT_APP.md`
+> **ส่วนที่กระทบโมดูล AI ตรง ๆ ถูกแก้ในเอกสารนี้แล้ว**: `users.severity_level` ที่เปลี่ยน
+> รัศมีค้นหาของ Module 4 และจำนวนรายการของ Module 5 · `routine_patterns.py` ที่ทำให้
+> `time_match` มีค่าเป็นครั้งแรก · `trip_confidence.py` ที่เป็นตัวให้คะแนนตัวที่สองของ Module 5
+>
+> ⚠️ **บล็อกผลลัพธ์ทุกอันในเอกสารนี้คือผลรันจริง ณ วันที่บันทึก ไม่ได้รันใหม่**
+> ตัวเลขที่เปลี่ยนไปตามการแก้โค้ดถูกกำกับไว้ที่จุดนั้น ๆ
 
 > **Measured 2026-08-22: this does not work as described below.** On a real
 > 30-day window `cluster_places` returns **156 "places"**, 124 of them with an
@@ -250,18 +255,35 @@ OUTPUT: { "route_deviation": 0.64, "wandering": 0.7, "danger_zone": 1.0, "unfami
 
 ## 3.2 Compute the risk score
 
-**How it works:** a fixed weighted sum (weights total 1.0), scaled to 0–100. The
+**How it works:** a weighted sum (active weights total 1.0), scaled to 0–100. The
 output includes a Low/Medium/High level and a per-factor breakdown that always sums
 back to the headline score.
 
+> **Corrected 2026-08-27.** This section used to show `WEIGHTS` as a module-level
+> constant. It is not one. `calculate_risk(factors, weights, low_ceiling=,
+> medium_ceiling=)` takes the weights and the level boundaries **as arguments, read
+> from the `risk_factor_weights` and `risk_thresholds` tables on every request** —
+> that is what makes Module 3 an expert system rather than a formula in a file. The
+> seeded values happen to be the ones below, and the admin endpoint can change them
+> without a deploy.
+
 ```python
-WEIGHTS = {"route_deviation": 0.30, "wandering": 0.25, "confusion": 0.20,
+# values as seeded by app/mock/seed_risk_rules.py — NOT hardcoded anywhere in app/ai
+weights = {"route_deviation": 0.30, "wandering": 0.25, "confusion": 0.20,
            "danger_zone": 0.15, "unfamiliarity": 0.10}
 
-contributions = {k: round(w * factors[k] * 100, 1) for k, w in WEIGHTS.items()}
+contributions = {k: round(w * factors[k] * 100, 1) for k, w in weights.items()}
 risk_score = round(sum(contributions.values()), 1)
-# level: <50 low, 50–79 medium, >=80 high
+# level boundaries also from the KB: low_ceiling=50, medium_ceiling=80
 ```
+
+**A patient with no pinned places scores in *partial mode*** — `route_deviation`,
+`confusion` and `unfamiliarity` all need a behavioural profile, so only `wandering`
+and `danger_zone` survive and their two weights are **renormalized from the KB values
+at runtime** (never the hardcoded 0.625/0.375). The response is tagged
+`status: "partial"` with a `factors_used` list, because a partial score must never be
+presented as a full one: measured, partial mode gives a patient resting at home and a
+patient lost 2.5 km away the same 18.8.
 
 ```text
 INPUT  normalized factors:
@@ -282,7 +304,20 @@ OUTPUT:
 ## 3.3 Emergency decision
 
 **Rule:** raise an emergency if the patient is in a **danger zone** *or* the risk
-score is **above 80**. A danger zone always takes precedence.
+score is **above `emergency_score`**. A danger zone always takes precedence.
+
+> **Corrected 2026-08-27.** `decide_emergency(risk_score, danger_zone, emergency_score)`
+> takes the threshold as an argument from `risk_thresholds`; 80 is the seeded value, not
+> a literal in the engine. The comparison is a strict `>` — a score exactly at the
+> threshold does not fire.
+
+There is a third path this section never mentioned: **`temporal_adjustment.py`**, which
+reads the patient's recent `risk_scores` rather than the current reading alone.
+`trend_escalation` adds points when the score has been climbing; `sustained_high_risk`
+escalates to emergency when it has stayed high for several consecutive rounds. Both are
+pure functions whose numbers live in `temporal_rules.parameters`. This is the path a
+real 2 km wander actually takes: it scores 63.5, which is medium, so it alerts by
+sustained risk after about five rounds — not by crossing 80.
 
 ```text
 INPUT risk_score=85.0, danger_zone=False:
@@ -439,10 +474,22 @@ pipeline runs in four steps:
    (preferring the Kalman-smoothed coordinates) and turn "how long they've been
    missing" into a base radius: `radius = speed × time` (Distance = Speed × Time). If
    speed is unknown it falls back to a cautious 1.4 m/s walking pace.
-2. **Adjust the radius** (`search_radius_adjustment.py`) — widen or tighten the circle
-   using *behavioural* signals, **not** any dementia-stage label: ×1.5 if no familiar
-   place sits inside the radius, ×1.3 if the wandering score is high (≥0.75), ×0.8 if
-   it's low (≤0.30). Multipliers compound.
+2. **Adjust the radius** (`search_radius_adjustment.py`) — widen or tighten the circle:
+   ×1.5 if no familiar place sits inside the radius, ×1.3 if the wandering score is high
+   (≥0.75), ×0.8 if it is low (≤0.30), and — **added 2026-08-26** — ×0.8 for a
+   moderate-stage patient, ×1.2 for an early-stage one, unchanged when the caregiver
+   never stated a stage.
+
+   > **Corrected 2026-08-27, twice over.** This step used to say the radius uses
+   > behavioural signals "**not** any dementia-stage label" and that "multipliers
+   > compound". Both stopped being true on 2026-08-26.
+   >
+   > **Expansions still compound; contractions do not — the gentlest one wins.** The
+   > low-wandering ×0.8 was already justified in its own docstring as a proxy for a
+   > mid-stage patient, so multiplying it by the stage contraction would give 0.64:
+   > **a 36% smaller search area for a missing person, from one fact counted twice.**
+   > Expansions are left compounding because a search area that is too large is the
+   > safe direction to be wrong in, and one that is too small is not.
 3. **Simulate the paths** (`movement_path_simulation.py`) — a **Monte Carlo**
    simulation scatters thousands of possible endpoints inside the circle (70% biased
    toward the directions the patient historically travels, 30% uniform), plus a
@@ -497,17 +544,38 @@ still live, the endpoint short-circuits with `status: "gps_active"` and no zones
 
 ## How it works (plain language)
 
-If a caregiver needs to know *where the patient probably is*, Module 5 scores every
-known place by blending three signals — how often it's visited (**frequency**), how
-close it is right now (**proximity**), and how long they usually stay (**familiarity**)
+Module 5 scores every known place by blending four signals — how often it's visited
+(**frequency**), how close it is right now (**proximity**), how long they usually stay
+(**familiarity**), and whether this is an hour they are usually there (**time_match**)
 — then returns the top suggestions, highest confidence first.
 
 ```python
 # recommendation_generation.py — transparent, rule-based blend
-WEIGHTS = {"frequency": 0.45, "proximity": 0.35, "familiarity": 0.20, "time_match": 0.0}
+WEIGHTS = {"frequency": 0.45, "proximity": 0.35, "familiarity": 0.20, "time_match": 0.25}
 proximity = 1.0 / (1.0 + distance_km)          # closer => higher
 confidence = sum(WEIGHTS[f] * factors[f] for f in active) / sum(WEIGHTS[f] for f in active)
 ```
+
+> **Updated 2026-08-27 — `time_match` used to be weight `0.0`.** Nothing wrote the
+> `routine_patterns` column, so the recommender ran on three of its four factors. It
+> got a writer on 2026-08-26 (`ai/module1_behavior/routine_patterns.py`, driven by
+> `scripts/build_routine_patterns.py`) and a weight. It sits *below* `frequency`
+> deliberately: "she is usually at the temple at this hour" is worth less than "she goes
+> to the temple constantly", because the routine is inferred from however much history
+> exists while the frequency came from the caregiver.
+>
+> Only factors with data actually vote — `sum(...) / sum(active weights)` renormalizes
+> per request — so a patient with no routine on file scores exactly as they did before
+> this factor existed, rather than being dragged down by a zero.
+
+**Two things this section is missing that matter to the API:**
+
+* **How many places come back depends on the stage of illness** — `severity_level` 1
+  gets 3, `severity_level` 2 gets 5, an unstated stage gets 3. A Level 2 patient's
+  search box is locked, so the grid is the only way they can reach anywhere.
+* **Each result carries `place_name`** (added 2026-08-27). It is `null` for anything
+  Module 1 learned, because `place_clustering.py` emits no name and only a human can
+  give one — which is the same finding that decided Module 1 would not be used.
 
 ## Real input → output
 
@@ -531,6 +599,22 @@ OUTPUT ranked recommendations (top 3):
 **Result:** cluster 0 wins — even though cluster 1 is physically closer, cluster 0's
 high visit frequency and long typical stay make it the most likely location.
 
+> The `time_match: 0.0` in the recorded output above is what that run produced when the
+> factor was still a stub. A patient with a routine on file now gets a non-zero value
+> there and `flags.time_match_available: true`; one without still gets `0.0` and the
+> factor is excluded from the blend rather than counted as "never here at this hour".
+
+> **Note — the second scorer.** `score_place` above answers *"where is the patient
+> likely to be?"*, relative to places they already go. It cannot answer *"is it safe for
+> them to go somewhere new?"* — for a place never visited, `frequency` and `familiarity`
+> are both zero and only `proximity` (weight 0.35) can contribute, so confidence is
+> **capped at 0.350 forever**. That is a number measuring distance while claiming to
+> measure safety. Trip Approval (C-3) therefore uses a separate scorer,
+> `module5_recommend/trip_confidence.py`, which redefines familiarity for an unvisited
+> place as *how close is it to somewhere they know* (honouring each pin's own
+> `radius_m`) and adds a danger-zone factor. Measured after: 200 m from home
+> 0.292 → **0.900**, inside the house 0.333 → **1.000**, 2 km away 0.117 → **0.000**.
+
 > **Note — learned ranker:** the blend above is the transparent *rules* path and the
 > default when no model is trained. Module 5 also ships a **learned pointwise ranker**
 > (`ranker.py`, a scikit-learn `HistGradientBoostingClassifier`). When a per-patient
@@ -552,12 +636,14 @@ high visit frequency and long typical stay make it the most likely location.
 | 3 — Risk (live DB) | real `GET /api/risk`, rolled back | full path works, nothing persisted ✓ |
 | 4 — Search Area | last known → radius → Monte Carlo → KDE zones | High/Medium/Low zones + target places ✓ |
 | 5 — Recommend | context → score (rules or learned ranker) → top-N | sensible ranking ✓ |
+| 5 — Trip confidence | unvisited destination → familiarity-by-proximity + danger zone | 1.000 at home, 0.000 at 2 km ✓ |
 
 ## How to reproduce
 
-The repository also ships an automated test suite (**226 tests + 1 xfailed** as of
-2026-08-22) covering all of the above plus the alert chain, FCM delivery and auth,
-runnable with no PostgreSQL, Firebase, or TensorFlow required:
+The repository also ships an automated test suite (**346 tests, 0 xfailed** as of
+2026-08-27) covering all of the above plus the alert chain, FCM delivery, auth, device
+pairing, SOS and trip approval, runnable with no PostgreSQL, Firebase, or TensorFlow
+required:
 
 ```bash
 cd backend
