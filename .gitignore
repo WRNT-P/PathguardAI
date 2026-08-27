@@ -42,3 +42,9 @@ backend/test_wandering_detection.py
 # cloudflared alone is 52 MB, and a binary that lands in history stays there.
 # Teammates install their own: winget install --id Cloudflare.cloudflared
 tools/
+
+# Report PDFs — un-ignored 2026-08-27 by the repo owner. This repo is public
+# and doubles as a portfolio piece; the report is the thing worth showing, and
+# teammates could not read it either. Text-scanned for emails, phone numbers,
+# ID numbers and keys before publishing: clean.
+!backend/docs/*.pdf

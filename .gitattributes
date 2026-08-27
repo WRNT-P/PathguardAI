@@ -1,0 +1,3 @@
+# PDFs are binary. Without this git sniffed PathGuard_Module_Walkthrough.pdf as
+# text and queued a CRLF conversion on it, which corrupts the file on checkout.
+*.pdf binary
