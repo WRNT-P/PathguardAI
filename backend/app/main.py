@@ -58,7 +58,7 @@ app.include_router(devices.router)          # POST /api/devices/token
 app.include_router(tracking.router)         # GET  /api/patients/{id}/track
 app.include_router(alerts.router)           # GET  /api/patients/{id}/alerts, PATCH /api/alerts/{id}
 app.include_router(sos.router)              # POST /api/sos
-app.include_router(pairing.router)          # POST /api/patients, POST /api/pair
+app.include_router(pairing.router)          # POST /api/patients, POST /api/pair, GET /api/patients/{id}
 app.include_router(trip_requests.router)     # POST/GET/PATCH trip approval (C-3)
 
 

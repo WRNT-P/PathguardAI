@@ -257,3 +257,70 @@ async def test_paired_device_can_send_gps_with_auth_on(client, caregiver, mint,
 
     unauthenticated = await client.post("/api/gps", json=point)
     assert unauthenticated.status_code == 401
+
+
+# ── the patient's phone learning who it is ───────────────────────────────────
+#
+# Everything above gets a device signed in. These cover what it can find out
+# afterwards, which until 2026-08-27 was nothing: ``severity_level`` was
+# returned by ``POST /api/patients`` alone — a caregiver call on a caregiver's
+# phone — so the two interfaces the app builds on the stage had no data to
+# switch on, and the level 2 screen had no way in.
+
+async def test_pairing_tells_the_device_its_stage(client, caregiver, mint):
+    """A fresh install must not need a second round trip to draw the right screen."""
+    created = (await create_patient(client, caregiver, severity_level=2)).json()
+
+    paired = await client.post("/api/pair", json={"code": created["pairing_code"]})
+
+    assert paired.status_code == 200, paired.text
+    assert paired.json()["severity_level"] == 2
+
+
+async def test_pairing_reports_an_unstated_stage_as_null(client, caregiver, mint):
+    """``severity_level`` is optional on creation, so the device must handle null
+    rather than being handed a default that would send it to the wrong screen."""
+    created = (await create_patient(client, caregiver, severity_level=None)).json()
+
+    paired = await client.post("/api/pair", json={"code": created["pairing_code"]})
+
+    assert paired.json()["severity_level"] is None
+
+
+async def test_patient_profile_is_readable_after_pairing(client, caregiver):
+    """The reinstall case: the code is spent, so ``/api/pair`` can never answer again."""
+    created = (await create_patient(client, caregiver, severity_level=2)).json()
+
+    r = await client.get(f"/api/patients/{created['patient_id']}")
+
+    assert r.status_code == 200, r.text
+    assert r.json() == {
+        "patient_id": created["patient_id"],
+        "name": "คุณยาย",
+        "severity_level": 2,
+    }
+
+
+async def test_unknown_patient_profile_is_404(client, caregiver):
+    r = await client.get("/api/patients/9999")
+    assert r.status_code == 404
+
+
+async def test_stranger_cannot_read_a_patient_profile(client, caregiver, db_session,
+                                                      monkeypatch):
+    """Name and stage are medical facts about a named person, so the guard has to
+    hold here for the same reason it holds on the track."""
+    created = (await create_patient(client, caregiver, severity_level=2)).json()
+    other = await crud.create_user(
+        db_session, firebase_uid="uid-stranger", name="คนอื่น", role="caregiver")
+    await db_session.commit()
+
+    monkeypatch.setattr(auth, "AUTH_ENABLED", True)
+    monkeypatch.setattr(auth, "verify_firebase_token",
+                        lambda token: "uid-stranger" if token == "tok-stranger" else "?")
+
+    r = await client.get(f"/api/patients/{created['patient_id']}",
+                         headers={"Authorization": "Bearer tok-stranger"})
+
+    assert r.status_code == 403
+    assert other.id  # the stranger is a real signed-in account, not an unknown one

@@ -36,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
 from app.db.database import get_db
-from app.services.auth import Caller, current_caller
+from app.services.auth import Caller, current_caller, verify_patient_access
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +120,18 @@ class PairOut(BaseModel):
     patient_id: int
     firebase_custom_token: str = Field(
         ..., description="ส่งเข้า signInWithCustomToken() แล้วใช้ ID token ที่ได้ต่อ")
+    # The phone builds a different interface for level 1 and level 2, and pairing
+    # is the one moment it is guaranteed to talk to us — after this it re-signs-in
+    # from a cached token and never calls /api/pair again. Sending the stage here
+    # means the very first screen it draws is the right one.
+    severity_level: int | None = Field(
+        None, description="1 = ระยะต้น, 2 = ระยะกลาง; null ถ้าผู้ดูแลไม่ได้ระบุ")
+
+
+class PatientProfileOut(BaseModel):
+    patient_id: int
+    name: str
+    severity_level: int | None
 
 
 async def _issue_code(db: AsyncSession, patient_id: int) -> tuple[str, datetime]:
@@ -235,4 +247,43 @@ async def pair_device(
     # patient they can never pair and nothing to explain why.
     await crud.mark_pairing_code_used(db, row)
     logger.info("device paired to patient %s", patient.id)
-    return PairOut(patient_id=patient.id, firebase_custom_token=token)
+    return PairOut(patient_id=patient.id, firebase_custom_token=token,
+                   severity_level=patient.severity_level)
+
+
+@router.get(
+    "/api/patients/{patient_id}",
+    response_model=PatientProfileOut,
+    summary="ใครคือผู้ป่วยรายนี้ และอยู่ระยะไหน",
+)
+async def get_patient(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
+) -> PatientProfileOut:
+    """Read back the two facts the caregiver stated when they created the patient.
+
+    Until this existed, ``severity_level`` left the backend through exactly one
+    door — the ``POST /api/patients`` response — and that is a *caregiver* call
+    made on a *caregiver's* phone. The patient's device gets ``patient_id`` and a
+    token out of ``/api/pair``, which it calls once per device ever; from then on
+    it re-signs-in from a cached token and never speaks to either endpoint again.
+    So the phone the app is actually for could never learn its own stage, and the
+    level 1 / level 2 interfaces built on top of that had nothing to switch on.
+
+    ``PairOut`` now carries the stage too, which covers a fresh install. This
+    covers everything after it: a reinstall, a stage the caregiver changed, and
+    the caregiver's own screens, which had no way to read a patient's name or
+    stage back either.
+    """
+    patient = await crud.get_user(db, patient_id)
+    if patient is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"unknown patient_id {patient_id}",
+        )
+    return PatientProfileOut(
+        patient_id=patient.id,
+        name=patient.name,
+        severity_level=patient.severity_level,
+    )
