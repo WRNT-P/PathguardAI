@@ -48,8 +48,8 @@ python -m app.mock.seed_risk_rules
 | C-3 Trip Approval — 3 endpoint | ✅ `2d29c0e` |
 | รัศมีค้นหาปรับตามระยะโรค | ✅ `72a077e` |
 | Top 3 (L1) / Top 5 (L2) | ✅ `72a077e` |
-| เอกสาร `places` เข้า `API_CONTRACT_APP.md` | ⬜ **ยังไม่ทำ — ทำต่อจากนี้** |
-| `routine_patterns` (L3-4) | ⬜ ยังไม่ทำ |
+| เอกสาร `places` เข้า `API_CONTRACT_APP.md` | ✅ **เสร็จ 26 ส.ค.** หัวข้อ 10 (`b9e33d3`) |
+| `routine_patterns` (L3-4) | ✅ **เสร็จ 26 ส.ค.** (`5208157`) `time_match` ได้น้ำหนัก 0.25 |
 | Real-time Navigation · Safe Zone Navigation | ⬜ **ไม่มีทางทำด้วย backend ปัจจุบัน** ไม่มี routing provider เลย |
 | แจ้งผู้ดูแลทุกคน + จัดอันดับระยะทาง | ⬜ **ทำไม่ได้** ผู้ป่วยมี `caregiver_id` ได้คนเดียว และไม่มีที่เก็บ GPS ของผู้ดูแล |
 
@@ -520,7 +520,7 @@ Phase 4 จบลงที่ push ที่พา `patient_id` กับพิ�
 มีเทสต์ที่ล็อกสถานะ "ปิดสวิตช์แล้วเปิดโล่ง" ไว้ด้วย เพื่อไม่ให้ใครอ่านว่าลืม
 Firebase ตัวจริงไม่ถูกเรียกในเทสต์ (mock ที่ signature check) — ที่เทสต์คือทุกอย่างหลังจากนั้น
 
-**ยังไม่ได้ทำ:** rate limiting, ไม่มี role admin (ใครที่ล็อกอินแล้วแก้ rule KB ได้หมด),
+**ยังไม่ได้ทำ:** rate limiting, ไม่มี role admin — **แก้ข้อความเดิม 27 ส.ค.: ที่เขียนว่า "ใครที่ล็อกอินแล้วแก้ rule KB ได้หมด" ผิด** ไม่มีใครแก้ได้เลยผ่าน API เพราะ `api/admin_rules.py` มีแต่ `GET` สองตัว ตัวที่แก้ได้จริงมีแค่ `danger_zones` (ซึ่งเป็นความเสี่ยงที่รับไว้แล้ว ดูกล่องข้างล่าง),
 `/demo/patient/{id}` ใน `demo_server.py` ยังไม่ถูกคุ้ม (เป็น process ที่ตั้งใจให้อยู่ localhost)
 
 > **เพิ่ม 26 ส.ค. — `danger_zones` เป็นของทั้งระบบ ไม่ผูกกับคนไข้** `models.py:151-166`
