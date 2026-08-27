@@ -54,6 +54,12 @@ class ScoredPlace:
     confidence: float      # [0, 1]
     location_used: bool    # whether proximity contributed
     scorer: str = "rules"  # "rules" | "ml" — never pass rules off as ML
+    # What the caregiver called this place. None for anything Module 1 learned:
+    # place_clustering.py emits no name and only a human can give one. Module 4
+    # has carried it since it was written (TargetLocation.name); Module 5 was
+    # dropping it, which left the patient's home screen with coordinates to show
+    # a person who cannot read coordinates.
+    place_name: str | None = None
 
 
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -129,6 +135,7 @@ def score_place(place: dict, ctx: UserContext, ml_score: float | None = None) ->
         confidence=round(confidence, 4),
         location_used=ctx.has_location,
         scorer=scorer,
+        place_name=place.get("place_name") or place.get("name"),
     )
 
 

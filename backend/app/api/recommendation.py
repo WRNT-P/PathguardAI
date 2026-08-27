@@ -93,6 +93,7 @@ async def get_recommendations(
         RecommendedPlace(
             rank=i,
             cluster_id=s.cluster_id,
+            place_name=s.place_name,
             latitude=s.latitude,
             longitude=s.longitude,
             confidence=s.confidence,
@@ -107,7 +108,7 @@ async def get_recommendations(
         status="ok",
         message=f"Top {len(recommendations)} place(s) by likelihood. Scorer: {scorer_note}.",
         flags=RecommendationFlags(
-            time_match_available=False,
+            time_match_available=ctx.has_routine,
             location_used=ctx.has_location,
         ),
         recommendations=recommendations,
