@@ -191,6 +191,6 @@
 
 ## 7. ทดสอบและพิสูจน์
 
-- **pytest 226 tests ผ่าน + 1 xfailed** (ณ 22 ส.ค.) — ครอบคลุม pure logic, KB repository, admin endpoints, temporal, e2e, โซ่แจ้งเตือน, FCM, auth
+- **pytest 346 tests ผ่าน 0 xfailed** (ณ 27 ส.ค. เดิม 226 + 1 xfailed ณ 22 ส.ค.) — ครอบคลุม pure logic, KB repository, admin endpoints, temporal, e2e, โซ่แจ้งเตือน, FCM, auth, จับคู่เครื่อง, SOS, ขออนุมัติเดินทาง
 - **Dynamic ไม่ต้อง restart:** แก้ค่าใน DB (เช่น `emergency_score` 80→50) แล้ว request ถัดไปเห็นทันที (ไม่มี cache)
 - **Behavior parity:** พิสูจน์แล้วว่าคะแนนก่อน/หลัง refactor เท่ากันเป๊ะ (24.5 ปกติ / 72.5 เขตอันตราย)

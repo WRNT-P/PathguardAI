@@ -264,8 +264,13 @@ back to the headline score.
 > medium_ceiling=)` takes the weights and the level boundaries **as arguments, read
 > from the `risk_factor_weights` and `risk_thresholds` tables on every request** —
 > that is what makes Module 3 an expert system rather than a formula in a file. The
-> seeded values happen to be the ones below, and the admin endpoint can change them
-> without a deploy.
+> seeded values happen to be the ones below.
+>
+> **What is *not* true, checked 2026-08-27:** that an admin endpoint can change them.
+> `api/admin_rules.py` is two `GET`s. The versioned, audited write path exists in
+> `rule_repository` and is covered by tests, but nothing outside the test suite calls
+> it — changing a weight today means a one-off script or direct SQL. Only
+> `danger_zones` has a real write route.
 
 ```python
 # values as seeded by app/mock/seed_risk_rules.py — NOT hardcoded anywhere in app/ai

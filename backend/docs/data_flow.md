@@ -122,7 +122,8 @@ from app.ai.module2_prediction.cluster_matcher import haversine_km, get_familiar
 - `risk_score_calculation.py` 🔵 — รับ: `calculate_risk(factors, weights, low_ceiling=, medium_ceiling=)` → ทำ: ถ่วงน้ำหนักผลรวม → ส่ง: `{risk_score (0–100), risk_level, contributions}`
   ⚠️ **แก้ 27 ส.ค.: น้ำหนักไม่ได้ฝังในโค้ด** เอกสารฉบับก่อนเขียนว่าเป็น `0.30*D + 0.25*W + …` ตายตัว
   ความจริงคือ `weights` กับเส้นแบ่งระดับถูก**ส่งเข้ามาจากฐานความรู้** (`risk_factor_weights`, `risk_thresholds`)
-  ค่าที่ seed ไว้บังเอิญเป็น 0.30/0.25/0.20/0.15/0.10 แต่ endpoint แอดมินแก้ได้และมีผลกับ request ถัดไปทันที
+  ค่าที่ seed ไว้บังเอิญเป็น 0.30/0.25/0.20/0.15/0.10 และ `api/risk.py` โหลดใหม่ทุก request ไม่มี cache
+  **แต่ระวัง: วันนี้ยังไม่มี endpoint ไหนแก้ค่าพวกนี้ได้** ดู `database_layer.md` หัวข้อ 2.2
   โหมด partial (ผู้ป่วยที่ยังไม่มีหมุด) เกลี่ยน้ำหนักใหม่**จากค่าใน KB ตอน runtime** ห้ามฮาร์ดโค้ด 0.625/0.375
 - `gps_failure_handling.py` 🟡 — รับ: `(last_reading, now, threshold_s=600.0)` → ทำ: คิดช่องว่างเวลาเทียบเกณฑ์ 600 วิ (unknown ⇒ ถือว่า GPS หาย = ปลอดภัยไว้ก่อน) → ส่ง: `{gps_lost, gap_seconds, last_known}` — **dict นี้คือ handoff contract ที่ Module 4 บริโภค (ตั้งใจไม่เรียก Module 4 ตรง ๆ)**
 - `temporal_adjustment.py` 🟡 — **(ไม่มีในเอกสารฉบับก่อน)** รับ: `(current_score, recent_scores, rules)` → ทำ: กฎที่อ่าน *ประวัติ* ไม่ใช่ค่าเดียว — `trend_escalation` (คะแนนไต่ขึ้นต่อเนื่อง → บวกเพิ่ม) และ `sustained_high_risk` (สูงติดกันหลายรอบ → ยกระดับเป็นฉุกเฉิน) → ส่ง: `{adjusted_score, triggered:[ชื่อกฎ]}` **เป็นฟังก์ชันบริสุทธิ์ ตัวเลขทั้งหมดมาจาก `temporal_rules.parameters`**

@@ -26,8 +26,15 @@
 | **การส่งถึงมือคน** | `device_tokens` · `push_notifications` · `pairing_codes` · `trip_requests` | ชั้น API + `services/notification.py` |
 
 **กลุ่ม KB คือสิ่งที่ทำให้ Module 3 เป็น expert system ไม่ใช่โค้ดที่ฝังตัวเลขไว้** — น้ำหนัก
-เกณฑ์ และกฎเชิงเวลาทั้งหมดอ่านจากฐานข้อมูลตอน runtime แก้ได้โดยไม่แตะโค้ดและไม่ deploy ใหม่
+เกณฑ์ และกฎเชิงเวลาทั้งหมดอ่านจากฐานข้อมูลตอน runtime **ทุก request ไม่มี cache**
 รายละเอียดพร้อมแหล่งอ้างอิงทางการแพทย์อยู่ที่ `module3_rule_based_system.md`
+
+> ⚠️ **"แก้ได้โดยไม่แตะโค้ด" จริงครึ่งเดียว — ตรวจเมื่อ 27 ส.ค.** *กลไก* มีครบและมีเทสต์คุม
+> (ทำเวอร์ชัน + เขียน audit ใน transaction เดียวกัน) แต่ *ทางเข้า* ยังไม่มี:
+> `api/admin_rules.py` มีแต่ `GET` สองตัว และ `rule_repository.update_weights` /
+> `update_threshold` / `update_temporal_rule` **ไม่มีผู้เรียกนอกชุดเทสต์เลย**
+> ตอนนี้ถ้าจะแก้น้ำหนักจริงต้องเขียนสคริปต์เรียก `rule_repository` เอง หรือ SQL ตรง
+> (`seed_risk_rules` ใส่เฉพาะแถวที่ขาด ไม่ทับของเดิม) — **มีแค่ `danger_zones` ที่แก้ผ่าน API ได้**
 
 ---
 
@@ -98,7 +105,7 @@
 - คอลัมน์เฉพาะ: `factor_name` (ตรวจกับ `rule_repository.KNOWN_FACTORS`), `weight` (0–1)
 - ปัจจุบัน 5 ปัจจัย: `route_deviation` 0.30 · `wandering` 0.25 · `confusion` 0.20 · `danger_zone` 0.15 · `unfamiliarity` 0.10
 - ⚠️ **ห้ามฮาร์ดโค้ดตัวเลขพวกนี้ที่ไหนอีก** โหมด partial (ผู้ป่วยที่ยังไม่มีหมุด) เกลี่ยน้ำหนักใหม่
-  **จากค่าใน KB ตอน runtime** ไม่ใช่จากค่าคงที่ในโค้ด — เพราะ endpoint แอดมินแก้ค่าพวกนี้ได้
+  **จากค่าใน KB ตอน runtime** ไม่ใช่จากค่าคงที่ในโค้ด — ค่าในตารางเป็นแหล่งความจริงเสมอ
 
 #### `risk_thresholds` (model: `RiskThreshold`)
 เกณฑ์ตัดที่มีชื่อ — เส้นแบ่งคะแนน ระยะทาง และเวลา
@@ -186,11 +193,11 @@ FCM registration token ของเครื่องผู้ดูแลหน
 
 | ตาราง | ใครเขียน | ใครอ่าน |
 |---|---|---|
-| `risk_factor_weights` | `rule_repository.update_weights` / `update_weight` ← `api/admin_rules.py` | `get_active_weights` ← `api/risk.py` ทุก request (ไม่มี cache — แก้กฎแล้วมีผลกับ request ถัดไปทันที) |
-| `risk_thresholds` | `rule_repository.update_threshold` ← `api/admin_rules.py` ; `app/mock/seed_risk_rules.py` | `get_all_thresholds` / `get_threshold` ← `api/risk.py` · `api/search_area.py` · `api/sos.py` (`services/notification.py` **ไม่ได้อ่านเอง** — ผู้เรียกส่งค่า cooldown เข้าไปให้) |
-| `temporal_rules` | `rule_repository.update_temporal_rule` ← `api/admin_rules.py` | `get_active_temporal_rules` ← `api/risk.py` |
+| `risk_factor_weights` | `app/mock/seed_risk_rules.py` เท่านั้น · `rule_repository.update_weights` / `update_weight` มีอยู่แต่ **ไม่มีผู้เรียกนอกเทสต์** | `get_active_weights` ← `api/risk.py` ทุก request (ไม่มี cache — แก้ในตารางแล้วมีผลกับ request ถัดไปทันที) |
+| `risk_thresholds` | `app/mock/seed_risk_rules.py` เท่านั้น · `rule_repository.update_threshold` **ไม่มีผู้เรียกนอกเทสต์** | `get_all_thresholds` / `get_threshold` ← `api/risk.py` · `api/search_area.py` · `api/sos.py` (`services/notification.py` **ไม่ได้อ่านเอง** — ผู้เรียกส่งค่า cooldown เข้าไปให้) |
+| `temporal_rules` | `app/mock/seed_risk_rules.py` เท่านั้น · `rule_repository.update_temporal_rule` **ไม่มีผู้เรียกนอกเทสต์** | `get_active_temporal_rules` ← `api/risk.py` |
 | `danger_zones` | `rule_repository.add_danger_zone` / `deactivate_danger_zone` ← `api/danger_zones.py` ; `scripts/inject_wandering.py` (`synthetic_injected=True`) | `get_active_danger_zones` ← `api/risk.py` |
-| `rule_audit_log` | `rule_repository._audit` — **ทุกฟังก์ชันเขียนกฎข้างบนเขียนลงนี่ใน transaction เดียวกัน** | `api/admin_rules.py` (`GET /api/admin/rules/history`) |
+| `rule_audit_log` | `rule_repository._audit` — **ทุกฟังก์ชันเขียนกฎข้างบนเขียนลงนี่ใน transaction เดียวกัน** ในทางปฏิบัติวันนี้มีแต่ `danger_zones` ที่เขียนลงมาจริงผ่าน API | `api/admin_rules.py` (`GET /api/admin/rules/history`) |
 
 ### 2.3 การส่งถึงมือคน
 
