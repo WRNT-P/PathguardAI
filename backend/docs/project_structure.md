@@ -35,7 +35,7 @@ backend/
 │   ├── inject_wandering.py          — เติมจุด pacing สังเคราะห์ + danger zone (synthetic_injected=True) ให้มีพฤติกรรมหลงทางตรวจจับ
 │   ├── build_routine_patterns.py    — สร้าง routine_patterns (กิจวัตรรายชั่วโมง) จากประวัติ GPS + หมุด (26 ส.ค.) — ต้องรันใหม่ทุกครั้งที่หมุดเปลี่ยน
 │   ├── migrate_add_synthetic_injected.py — migration เพิ่มคอลัมน์ synthetic_injected (gps_data + danger_zones)
-│   ├── migrate_add_severity_level.py — migration เพิ่มคอลัมน์ users.severity_level (26 ส.ค.) 🛑 ยังไม่ได้รันกับ Neon
+│   ├── migrate_add_severity_level.py — migration เพิ่มคอลัมน์ users.severity_level (26 ส.ค.) ✅ รันกับ Neon แล้ว 27 ส.ค.
 │   ├── demo_run.py                  — terminal demo: รัน Module 1–5 ต่อผู้ป่วย แล้ว print narrative (TF-free)
 │   ├── demo_server.py               — เซิร์ฟเวอร์ dashboard ผู้ดูแล (mount router จริงชุดเดียวกับ app/main.py + เสิร์ฟ dashboard.html)
 │   ├── dashboard.html               — หน้า dashboard ภาษาไทย: แผนที่ Leaflet, เกจความเสี่ยง, ฟีดแจ้งเตือน

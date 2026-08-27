@@ -276,8 +276,9 @@ FCM registration token ของเครื่องผู้ดูแลหน
    (`device_tokens`, `push_notifications`, `pairing_codes`, `trip_requests`) จึงขึ้นเอง
    ตอนบูต แต่คอลัมน์ใหม่ในตารางเดิมไม่ขึ้น ต้องเขียนสคริปต์ ALTER เอง — มีสองตัวแล้ว:
    `scripts/migrate_add_synthetic_injected.py` และ **`scripts/migrate_add_severity_level.py`**
-   🛑 **ตัวหลังยังไม่ได้รันกับ Neon** ถ้าไม่รัน `POST /api/patients` จะพังทุกครั้ง
-   บนคอลัมน์ที่มีอยู่ใน model แต่ไม่มีในฐานข้อมูล
+   ✅ **รันกับ Neon แล้ว 27 ส.ค. 2026** — และการรันครั้งนั้นพิสูจน์ข้อความข้างบนพอดี:
+   `init_db` สร้าง `pairing_codes` กับ `trip_requests` ที่ยังไม่มีบน Neon ให้เองตอนบูต
+   ส่วน `users.severity_level` ต้องรอ `ALTER TABLE` จากสคริปต์ ไม่มีทางขึ้นเอง
 4. **ฐานความรู้ต้อง seed ก่อน ไม่ใช่ตัวเลือก** — `python -m app.mock.seed_risk_rules`
    ดูเหตุผลที่ `risk_thresholds` ข้างบน: เกณฑ์ขาดตัวเดียว = คะแนนเสี่ยงล้มทั้งระบบ
 5. **การแก้กฎไม่เคยเป็นการ UPDATE ทับ** — ปิด `active` แถวเดิม เขียนแถวใหม่ พร้อมแถวใน
