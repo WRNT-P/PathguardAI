@@ -126,6 +126,7 @@ Endpoints live today:
 | POST | `/api/devices/token` | caregiver FCM token — see `backend/API_CONTRACT_APP.md` |
 | GET | `/api/patients/{id}/track` | recent GPS track for the map |
 | GET/PATCH | `/api/patients/{id}/alerts`, `/api/alerts/{id}` | alert feed + mark resolved |
+| GET | `/api/patients/{patient_id}` | patient name + `severity_level` — the phone reading its own stage |
 | GET | `/` | service info |
 
 ---
