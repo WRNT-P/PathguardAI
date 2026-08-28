@@ -47,7 +47,7 @@ python -m app.mock.seed_risk_rules
 | Module 5 ให้คะแนนที่ที่ไม่เคยไปได้ (`trip_confidence.py`) | ✅ `40f2028` |
 | C-3 Trip Approval — 3 endpoint | ✅ `2d29c0e` |
 | รัศมีค้นหาปรับตามระยะโรค | ✅ `72a077e` |
-| Top 3 (L1) / Top 5 (L2) | ✅ `72a077e` |
+| Top 3 (L1) / Top 5 (L2) | ✅ `72a077e` — **แก้ 2026-08-28 เป็น 3 ทั้งสองระดับ** ตามที่ฝั่งแอปขอ ดู `REPORT_VS_CODE.md` |
 | เอกสาร `places` เข้า `API_CONTRACT_APP.md` | ✅ **เสร็จ 26 ส.ค.** หัวข้อ 10 (`b9e33d3`) |
 | `routine_patterns` (L3-4) | ✅ **เสร็จ 26 ส.ค.** (`5208157`) `time_match` ได้น้ำหนัก 0.25 |
 | Real-time Navigation · Safe Zone Navigation | ⬜ **ไม่มีทางทำด้วย backend ปัจจุบัน** ไม่มี routing provider เลย |

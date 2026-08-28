@@ -7,8 +7,12 @@ Both were promised in the report and implemented nowhere until 2026-08-26:
 * the home screen shows three places to a Level 1 patient and five to a Level 2
   patient (report features table).
 
-The second looks backwards until you read why: a Level 2 patient's search box is
-locked, so the grid is the only way they can reach anywhere at all.
+**The second one is no longer true, and the report is what was wrong.** The app
+side finished the Level 2 homepage and asked for three on 2026-08-28: the screen
+holds three tiles with no scrolling, and a moderate-stage patient needs fewer
+choices, not more. Their locked search box is real — they confirmed it — but it
+was an argument about a screen that did not exist yet. Every stage now gets
+three, and the test below is what keeps the report from pulling it back to five.
 
 The test that matters most here is
 ``test_two_contractions_do_not_compound``. The low-wandering contraction was
@@ -125,22 +129,26 @@ async def _patient(db_session, severity_level):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("severity_level,expected", [(1, 3), (2, 5), (None, 3)])
-async def test_home_screen_length_follows_the_stage(
-        client, db_session, severity_level, expected):
+@pytest.mark.parametrize("severity_level", [1, 2, None])
+async def test_home_screen_shows_three_places_at_every_stage(
+        client, db_session, severity_level):
+    """Level 2 was 5 until 2026-08-28, on the report's word. The app side owns
+    this number now — six places are pinned, so a regression to 5 shows up."""
     patient_id = await _patient(db_session, severity_level)
     r = await client.get(f"/api/recommendation/{patient_id}")
     assert r.status_code == 200, r.text
-    assert len(r.json()["recommendations"]) == expected
+    assert len(r.json()["recommendations"]) == 3
 
 
 @pytest.mark.asyncio
-async def test_the_extra_places_are_the_next_ranked_ones_not_arbitrary(
+async def test_both_stages_get_the_same_three_places_in_the_same_order(
         client, db_session):
-    """Level 2's list must start with the same places Level 1 would have seen."""
+    """Was "Level 2's longer list starts with Level 1's". With both at three the
+    stage must not reach the ranking at all — it only ever set the length, and
+    this catches a future cut that starts filtering by stage instead."""
     one = await client.get(f"/api/recommendation/{await _patient(db_session, 1)}")
     two = await client.get(f"/api/recommendation/{await _patient(db_session, 2)}")
 
     ids_one = [p["cluster_id"] for p in one.json()["recommendations"]]
     ids_two = [p["cluster_id"] for p in two.json()["recommendations"]]
-    assert ids_two[:3] == ids_one
+    assert ids_two == ids_one
