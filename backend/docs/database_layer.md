@@ -1,9 +1,12 @@
 # PathGuard AI — ชั้นฐานข้อมูล (Database Layer)
 
-> ✅ **ตรวจครบทั้ง 14 ตารางเมื่อ 27 ส.ค. 2026** เดิมเอกสารนี้เขียนไว้ 22 ส.ค. และมีแค่ 7 ตาราง
-> ทั้งที่บรรทัดแรกอ้างว่าดึงมาจาก `models.py` — เพิ่มที่ขาดครบแล้ว: `risk_factor_weights` ·
-> `risk_thresholds` · `temporal_rules` · `rule_audit_log` · `danger_zones` · `pairing_codes` ·
-> `trip_requests` และคอลัมน์ `users.severity_level`
+> ✅ **ตรวจกับฐานข้อมูล Neon ตัวจริงเมื่อ 28 ส.ค. 2026 — 16 ตาราง ตรงกับ `models.py` ทุกตัว**
+> ไม่ขาด ไม่เกิน (วิธีตรวจ: `information_schema.columns` เทียบกับ `Base.metadata.tables`)
+> รอบนี้เพิ่ม `patient_caregivers` · `caregiver_invites` และคอลัมน์ตำแหน่งผู้ดูแลสามตัวใน `users`
+> หลัง `migrate_add_patient_caregivers` ถูกรันจริงเมื่อ 28 ส.ค. 21:59
+> (รอบก่อน 27 ส.ค. เพิ่ม `risk_factor_weights` · `risk_thresholds` · `temporal_rules` ·
+> `rule_audit_log` · `danger_zones` · `pairing_codes` · `trip_requests` · `users.severity_level`
+> เดิมเอกสารเขียนไว้ 22 ส.ค. และมีแค่ 7 ตาราง ทั้งที่อ้างว่าดึงมาจาก `models.py`)
 > **ยึด `app/db/models.py` เป็นหลักเสมอ** ถ้าเอกสารนี้กับโค้ดไม่ตรงกัน โค้ดถูก
 
 อ้างอิงจาก `app/db/models.py` (ORM/ตาราง), `app/db/crud.py` (ฟังก์ชันอ่าน/เขียนข้อมูลผู้ป่วย)
@@ -16,14 +19,18 @@
 
 ---
 
-## 0. ภาพรวม 14 ตาราง แบ่งเป็น 4 กลุ่ม
+## 0. ภาพรวม 16 ตาราง แบ่งเป็น 4 กลุ่ม
 
 | กลุ่ม | ตาราง | ใครเป็นเจ้าของ |
 |---|---|---|
-| **ข้อมูลผู้ป่วย** | `users` · `gps_data` · `behavioral_profiles` | Module 1 + ชั้น API |
+| **ข้อมูลผู้ป่วย** | `users` · **`patient_caregivers`** · `gps_data` · `behavioral_profiles` | Module 1 + ชั้น API |
 | **ผลลัพธ์ AI** | `risk_scores` · `alerts` | Module 3 + Module 4 |
 | **ฐานความรู้ (KB) ของ Module 3** | `risk_factor_weights` · `risk_thresholds` · `temporal_rules` · `danger_zones` · `rule_audit_log` | `rule_repository.py` เท่านั้น |
-| **การส่งถึงมือคน** | `device_tokens` · `push_notifications` · `pairing_codes` · `trip_requests` | ชั้น API + `services/notification.py` |
+| **การส่งถึงมือคน / การเข้าถึง** | `device_tokens` · `push_notifications` · `pairing_codes` · **`caregiver_invites`** · `trip_requests` | ชั้น API + `services/notification.py` |
+
+**สองตารางที่เป็นเรื่อง "ใครเข้าถึงใครได้" ไม่ใช่ข้อมูลผู้ป่วย** — `patient_caregivers` คือ
+คำตอบของ "ผู้ดูแลคนไหนดูผู้ป่วยคนนี้ได้บ้าง" (เดิมเป็นคอลัมน์เดียวใน `users`) และ
+`caregiver_invites` คือทางที่ผู้ดูแลคนที่สองจะเข้ามาอยู่ในตารางนั้น
 
 **กลุ่ม KB คือสิ่งที่ทำให้ Module 3 เป็น expert system ไม่ใช่โค้ดที่ฝังตัวเลขไว้** — น้ำหนัก
 เกณฑ์ และกฎเชิงเวลาทั้งหมดอ่านจากฐานข้อมูลตอน runtime **ทุก request ไม่มี cache**
@@ -44,16 +51,47 @@
 
 #### `users` (model: `User`)
 ข้อมูลผู้ใช้ทั้งผู้ป่วยและผู้ดูแล เป็น "แม่กุญแจ" ที่ทุกตารางอื่นอ้างถึงผ่าน FK `patient_id`
-- คอลัมน์หลัก: `id` (PK, int ภายใน), `firebase_uid` (string จาก Firebase, unique, **NOT NULL**), `name`, `role` (`patient`/`caregiver`), ~~`caregiver_id` (FK ชี้ผู้ดูแลในตารางเดียวกัน)~~ **ย้ายออกไปตาราง `patient_caregivers` แล้ว 2026-08-28** เพราะผู้ป่วย 1 คนต้องมีผู้ดูแลได้หลายคน (คอลัมน์เดิมยังอยู่ในฐานข้อมูล Neon แต่ ORM ไม่อ่านแล้ว), `severity_level`, `created_at`
+- คอลัมน์หลัก: `id` (PK, int ภายใน), `firebase_uid` (string จาก Firebase, unique, **NOT NULL**), `name`, `role` (`patient`/`caregiver`), ~~`caregiver_id` (FK ชี้ผู้ดูแลในตารางเดียวกัน)~~ **ย้ายออกไปตาราง `patient_caregivers` แล้ว 2026-08-28** เพราะผู้ป่วย 1 คนต้องมีผู้ดูแลได้หลายคน (คอลัมน์เดิมยังอยู่ในฐานข้อมูล Neon แต่ ORM ไม่อ่านแล้ว), `severity_level`, `last_latitude`/`last_longitude`/`location_updated_at`, `created_at`
 - **`severity_level`** (เพิ่ม 26 ส.ค.) — `1` = ระยะต้น · `2` = ระยะกลาง · `NULL` = ผู้ดูแลไม่ได้ระบุ
   ผู้อ่านสามราย: `search_radius_adjustment.adjust_radius` (ระยะกลางหดรัศมี 20% ระยะต้นขยาย 20%) ·
-  `api/recommendation.py` (Level 1 ได้ 3 รายการ Level 2 ได้ 5) · `api/trip_requests.py`
+  `api/recommendation.py` · `api/trip_requests.py`
   (เฉพาะ Level 2 ที่ต้องขออนุมัติเดินทาง) และคืนออกทาง `GET /api/patients/{id}` กับ `POST /api/pair`
+  **แก้ 28 ส.ค.: จำนวนรายการแนะนำเป็น 3 ทั้งสองระดับ** (`_TOP_N_BY_LEVEL = {1: 3, 2: 3}`)
+  เดิมเอกสารนี้เขียนว่า Level 2 ได้ 5 ตามรายงาน — ฝั่งแอปสร้างหน้าจอจริงแล้วขอ 3 เพราะผู้ป่วย
+  ระยะกลางต้องการ*ตัวเลือกน้อยลง* ไม่ใช่มากขึ้น มีเทสต์ล็อกไว้แล้ว
   **ไม่มีตัวคูณ severity ในสูตรคะแนนเสี่ยง** ตั้งใจ — มันจะเป็นตัวเลขเดียวใน KB ที่ไม่มีแหล่งอ้างอิงรองรับ
+- **`last_latitude` / `last_longitude` / `location_updated_at`** (เพิ่ม 28 ส.ค.) — ตำแหน่งของ
+  **ผู้ดูแล** ไม่ใช่ผู้ป่วย เขียนผ่าน `PUT /api/caregivers/{id}/location` เพื่อให้เรียงลำดับได้ว่า
+  ตอนเกิดเหตุใครอยู่ใกล้ผู้ป่วยที่สุด
+  - **เก็บค่าล่าสุดค่าเดียว ไม่มีตารางประวัติ ตั้งใจ** — คำถามที่ระบบถามคือ "ตอนนี้ใครใกล้ที่สุด"
+    ไม่มีอะไรถามมากกว่านั้น เส้นทางย้อนหลังของผู้ดูแลจึงเป็นการสอดส่องสมาชิกครอบครัวที่ไม่ใช่ผู้ป่วย
+    โดยไม่มีฟีเจอร์รองรับ
+  - `location_updated_at` **ประทับเวลาฝั่งเซิร์ฟเวอร์เสมอ ไม่รับจาก body** — มือถือที่ตั้งนาฬิกาผิด
+    จะทำให้ตำแหน่งเก่าดูสดและชนะการจัดอันดับที่ควรแพ้
+  - ยิงมาที่ id ของผู้ป่วยจะได้ `422` — ตำแหน่งผู้ป่วยไปทาง `POST /api/gps` ซึ่งผ่าน Kalman
+    คิดคะแนนเสี่ยง และแจ้งเตือนได้ ถ้ารับตรงนี้มันจะไปอยู่ในที่ที่ไม่มีอะไรเกิดขึ้นเลย
+    **โดยที่หน้าจอดูเหมือนสำเร็จ**
+  - **รายงานได้เฉพาะบัญชีตัวเอง (`403`)** ไม่ใช่การตรวจสิทธิ์แบบ patient-access:
+    การเขียนตำแหน่งของคนอื่นคือการดันคนคนนั้นขึ้นเป็นอันดับหนึ่งของการจัดอันดับระยะทาง
+    ในเหตุที่เขาไม่ได้อยู่ใกล้เลย (`api/users.py:106`)
 - `firebase_uid` เป็น **NOT NULL UNIQUE** แม้กับผู้ป่วยที่ยังไม่เคยเปิดเครื่อง เพราะเซิร์ฟเวอร์
   เลือก uid ให้ล่วงหน้าตอนสร้างผู้ป่วย (ดู `pairing_codes`) — ทางเลือกอีกทางคือทำให้ nullable
   ซึ่งจะต้องไปเช็ค null ทุกจุดที่ resolve ตัวตนไปตลอดกาล เพื่อสถานะที่มีอายุไม่กี่นาที
 - ความสัมพันธ์: 1 user → หลาย `gps_records`, `risk_scores`, `alerts`, `behavioral_profiles` (ลบ user แล้ว cascade ลบหมด)
+
+#### `patient_caregivers` (model: `PatientCaregiver`) — เพิ่ม 28 ส.ค.
+ผู้ป่วยหนึ่งคนมีผู้ดูแลได้หลายคน ตารางนี้คือคำตอบของ "ใครดูแลใคร" แทนคอลัมน์ `users.caregiver_id` เดิม
+- คอลัมน์หลัก: `id` (PK), `patient_id` (FK), `caregiver_id` (FK), `is_primary` (bool, default `FALSE`), `created_at`
+- **unique `(patient_id, caregiver_id)`** (`uq_patient_caregiver`) + index ทั้งสองฝั่ง —
+  การเชิญซ้ำจึงไม่ทำให้เกิดแถวซ้ำ
+- **`is_primary` ไม่ใช่สิทธิ์** ทุกแถวให้สิทธิ์เท่ากันหมด มันมีไว้ตอบคำถามที่ต้องการคำตอบเดียว
+  เท่านั้น: ใครแสดงเป็น "ผู้ดูแล" บนหน้าโปรไฟล์ และใครชนะเมื่อระยะทางเท่ากัน
+  คนที่สร้างผู้ป่วยได้ `TRUE`
+- **`crud.get_caregiver_ids()` คือคำถามที่ถูก** — `get_caregiver_id()` ยังอยู่สำหรับผู้เรียกที่
+  ต้องการคนเดียวจริง ๆ และ docstring ของมันบอกไว้ว่ามันเป็นคำถามที่ผิดสำหรับการตรวจสิทธิ์
+  `services/auth.py` เช็คแบบ **สมาชิกของ set** ถ้าใช้ `==` จะปล่อยผู้ดูแลหลักเข้า แล้ว 403 ผู้ดูแลคนอื่นทั้งบ้าน
+- `crud.create_user` เขียนแถวนี้ให้เองตอนสร้างผู้ป่วย (`is_primary=True`) ผู้ป่วยที่สร้างหลัง
+  28 ส.ค. จึงมีลิงก์เสมอโดยไม่ต้อง backfill
 
 #### `gps_data` (model: `GPSData`)
 ประวัติ GPS ย้อนหลัง (≈30 วัน) ของผู้ป่วย — เก็บทั้งค่าดิบและค่าที่ผ่าน Kalman แล้ว
@@ -90,6 +128,11 @@
   รายการตัวจริงอยู่ที่ `app/models/alert.py` (`AlertType` / `ALERT_TYPES`) **ที่เดียว** และ
   `tests/test_alert_types.py` สแกน `app/api/` ด้วย `ast` เพื่อกันไม่ให้มีใครเขียนค่านอกลิสต์
   (เคยมี `gps_loss` กับ `gps_lost` อยู่คนละไฟล์ ทำให้ผู้ดูแลโดน push ซ้ำสองครั้งจาก GPS ขาดครั้งเดียว)
+- ⚠️ **ของจริงใน Neon มีเจ็ดค่า ไม่ใช่หก — เพราะประวัติไม่ถูกเขียนทับ** นับเมื่อ 28 ส.ค.:
+  `gps_loss` 44 · `geofence` 39 · **`gps_lost` 3** · `emergency` 2 การแก้เมื่อ 26 ส.ค. รวม
+  *ผู้เขียน*ให้เหลือค่าเดียว แต่ไม่ได้ย้อนไปแก้แถวเก่า **แถว `gps_lost` สามแถวยังอยู่และไม่อยู่ใน
+  `ALERT_TYPES`** ใครที่กรองด้วยลิสต์นั้นจะมองไม่เห็นมัน ตอนนี้ไม่มีใครทำ (`api/alerts.py`
+  ประกาศฟิลด์เป็น `str` เฉย ๆ) แต่ถ้าจะเพิ่มตัวกรองเมื่อไหร่ ต้องรู้ข้อนี้ก่อน
 
 ### 1.3 ฐานความรู้ (Knowledge Base) ของ Module 3
 
@@ -110,7 +153,11 @@
 #### `risk_thresholds` (model: `RiskThreshold`)
 เกณฑ์ตัดที่มีชื่อ — เส้นแบ่งคะแนน ระยะทาง และเวลา
 - คอลัมน์เฉพาะ: `threshold_name` (ตรวจกับ `KNOWN_THRESHOLDS`), `value`, `unit` (`score`/`meter`/`second`)
-- **ปัจจุบันมี 7 ตัว**: `low_ceiling` · `medium_ceiling` · `emergency_score` · `route_deviation_ceiling_m` · `gps_gap_seconds` · `push_cooldown_seconds` · `sos_cooldown_seconds`
+- **ปัจจุบันมี 7 ตัวที่ `active`**: `low_ceiling` 50 · `medium_ceiling` 80 · `emergency_score` 80 · `route_deviation_ceiling_m` 500 · `gps_gap_seconds` 600 · `push_cooldown_seconds` 600 · `sos_cooldown_seconds` 60
+- **แต่ในตารางมี 12 แถว** (นับจริงบน Neon 28 ส.ค.) ส่วนต่างคือแถวที่ปิด `active` ไปแล้ว —
+  `emergency_score` เดินมาถึง version 4 (เคยมีช่วงที่ตั้งไว้ 50) `low_ceiling` และ
+  `medium_ceiling` อยู่ที่ version 2 **นี่คือระบบทำเวอร์ชันทำงานให้ดูของจริง** ไม่ใช่ข้อมูลซ้ำ:
+  จำนวนแถว ≠ จำนวนเกณฑ์ ใครนับแถวแล้วตกใจว่าซ้ำ ให้กรอง `active = TRUE` ก่อน
 - 🛑 **`get_all_thresholds` จะไม่ยอมโหลดถ้าเกณฑ์ที่รู้จักขาดไปแม้ตัวเดียว** บนฐานข้อมูลที่ยัง
   ไม่ seed ใหม่ อาการที่ได้คือ **การคำนวณคะแนนเสี่ยงล้มทั้งระบบ** ไม่ใช่แค่ฟีเจอร์ที่เพิ่งเพิ่ม
   รัน `python -m app.mock.seed_risk_rules` ก่อน deploy — สคริปต์ idempotent ใส่เฉพาะแถวที่ขาด
@@ -165,6 +212,19 @@ FCM registration token ของเครื่องผู้ดูแลหน
   ความปลอดภัยจึงมาจาก entropy ล้วน ๆ: 8 ตัวจากอักษร 30 ตัว ≈ 6.6×10¹¹ ส่วน 6 หลักคือ 10⁶
   **การเปลี่ยนไปใช้ตัวเลข 6 หลักต้องสร้าง rate limiting ก่อน**
 
+#### `caregiver_invites` (model: `CaregiverInvite`) — เพิ่ม 28 ส.ค.
+รหัสเชิญที่ผู้ดูแลคนเดิมออกให้ผู้ดูแล**คนใหม่** เพื่อเข้ามาดูผู้ป่วยคนเดียวกัน
+- คอลัมน์หลัก: `code` (unique), `patient_id` (FK), `invited_by` (FK ผู้ดูแลที่ออกรหัส, nullable), `expires_at`, `used_at`, `created_at`
+- รูปแบบรหัส / อายุ 24 ชม. / ใช้ได้ครั้งเดียว **เหมือน `pairing_codes` ทุกอย่าง**
+- 🛑 **แต่เป็นคนละตารางโดยตั้งใจ ห้ามยุบรวม** — `pairing_codes` ใช้*อ้างตัวตน*ของผู้ป่วย
+  (ใช้แล้วได้ token ที่เป็น "ผู้ป่วยคนนั้น") ส่วน invite ให้*สิทธิ์เข้าถึง*ผู้ป่วย
+  ถ้าอยู่ใน namespace เดียวกัน ตัวกรองที่หายไปบรรทัดเดียวจะเปลี่ยนรหัสตั้งค่าเครื่อง
+  ให้กลายเป็นรหัสที่ยื่นมุมมองผู้ดูแล — คือตำแหน่งสดของผู้ป่วยสมองเสื่อม — ให้คนแปลกหน้า
+  มีเทสต์ยืนยันว่ารหัสจับคู่ถูกปฏิเสธที่ปลายทาง invite
+  **กฎทั่วไป: รหัสที่ยืนยันตัวตน (authenticate) กับรหัสที่ให้สิทธิ์ (authorize) ห้ามใช้พื้นที่รหัสร่วมกัน**
+- **ผู้ป่วยออกรหัสเชิญไม่ได้ (403)** ถึงแม้ `verify_patient_access` จะให้อ่านข้อมูลตัวเองได้
+- การ redeem **กินรหัสทิ้งเสมอ** แม้ผู้ใช้คนนั้นจะถูกลิงก์อยู่แล้ว
+
 #### `trip_requests` (model: `TripRequest`)
 คำขออนุมัติเดินทางของผู้ป่วย Level 2 (C-3 ในรายงาน, 26 ส.ค.)
 - คอลัมน์หลัก: `patient_id` (FK), `destination_name`, `latitude`/`longitude`, `confidence` (0–1), `factors` (JSON), `status` (`pending`/`approved`/`rejected`), `decided_by` (FK ผู้ดูแล), `decided_at`, `created_at`
@@ -183,7 +243,9 @@ FCM registration token ของเครื่องผู้ดูแลหน
 
 | ตาราง | เก็บอะไร | ใครเขียน | ใครอ่าน |
 |---|---|---|---|
-| `users` | ผู้ป่วย/ผู้ดูแล + FK กลาง | `api/users.py` (`POST /api/register`) ; **`api/pairing.py` (`POST /api/patients` — ผู้ดูแลสร้างผู้ป่วย)** ; `seed_module5.py` | `api/users.py` · `api/gps.py` (resolve `firebase_uid`→`id`) · **`services/auth.py` ทุก request** · **`api/pairing.py` (`GET /api/patients/{id}`)** · `api/recommendation.py` + `api/search_area.py` + `api/trip_requests.py` (อ่าน `severity_level`) |
+| `users` | ผู้ป่วย/ผู้ดูแล + ตำแหน่งล่าสุดของผู้ดูแล | `api/users.py` (`POST /api/register` ; **`PUT /api/caregivers/{id}/location` → `crud.update_user_location`**) ; **`api/pairing.py` (`POST /api/patients` — ผู้ดูแลสร้างผู้ป่วย)** ; `seed_module5.py` | `api/users.py` · `api/gps.py` (resolve `firebase_uid`→`id`) · **`services/auth.py` ทุก request** · **`api/pairing.py` (`GET /api/patients/{id}`)** · `api/recommendation.py` + `api/search_area.py` + `api/trip_requests.py` (อ่าน `severity_level`) |
+| **`patient_caregivers`** | ใครดูแลใคร (หลายคนได้) | `crud.link_caregiver` ← `crud.create_user` (ตอนสร้างผู้ป่วย, `is_primary=True`) · `api/pairing.py` (`POST /api/caregivers/redeem-invite`) | **`services/auth.py` ทุก request** (`get_caregiver_ids` — เช็คสมาชิก set) · `services/notification.py` (`get_caregiver_tokens` กระจาย push ทุกเครื่องของผู้ดูแลทุกคน) · `api/pairing.py` · `api/trip_requests.py` |
+| **`caregiver_invites`** | รหัสเชิญผู้ดูแลคนถัดไป | `api/pairing.py` — `POST /api/patients/{id}/caregiver-invites` สร้าง · `POST /api/caregivers/redeem-invite` ตั้ง `used_at` | `api/pairing.py` (`get_caregiver_invite`) |
 | `gps_data` | ประวัติ GPS ดิบ+smooth | **Module 1** `services/gps_processor.py` ; `scripts/import_geolife.py` ; `scripts/inject_wandering.py` | **Module 1** `behavior_pipeline.py` · **Module 2** `destination_prediction.py` · **Module 3** `api/risk.py` · **Module 4** `api/search_area.py` (ผ่าน `get_gps_history`) ; `get_latest_gps` อ่านโดย Module 3/4/5 ; **`api/tracking.py`** (`GET /api/patients/{id}/track` — แผนที่ของผู้ดูแล) |
 | `behavioral_profiles` | สถานที่/กิจวัตรที่เรียนรู้ | **Module 1** `behavior_pipeline.py` ; **`api/places.py`** (หมุดของผู้ดูแล — `POST .../places`, `PUT .../places/home`) ; **`scripts/build_routine_patterns.py`** (`routine_patterns`) ; `seed_module5.py` | Module 2/3/4/5 ผ่าน `get_behavioral_profile` |
 | `risk_scores` | ผลคะแนนเสี่ยง 0–100 | **Module 3** `api/risk.py` — ทุกครั้งที่ GPS เข้า (throttle 60 วิ) และทุกครั้งที่มีคนเรียก `GET /api/risk/{id}` | `api/gps.py` (จับเวลา throttle) ; `get_recent_risk_scores` ใช้โดยกฎ temporal |
@@ -217,9 +279,22 @@ FCM registration token ของเครื่องผู้ดูแลหน
 ```
 [0] ผู้ดูแลสร้างผู้ป่วย + จับคู่เครื่อง
    ผู้ดูแล → POST /api/patients → users (เซิร์ฟเวอร์เลือก firebase_uid เอง)
+                                → patient_caregivers (ผู้สร้าง, is_primary=TRUE)
                                 → pairing_codes (รหัส 8 ตัว อายุ 24 ชม.)
    เครื่องผู้ป่วย → POST /api/pair {code} → ตั้ง used_at → คืน Firebase custom token
                                 → signInWithCustomToken() → เป็น client ธรรมดาตลอดไป
+
+[0b] ผู้ดูแลคนที่สองเข้ามา (28 ส.ค.)
+   ผู้ดูแลเดิม → POST /api/patients/{id}/caregiver-invites → caregiver_invites (รหัสคนละพื้นที่กับ [0])
+   ผู้ดูแลใหม่ → POST /api/caregivers/redeem-invite {code} → ตั้ง used_at
+                                → patient_caregivers (แถวใหม่, is_primary=FALSE, สิทธิ์เท่ากัน)
+   ผลทันที: auth ปล่อยผ่านทั้งคู่ · push ออกไปหาเครื่องของทั้งคู่
+
+[0c] ผู้ดูแลรายงานตำแหน่งตัวเอง (28 ส.ค.)
+   แอปผู้ดูแล → PUT /api/caregivers/{id}/location → users.last_latitude/last_longitude
+                                → location_updated_at ประทับฝั่งเซิร์ฟเวอร์ (ทับค่าเดิม ไม่มีประวัติ)
+   ยังไม่มีผู้อ่าน — การจัดอันดับ "ใครใกล้ที่สุด" (A4) รอคำตอบจากฝั่งแอปว่าส่งถี่แค่ไหน
+   จึงจะตั้งเกณฑ์ได้ว่าตำแหน่งเก่ากี่นาทีถือว่าใช้ไม่ได้
 
 [1] ลงทะเบียนผู้ดูแล
    Flutter → POST /api/register → users (สร้าง users.id) ──┐
@@ -281,11 +356,18 @@ FCM registration token ของเครื่องผู้ดูแลหน
 3. **ไม่มี migration tool** — `init_db()` เรียก `Base.metadata.create_all` ซึ่ง
    *สร้างตารางที่ยังไม่มี* แต่ **ไม่เพิ่มคอลัมน์ให้ตารางที่มีอยู่แล้ว** ตารางใหม่
    (`device_tokens`, `push_notifications`, `pairing_codes`, `trip_requests`) จึงขึ้นเอง
-   ตอนบูต แต่คอลัมน์ใหม่ในตารางเดิมไม่ขึ้น ต้องเขียนสคริปต์ ALTER เอง — มีสองตัวแล้ว:
-   `scripts/migrate_add_synthetic_injected.py` และ **`scripts/migrate_add_severity_level.py`**
-   ✅ **รันกับ Neon แล้ว 27 ส.ค. 2026** — และการรันครั้งนั้นพิสูจน์ข้อความข้างบนพอดี:
+   ตอนบูต แต่คอลัมน์ใหม่ในตารางเดิมไม่ขึ้น ต้องเขียนสคริปต์ ALTER เอง — มีสามตัวแล้ว:
+   `scripts/migrate_add_synthetic_injected.py` · **`scripts/migrate_add_severity_level.py`** ·
+   **`scripts/migrate_add_patient_caregivers.py`**
+   ✅ **รันกับ Neon แล้วทั้งหมด (27 และ 28 ส.ค. 2026)** — และการรันครั้งแรกพิสูจน์ข้อความข้างบนพอดี:
    `init_db` สร้าง `pairing_codes` กับ `trip_requests` ที่ยังไม่มีบน Neon ให้เองตอนบูต
    ส่วน `users.severity_level` ต้องรอ `ALTER TABLE` จากสคริปต์ ไม่มีทางขึ้นเอง
+   ⚠️ **การรัน 28 ส.ค. เพิ่มบทเรียนข้อที่สอง: สคริปต์ย้ายข้อมูลต้องรายงานสิ่งที่มัน*ไม่ได้*ทำ**
+   `migrate_add_patient_caregivers` คัดลอกได้ 0 ลิงก์ แล้วเตือนว่า
+   `4 patient(s) have no caregiver linked at all` ตัวเลข 0 นั้นถูกต้อง (ค่า `users.caregiver_id`
+   เดิมเป็น NULL หมด และในฐานข้อมูลไม่มีบัญชีผู้ดูแลอยู่เลยสักคน — ทั้งสี่คือแถว seed/demo)
+   แต่ **ถ้าสคริปต์เงียบแทนที่จะเตือน ความต่างระหว่าง "ไม่มีอะไรให้ย้าย" กับ "ย้ายพลาด"
+   จะมองไม่เห็นเลย** ทั้งสองกรณีจบด้วยตารางว่างเหมือนกัน
 4. **ฐานความรู้ต้อง seed ก่อน ไม่ใช่ตัวเลือก** — `python -m app.mock.seed_risk_rules`
    ดูเหตุผลที่ `risk_thresholds` ข้างบน: เกณฑ์ขาดตัวเดียว = คะแนนเสี่ยงล้มทั้งระบบ
 5. **การแก้กฎไม่เคยเป็นการ UPDATE ทับ** — ปิด `active` แถวเดิม เขียนแถวใหม่ พร้อมแถวใน

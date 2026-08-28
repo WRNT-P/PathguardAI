@@ -9,6 +9,8 @@
 > **ส่วนที่กระทบโมดูล AI ตรง ๆ ถูกแก้ในเอกสารนี้แล้ว**: `users.severity_level` ที่เปลี่ยน
 > รัศมีค้นหาของ Module 4 และจำนวนรายการของ Module 5 · `routine_patterns.py` ที่ทำให้
 > `time_match` มีค่าเป็นครั้งแรก · `trip_confidence.py` ที่เป็นตัวให้คะแนนตัวที่สองของ Module 5
+> ♻️ **แก้ 28 ส.ค. 2026**: Module 5 คืน **3 รายการทุกระดับ** ไม่ใช่ 5 สำหรับ Level 2
+> (รัศมีค้นหายังขึ้นกับระยะของโรคเหมือนเดิม — ตรงนั้นไม่เปลี่ยน)
 >
 > ⚠️ **บล็อกผลลัพธ์ทุกอันในเอกสารนี้คือผลรันจริง ณ วันที่บันทึก ไม่ได้รันใหม่**
 > ตัวเลขที่เปลี่ยนไปตามการแก้โค้ดถูกกำกับไว้ที่จุดนั้น ๆ
@@ -575,9 +577,13 @@ confidence = sum(WEIGHTS[f] * factors[f] for f in active) / sum(WEIGHTS[f] for f
 
 **Two things this section is missing that matter to the API:**
 
-* **How many places come back depends on the stage of illness** — `severity_level` 1
-  gets 3, `severity_level` 2 gets 5, an unstated stage gets 3. A Level 2 patient's
-  search box is locked, so the grid is the only way they can reach anywhere.
+* **How many places come back is 3 for every stage** — `_TOP_N_BY_LEVEL = {1: 3, 2: 3}`,
+  and an unstated stage gets 3 as well. **Corrected 2026-08-28: this used to say Level 2
+  gets 5**, which came from the report. The app side built the screen and asked for 3:
+  a moderate-stage patient needs *fewer* choices, not more. A Level 2 patient's search
+  box is locked, so the grid is the only way they can reach anywhere — that was the
+  argument for 5, and it lost to the one about the person actually reading the screen.
+  A test pins it now.
 * **Each result carries `place_name`** (added 2026-08-27). It is `null` for anything
   Module 1 learned, because `place_clustering.py` emits no name and only a human can
   give one — which is the same finding that decided Module 1 would not be used.
