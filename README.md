@@ -127,6 +127,9 @@ Endpoints live today:
 | GET | `/api/patients/{id}/track` | recent GPS track for the map |
 | GET/PATCH | `/api/patients/{id}/alerts`, `/api/alerts/{id}` | alert feed + mark resolved |
 | GET | `/api/patients/{patient_id}` | patient name + `severity_level` — the phone reading its own stage |
+| POST | `/api/patients/{id}/caregiver-invites` | invite a second caregiver to this patient |
+| POST | `/api/caregivers/redeem-invite` | the second caregiver redeems that code |
+| PUT | `/api/caregivers/{id}/location` | the caregiver app reports where it is (for distance ranking) |
 | GET | `/` | service info |
 
 ---
@@ -135,7 +138,7 @@ Endpoints live today:
 
 All 5 AI modules described in the architecture doc are implemented under
 `backend/app/ai/` and wired into the API above. Verified with the full test
-suite (`python -m pytest -q` from `backend/`, 325 tests passing) plus an
+suite (`python -m pytest -q` from `backend/`, 367 tests passing) plus an
 end-to-end integration test (`tests/test_phase4_integration.py`) that drives
 Module 1 → 2 → 3 → 4 → 5 back to back and asserts a high-risk emergency is
 correctly triggered and traced back to an injected wandering episode.
@@ -185,8 +188,16 @@ above).
   ปัจจัยจาก 4 ตอนนี้มี `python -m scripts.build_routine_patterns` เป็นคนเขียน — มันเรียนแค่
   *ช่วงเวลา* ที่ผู้ป่วยอยู่แต่ละหมุด **ไม่ได้เดาสถานที่เอง** ถ้าไม่มีหมุดก็ไม่เรียนอะไรเลย
   ไม่ต้องตั้ง scheduler รันเมื่อผู้ป่วยมีประวัติมากพอก็พอ
+- **A patient can have several caregivers (2026-08-28).** The link lives in
+  `patient_caregivers`, not in a single `users.caregiver_id` FK. Every caregiver
+  linked to a patient has identical access and every one of them is pushed to;
+  `is_primary` only marks whoever created the patient. A second caregiver joins by
+  redeeming an invite code — a **different** code space from the patient-device
+  pairing code, because one claims a patient's identity and the other grants
+  access to them. `backend/scripts/migrate_add_patient_caregivers.py` moves an
+  existing database over and must be run once.
 - **Auth is built but off.** `app/services/auth.py` verifies a Firebase ID token,
-  maps it to `users.id`, and allows only the patient or their caregiver. It is
+  maps it to `users.id`, and allows only the patient or any of their caregivers. It is
   gated behind `AUTH_ENABLED` (default `false`); see `.env.example`. Send the
   `Authorization: Bearer <id token>` header from the start so turning it on is a
   one-line change on the server and none in the app.
