@@ -1,4 +1,12 @@
-"""Idempotent migration: patient_caregivers, and the data out of users.caregiver_id.
+"""Idempotent migration: the whole multi-caregiver schema.
+
+Two things, in one script because they are one feature and asking the user to
+run two commands in the right order is a way to have one of them skipped:
+
+1. ``patient_caregivers``, and the data out of ``users.caregiver_id``;
+2. ``users.last_latitude`` / ``last_longitude`` / ``location_updated_at`` — where
+   a caregiver is, without which "ranked by distance" cannot be computed.
+
 
 ``users.caregiver_id`` was one nullable FK, so a patient had at most one
 caregiver. The report has always promised "alert every caregiver, ranked by
@@ -74,6 +82,19 @@ async def main() -> None:
             """))
             moved = result.rowcount
 
+        # Where a caregiver last was. Nullable and never backfilled: inventing a
+        # position for somebody would put them at the top of a distance ranking
+        # for a patient they may be nowhere near. Latest only — no history table
+        # on purpose, see the comment on the columns in models.py.
+        for column, ddl_type in (
+            ("last_latitude", "DOUBLE PRECISION"),
+            ("last_longitude", "DOUBLE PRECISION"),
+            ("location_updated_at", "TIMESTAMPTZ"),
+        ):
+            await conn.execute(text(
+                f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {column} {ddl_type}"
+            ))
+
         total = await conn.scalar(text("SELECT COUNT(*) FROM patient_caregivers"))
         orphans = await conn.scalar(text("""
             SELECT COUNT(*) FROM users u
@@ -84,6 +105,8 @@ async def main() -> None:
 
     print(f"OK: patient_caregivers present, {moved} link(s) copied this run, "
           f"{total} total")
+    print("OK: users.last_latitude / last_longitude / location_updated_at present "
+          "(existing rows left NULL)")
     if orphans:
         # Not fatal and not necessarily wrong — a patient registered through
         # /api/register never had a caregiver. Printed because if it is not zero

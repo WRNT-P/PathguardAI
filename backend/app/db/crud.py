@@ -478,6 +478,26 @@ async def set_alert_resolved(
     return alert
 
 
+async def update_user_location(
+    db: AsyncSession, user_id: int, latitude: float, longitude: float,
+) -> User | None:
+    """Overwrite where this user last was. Returns None if there is no such user.
+
+    Overwrite, not append: only the current position is kept (see the columns'
+    comment in models.py). ``location_updated_at`` is set server-side rather
+    than taken from the caller so a phone with a wrong clock cannot make a stale
+    position look fresh and win a distance ranking it should have lost.
+    """
+    user = await db.get(User, user_id)
+    if user is None:
+        return None
+    user.last_latitude = latitude
+    user.last_longitude = longitude
+    user.location_updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return user
+
+
 async def get_caregiver_ids(db: AsyncSession, patient_id: int) -> list[int]:
     """Every caregiver responsible for this patient, primary first.
 

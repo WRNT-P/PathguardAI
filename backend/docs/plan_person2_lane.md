@@ -51,7 +51,7 @@ python -m app.mock.seed_risk_rules
 | เอกสาร `places` เข้า `API_CONTRACT_APP.md` | ✅ **เสร็จ 26 ส.ค.** หัวข้อ 10 (`b9e33d3`) |
 | `routine_patterns` (L3-4) | ✅ **เสร็จ 26 ส.ค.** (`5208157`) `time_match` ได้น้ำหนัก 0.25 |
 | Real-time Navigation · Safe Zone Navigation | ⬜ **ไม่มีทางทำด้วย backend ปัจจุบัน** ไม่มี routing provider เลย |
-| แจ้งผู้ดูแลทุกคน + จัดอันดับระยะทาง | 🟠 **กำลังทำ (2026-08-28)** ตาราง `patient_caregivers` + สิทธิ์ + push fan-out เสร็จแล้ว · ยังไม่มีพิกัดผู้ดูแล จึงยังจัดอันดับไม่ได้ |
+| แจ้งผู้ดูแลทุกคน + จัดอันดับระยะทาง | 🟠 **กำลังทำ (2026-08-28)** ตาราง `patient_caregivers` + สิทธิ์ + push fan-out + `PUT /api/caregivers/{id}/location` เสร็จแล้ว · ยังไม่ได้เขียนการจัดอันดับ และยังไม่มีทางให้ผู้ดูแลคนที่ 2 เข้าระบบ |
 
 **ทำไมลำดับต้องเป็นแบบนี้** — `patient_id` เป็น int เรียงกัน เปิด tunnel ก่อนเปิด auth
 = ใครก็ได้บนอินเทอร์เน็ตยิง `GET /api/patients/1/track` แล้วได้พิกัดสดของผู้ป่วยสมองเสื่อม

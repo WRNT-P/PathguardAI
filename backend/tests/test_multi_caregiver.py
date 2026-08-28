@@ -133,3 +133,65 @@ async def test_a_patient_with_no_caregiver_notifies_nobody(db_session):
 
     assert await crud.get_caregiver_ids(db_session, patient.id) == []
     assert await crud.get_caregiver_tokens(db_session, patient.id) == []
+
+
+# ── where the caregiver is ───────────────────────────────────────────────────
+#
+# Note this endpoint is scoped by {caregiver_id}, not {patient_id}, so
+# ``test_every_patient_scoped_route_is_guarded`` does not walk it. Its 403 is
+# covered by hand below.
+
+async def test_a_caregiver_reports_their_position_and_it_overwrites(
+        client, db_session, household):
+    """Overwrite, not append. Nothing keeps a trail of a family member who is
+    not the patient — ranking only ever asks where they are now."""
+    first = await client.put(
+        f"/api/caregivers/{household['primary']}/location",
+        json={"latitude": 13.7563, "longitude": 100.5018})
+    assert first.status_code == 200, first.text
+
+    second = await client.put(
+        f"/api/caregivers/{household['primary']}/location",
+        json={"latitude": 13.8000, "longitude": 100.6000})
+    assert second.status_code == 200
+
+    db_session.expire_all()
+    user = await crud.get_user(db_session, household["primary"])
+    assert (user.last_latitude, user.last_longitude) == (13.8000, 100.6000)
+    assert user.location_updated_at is not None
+
+
+async def test_a_caregiver_cannot_report_someone_elses_position(
+        client, db_session, household, auth_on, monkeypatch):
+    """Writing another caregiver's location would put them at the top of a
+    distance ranking for a patient they are nowhere near."""
+    monkeypatch.setattr(auth, "verify_firebase_token", lambda t: SECOND_UID)
+
+    resp = await client.put(
+        f"/api/caregivers/{household['primary']}/location",
+        json={"latitude": 13.7563, "longitude": 100.5018},
+        headers=bearer("tok"))
+
+    assert resp.status_code == 403
+
+
+async def test_a_patient_position_is_refused_here(client, household):
+    """It belongs in POST /api/gps, which smooths it, scores it and can raise an
+    alert. Accepted here it would land somewhere none of that happens and look
+    like it worked."""
+    resp = await client.put(
+        f"/api/caregivers/{household['patient']}/location",
+        json={"latitude": 13.7563, "longitude": 100.5018})
+
+    assert resp.status_code == 422
+    assert "POST /api/gps" in resp.json()["detail"]
+
+
+async def test_a_caregiver_who_has_never_reported_has_no_position(
+        db_session, household):
+    """Null, not (0, 0) — the Gulf of Guinea is not a default."""
+    user = await crud.get_user(db_session, household["second"])
+
+    assert user.last_latitude is None
+    assert user.last_longitude is None
+    assert user.location_updated_at is None

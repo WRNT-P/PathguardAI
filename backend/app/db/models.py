@@ -28,6 +28,25 @@ class User(Base):
     # in app/ai reads it — a severity multiplier on the Module 3 weights would be
     # the only number in the rule KB without a citation behind it.
     severity_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Where this CAREGIVER last was. Added 2026-08-28 for the report's "alert
+    # every caregiver, ranked by distance" — you cannot rank by distance without
+    # knowing where the people are.
+    #
+    # Latest position only, deliberately: no history table, no trail. Ranking
+    # asks "who is nearest right now" and nothing asks anything else, so keeping
+    # a track would be surveillance of a family member who is not the patient
+    # and has not consented to being followed — a privacy cost with no feature
+    # behind it. ``location_updated_at`` exists because a position from
+    # yesterday must not win a ranking; whoever ranks decides how stale is too
+    # stale.
+    #
+    # Null for every patient (their positions live in gps_data, which is a
+    # different question with different retention) and for any caregiver whose
+    # app has not reported yet.
+    last_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    location_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     gps_records: Mapped[list["GPSData"]] = relationship("GPSData", back_populates="patient", cascade="all, delete-orphan")
