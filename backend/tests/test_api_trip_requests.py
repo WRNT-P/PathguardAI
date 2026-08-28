@@ -238,3 +238,35 @@ async def test_the_caregiver_who_rejects_is_not_pushed_their_own_decision(
     assert r.json()["push"] == "skipped_self"
     # The row still exists — the timeline and the dashboard both read it.
     assert await db_session.get(Alert, r.json()["alert_id"]) is not None
+
+
+async def test_a_second_caregiver_turns_the_self_skip_off(
+        client, level2, db_session, monkeypatch):
+    """The skip is whole-list equality, so it only fires for a lone caregiver.
+
+    Written 2026-08-28 because the module docstring described this rule wrongly
+    twice, in opposite directions — first "the others get notified for free",
+    then "the push is skipped for all of them". Neither survived being run. With
+    a second caregiver linked, the decider is no longer the whole list, the skip
+    does not apply, and the push is attempted for everybody (no device tokens
+    exist here, so that surfaces as ``no_caregiver`` — the point is that it is
+    not ``skipped_self``).
+    """
+    second = await crud.create_user(
+        db_session, firebase_uid="uid-cg2", name="ผู้ดูแลคนที่สอง",
+        role="caregiver")
+    await db_session.flush()
+    await crud.link_caregiver(db_session, level2["patient"], second.id)
+    await db_session.commit()
+
+    body = (await ask(client, level2["patient"])).json()
+
+    tokens = {"tok-cg": "uid-cg"}
+    monkeypatch.setattr(auth, "AUTH_ENABLED", True)
+    monkeypatch.setattr(auth, "verify_firebase_token", lambda t: tokens[t])
+
+    r = await client.patch(f"/api/trip-requests/{body['id']}",
+                           json={"decision": "reject"},
+                           headers={"Authorization": "Bearer tok-cg"})
+    assert r.status_code == 200
+    assert r.json()["push"] != "skipped_self"

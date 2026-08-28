@@ -30,12 +30,20 @@ contact with the schema:
   pressed reject, and pushing to them would notify someone of their own
   decision. The alert row is written regardless; the push is skipped.
 
-  **An earlier version of this comment said the rule "starts notifying the
-  others without further change" once multi-caregiver landed. That was wrong.**
-  The check below is ``the caregiver == the decider``, which with several
-  caregivers skips the push to *all* of them, not just the decider. Making it
-  right needs ``notify_alert`` to take an excluded recipient, which is why it is
-  not free and why it is scheduled with the ranked fan-out rather than here.
+  **This comment has now been wrong twice, in opposite directions. Read the
+  three lines of code, not either version of it.** It first claimed the rule
+  would "start notifying the others without further change" once multi-caregiver
+  landed; the correction then claimed the opposite, that with several caregivers
+  the push is skipped for *all* of them. Checked against the code on 2026-08-28:
+  the test is ``caregivers == [caller.user_id]``, a whole-list equality, so it is
+  true only when the decider is the *sole* caregiver. With two caregivers it is
+  false and the push goes out — to everybody, the decider included.
+
+  So the remaining gap is smaller than the correction said and is the opposite
+  failure: nobody is dropped, but whoever pressed reject is told about their own
+  decision. Fixing that still needs ``notify_alert`` to take an excluded
+  recipient — there is no way to say "everyone but this person" today — which is
+  why it rides along with the ranked fan-out rather than being done here.
 """
 import json
 import logging
@@ -279,11 +287,12 @@ async def decide_trip(
     # of their own decision. The alert row is written either way — the timeline
     # and the dashboard both read it.
     #
-    # ⚠️ This is deliberately still the single-caregiver rule. The moment a
-    # second caregiver can be added, "the decider is the only recipient" stops
-    # being true and this silently drops the push for everybody else. See the
-    # module docstring — it needs an excluded-recipient argument on notify_alert,
-    # not a wider query here.
+    # ⚠️ Whole-list equality, so this skips the push only when the decider is
+    # the patient's *only* caregiver. With two or more it is false and everyone
+    # gets pushed, decider included — nobody is dropped, but the person who just
+    # pressed reject hears about their own decision. Saying "everyone but this
+    # person" needs an excluded-recipient argument on notify_alert, not a wider
+    # query here. See the module docstring.
     caregivers = await crud.get_caregiver_ids(db, row.patient_id)
     if caller.authenticated and caregivers == [caller.user_id]:
         push_status = "skipped_self"
