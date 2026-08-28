@@ -6,6 +6,9 @@
 > **ที่เขียนผิดไปแล้ว** (แก้แล้ว): บอกว่าน้ำหนักคะแนนเสี่ยงฝังในโค้ด · บอกว่าเกณฑ์ฉุกเฉินคือ
 > `> 80` ตายตัว · บอกว่าการปรับรัศมีค้นหาคูณทบกันทุกทาง · ยังนับ `sequence_learning.py`
 > ที่ถูกลบไปแล้ว
+> ♻️ **ไล่ซ้ำ 28 ส.ค. 2026** หลังงานผู้ดูแลหลายคนขึ้น main: แก้ `get_caregiver_id` → `get_caregiver_ids`
+> ที่ `services/auth.py` ใช้จริง · เพิ่ม `link_caregiver` · รหัสเชิญ · `update_user_location`
+> · แก้จำนวนรายการแนะนำเป็น 3 ทุกระดับ
 > **สายที่ครบที่สุดสำหรับฝั่งแอปคือ `backend/API_CONTRACT_APP.md`** ส่วนตารางดูที่ `database_layer.md`
 
 ติดตามเส้นทางข้อมูลจริงจาก `import` และการเรียกฟังก์ชันในโค้ด (ไม่ใช่การเดา)
@@ -180,7 +183,7 @@ from app.ai.module2_prediction.cluster_matcher import haversine_km, get_familiar
 
 **ระดับโมดูล**
 - **เข้า (runtime):** `patient_id` + lat/lng (จาก `api/recommendation.py`) ; `known_places` (Module 1) + GPS ล่าสุด ; โมเดลต่อผู้ป่วยจากไฟล์ `ranker_patient_{id}.pkl` (ถ้ามี)
-- **ออก (runtime):** `RecommendationResponse` — **จำนวนขึ้นกับระยะของโรค: Level 1 ได้ 3 · Level 2 ได้ 5 · ไม่ระบุได้ 3** (แก้ 26 ส.ค. เดิม hardcode 3) แต่ละรายการมี `place_name` ด้วยตั้งแต่ 27 ส.ค. — **ไม่เขียน DB**
+- **ออก (runtime):** `RecommendationResponse` — **3 รายการทุกระดับ** (`_TOP_N_BY_LEVEL = {1: 3, 2: 3}` — แก้ 28 ส.ค. ตามที่ฝั่งแอปขอ ก่อนหน้านั้น Level 2 ได้ 5 ตามรายงาน) แต่ละรายการมี `place_name` ด้วยตั้งแต่ 27 ส.ค. — **ไม่เขียน DB**
 - **เข้า (offline):** **ข้อมูลจำลอง** จาก `MockDataSource`/`MockWeather` — **ย้ายไป `app/mock/` แล้ว** ไม่ได้อยู่ใน `module5_recommend/` อีกต่อไป (`app/mock/__init__.py` เขียนกฎไว้ว่าโค้ดบนเส้นทาง serving ห้าม import จาก package นี้) + คลัสเตอร์จาก Module 1 บนหน้าต่างฝึก
 - **ออก (offline):** artifact `ranker_patient_{id}.pkl` + รายงาน go/no-go
 
@@ -246,7 +249,11 @@ rank (100/40/10/3) และวินาที ส่วนคลัสเตอ
 | `get_recent_track()` | อ่านเส้นทางล่าสุด | `api/tracking.py` (22 ส.ค.) |
 | `upsert_device_token()` / `get_caregiver_tokens()` / `delete_device_token()` | FCM token ผู้ดูแล | `api/devices.py`, `services/notification.py` |
 | `seconds_since_last_push()` / `record_push()` | state ของ push cooldown | `services/notification.py` |
-| `get_caregiver_id()` | ตรวจสิทธิ์เข้าถึงคนไข้ | `services/auth.py` |
+| `get_caregiver_ids()` | **ตรวจสิทธิ์เข้าถึงคนไข้ — เช็คว่าผู้เรียกอยู่ใน set ของผู้ดูแล** (28 ส.ค. เดิมเทียบเท่ากับผู้ดูแลคนเดียว) | `services/auth.py` · `api/pairing.py` · `api/trip_requests.py` |
+| `get_caregiver_id()` | คืน**ผู้ดูแลหลักคนเดียว** สำหรับที่ที่ต้องการคำตอบเดียว — docstring บอกไว้ว่าเป็นคำถามที่ผิดสำหรับการตรวจสิทธิ์ | ผู้เรียกที่ต้องการคนเดียวจริง ๆ |
+| `link_caregiver()` | เขียน `patient_caregivers` | `crud.create_user` (ตอนสร้างผู้ป่วย) · `api/pairing.py` (redeem รหัสเชิญ) |
+| `create_caregiver_invite()` / `get_caregiver_invite()` / `mark_caregiver_invite_used()` | รหัสเชิญผู้ดูแลคนถัดไป | `api/pairing.py` (28 ส.ค.) |
+| `update_user_location()` | เขียนตำแหน่งล่าสุดของ**ผู้ดูแล** ลง `users` (ไม่มีตารางประวัติ) | `api/users.py` (`PUT /api/caregivers/{id}/location`, 28 ส.ค.) |
 | `get_user()` | อ่านทั้งแถว `users` (ชื่อ, uid, `severity_level`) | `api/pairing.py`, `api/recommendation.py`, `api/search_area.py`, `api/trip_requests.py` |
 | `create_pairing_code()` / `get_pairing_code()` / `mark_pairing_code_used()` | รหัสจับคู่เครื่อง | `api/pairing.py` (26 ส.ค.) |
 | `create_trip_request()` / `get_trip_request(s)()` / `decide_trip_request()` | คำขออนุมัติเดินทาง C-3 | `api/trip_requests.py` (26 ส.ค.) |

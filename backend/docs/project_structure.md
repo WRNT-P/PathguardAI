@@ -4,6 +4,8 @@
 > ไม่ใช่ทางเดียว — **ขาดไฟล์ที่มีจริง 9 ตัว** และ **ระบุไฟล์ที่ไม่มีอยู่แล้ว**:
 > `sequence_learning.py` ถูกลบไปพร้อมการตัด TensorFlow ส่วน `data_source.py` กับ
 > `weather_provider.py` ย้ายจาก `module5_recommend/` ไป `app/mock/`
+> ♻️ **ไล่ซ้ำ 28 ส.ค. 2026**: `models.py` เป็น 16 ตาราง · `users.py` มี `PUT /api/caregivers/{id}/location`
+> · `pairing.py` มีรหัสเชิญผู้ดูแลสองเส้น
 > **`ls` ที่โฟลเดอร์จริงคือคำตอบที่ถูกเสมอ** อันนี้ใช้ดูว่าแต่ละส่วนทำหน้าที่อะไร
 
 โครงสร้างไฟล์จริงของ backend พร้อมคำอธิบายภาษาไทยทุกโฟลเดอร์และทุกไฟล์
@@ -93,8 +95,8 @@ backend/
     │       └── evaluation.py                    — ชุดวัดความซื่อสัตย์ของโมเดล (temporal split, bootstrap CI, baselines, go/no-go)
     │
     ├── api/                         — ชั้น endpoint ที่รับ request จากแอป Flutter (25 route)
-    │   ├── users.py                 — POST /api/register ลงทะเบียนผู้ใช้ใหม่จาก Firebase UID
-    │   ├── pairing.py               — POST /api/patients (ผู้ดูแลสร้างผู้ป่วย + ออกรหัส) · POST /api/pair (แลกรหัสเป็น custom token) · GET /api/patients/{id} (ชื่อ + ระดับอาการ) (26–27 ส.ค.)
+    │   ├── users.py                 — POST /api/register ลงทะเบียนผู้ใช้ใหม่จาก Firebase UID · PUT /api/caregivers/{id}/location เก็บตำแหน่งล่าสุดของผู้ดูแล (28 ส.ค.)
+    │   ├── pairing.py               — POST /api/patients (ผู้ดูแลสร้างผู้ป่วย + ออกรหัส) · POST /api/pair (แลกรหัสเป็น custom token) · GET /api/patients/{id} (ชื่อ + ระดับอาการ) · POST /api/patients/{id}/caregiver-invites + POST /api/caregivers/redeem-invite (ผู้ดูแลคนที่สอง, 28 ส.ค.) (26–28 ส.ค.)
     │   ├── gps.py                   — POST /api/gps + /api/gps/batch บันทึก GPS ผ่าน gps_processor แล้วสั่งคิด risk เอง (throttle 60 วิ)
     │   ├── prediction.py            — GET /api/predict-destination/{id} — **ไม่ได้ mount** (ตัด TensorFlow) โค้ดยังอยู่
     │   ├── recommendation.py        — GET /api/recommendation/{id} สถานที่ที่น่าจะไป พร้อมชื่อและคะแนนความมั่นใจ
@@ -111,9 +113,9 @@ backend/
     │
     ├── db/                          — จัดการฐานข้อมูล PostgreSQL + Firebase
     │   ├── database.py              — engine PostgreSQL/asyncpg (รองรับ Neon) + เริ่ม Firebase Admin SDK
-    │   ├── models.py                — โมเดล ORM **14 ตาราง** (ดู database_layer.md)
+    │   ├── models.py                — โมเดล ORM **16 ตาราง** (เพิ่ม patient_caregivers + caregiver_invites 28 ส.ค. — ดู database_layer.md)
     │   ├── rule_repository.py       — อ่าน/แก้ฐานความรู้กฎ (น้ำหนัก, threshold, เขตอันตราย, temporal) พร้อม audit log ใน transaction เดียวกัน
-    │   └── crud.py                  — ฟังก์ชันอ่าน/เขียนข้อมูลผู้ป่วย (user, GPS, risk score, alert, profile, token, pairing, trip request)
+    │   └── crud.py                  — ฟังก์ชันอ่าน/เขียนข้อมูลผู้ป่วย (user, GPS, risk score, alert, profile, token, pairing, trip request, ลิงก์ผู้ดูแล + รหัสเชิญ + ตำแหน่งผู้ดูแล)
     │
     ├── mock/                        — ข้อมูลตั้งต้นและตัวจ่ายข้อมูลจำลอง (ย้ายมาจาก module5_recommend/ เพื่อไม่ให้ปนกับโค้ด AI)
     │   ├── seed_risk_rules.py       — 🛑 **ต้องรันก่อน deploy** ใส่น้ำหนัก/เกณฑ์/กฎเชิงเวลาลงฐานความรู้ (idempotent)

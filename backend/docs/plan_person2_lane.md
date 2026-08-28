@@ -51,7 +51,7 @@ python -m app.mock.seed_risk_rules
 | เอกสาร `places` เข้า `API_CONTRACT_APP.md` | ✅ **เสร็จ 26 ส.ค.** หัวข้อ 10 (`b9e33d3`) |
 | `routine_patterns` (L3-4) | ✅ **เสร็จ 26 ส.ค.** (`5208157`) `time_match` ได้น้ำหนัก 0.25 |
 | Real-time Navigation · Safe Zone Navigation | ⬜ **ไม่มีทางทำด้วย backend ปัจจุบัน** ไม่มี routing provider เลย |
-| แจ้งผู้ดูแลทุกคน + จัดอันดับระยะทาง | 🟠 **กำลังทำ (2026-08-28)** ตาราง `patient_caregivers` + สิทธิ์ + push fan-out + `PUT /api/caregivers/{id}/location` เสร็จแล้ว · ยังไม่ได้เขียนการจัดอันดับ และยังไม่มีทางให้ผู้ดูแลคนที่ 2 เข้าระบบ |
+| แจ้งผู้ดูแลทุกคน + จัดอันดับระยะทาง | 🟠 **ครึ่งทาง (2026-08-28)** เสร็จแล้ว: ตาราง `patient_caregivers` + สิทธิ์ + push fan-out + `PUT /api/caregivers/{id}/location` + **รหัสเชิญผู้ดูแลคนที่ 2 (A6)** · ยังเหลือ: การจัดอันดับ (A4) และปุ่ม "ฉันไปเอง" (A5) ซึ่ง**รอคำตอบจากฝั่งแอป** ไม่ได้ติดที่เรา |
 
 **ทำไมลำดับต้องเป็นแบบนี้** — `patient_id` เป็น int เรียงกัน เปิด tunnel ก่อนเปิด auth
 = ใครก็ได้บนอินเทอร์เน็ตยิง `GET /api/patients/1/track` แล้วได้พิกัดสดของผู้ป่วยสมองเสื่อม
@@ -298,7 +298,7 @@ Phase เดียวที่ถ้าไม่ทำ ทุก phase ที่
 
 | ไฟล์ | ทำอะไร |
 |---|---|
-| `app/services/notification.py` | เขียนใหม่ทั้งไฟล์ (เดิม 0 ไบต์) — `notify_alert()` หา caregiver จาก `users.caregiver_id` → เช็ค cooldown → ส่ง FCM → บันทึกลง `push_notifications` |
+| `app/services/notification.py` | เขียนใหม่ทั้งไฟล์ (เดิม 0 ไบต์) — `notify_alert()` หา caregiver จาก `users.caregiver_id` (**ตั้งแต่ 28 ส.ค. เป็น `patient_caregivers` — กระจายทุกเครื่องของผู้ดูแลทุกคน**) → เช็ค cooldown → ส่ง FCM → บันทึกลง `push_notifications` |
 | `app/db/models.py` | เพิ่ม 2 ตาราง: `device_tokens` (token ของผู้ดูแล) และ `push_notifications` (ประวัติ + **state ของ cooldown**) |
 | `app/api/devices.py` | `POST /api/devices/token` — upsert ยึด token เป็นตัวตน |
 | `app/api/risk.py` | hook 2 จุดหลัง `save_alert` (emergency + gps_loss) |
@@ -484,10 +484,12 @@ Phase 4 จบลงที่ push ที่พา `patient_id` กับพิ�
 |---|---|
 | `app/services/auth.py` | ตรวจ Firebase ID token → map `firebase_uid` → `users.id` → ตรวจสิทธิ์เข้าถึงคนไข้ |
 | `app/api/*.py` (10 ไฟล์) | ทุก endpoint ที่แตะข้อมูลคนไข้ถูกคุ้มหมด |
-| `app/db/crud.py` | `get_caregiver_id` · `get_alert` |
+| `app/db/crud.py` | ~~`get_caregiver_id`~~ → **`get_caregiver_ids`** (28 ส.ค.) · `get_alert` |
 | `.env.example` | `AUTH_ENABLED` พร้อมคำอธิบายว่าเปิดแล้วอะไรพัง |
 
-**ใครดูอะไรได้:** ตัวคนไข้เอง หรือผู้ดูแลใน `users.caregiver_id` ของคนไข้คนนั้น
+**ใครดูอะไรได้:** ตัวคนไข้เอง หรือ **ผู้ดูแลคนใดก็ได้ที่มีแถวใน `patient_caregivers` ของคนไข้คนนั้น**
+(แก้ 28 ส.ค. เดิมคือ `users.caregiver_id` คนเดียว — `auth.py` เช็คสมาชิกของ set ไม่ใช่ `==`
+เพราะ `==` จะปล่อยผู้ดูแลหลักเข้าแล้ว 403 ผู้ดูแลคนอื่นทั้งบ้าน)
 คนอื่นได้ `403` **ไม่ใช่ `404`** — การแกล้งบอกว่าไม่มีคนไข้คนนี้เป็นการโกหกที่คนถามจับได้
 จากเวลาตอบอยู่ดี
 
