@@ -273,7 +273,7 @@ rank (100/40/10/3) และวินาที ส่วนคลัสเตอ
   (ไม่ใช่ state ในหน่วยความจำ — รอดรีสตาร์ต) · ห่อ try/except: risk พังห้ามทำให้
   การบันทึก GPS ล้มเหลว
 - `services/notification.py` ⚪ — รับ: `Alert` ที่เพิ่งเขียน → ทำ: หา caregiver จาก
-  `users.caregiver_id` → เช็ค cooldown จากตาราง `push_notifications`
+  `patient_caregivers` (**ผู้ดูแลทุกคน** ตั้งแต่ 2026-08-28 เดิมคือ `users.caregiver_id` คนเดียว) → เช็ค cooldown จากตาราง `push_notifications`
   (`push_cooldown_seconds` = 600 ใน KB, แยกตาม `(คนไข้, alert_type)`) → ส่ง FCM
   → บันทึกว่าส่งแล้ว · **ไม่ raise ทุกกรณี** เพราะอยู่ปลายทางของ GPS ที่บันทึกไปแล้ว
 - `api/tracking.py` / `api/alerts.py` ⚪ — ฝั่งอ่านสำหรับแอปผู้ดูแล

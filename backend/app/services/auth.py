@@ -13,7 +13,8 @@ Two questions, deliberately separate:
   mapped through ``users.firebase_uid`` to the internal int id every other table
   is keyed on.
 * **Authorization** — may that account see *this* patient? Only the patient
-  themselves, or the caregiver named in ``users.caregiver_id``. Caregiver A
+  themselves, or any caregiver linked to them in ``patient_caregivers``. Every
+  link grants the same access — ``is_primary`` is not a permission. Caregiver A
   asking about caregiver B's patient is a 403, not a 404: pretending the patient
   does not exist would be a lie the caller can disprove by watching timings.
 
@@ -137,12 +138,17 @@ async def verified_uid(
 async def assert_may_access_patient(
     db: AsyncSession, caller: Caller, patient_id: int,
 ) -> None:
-    """403 unless the caller is the patient or that patient's caregiver."""
+    """403 unless the caller is the patient or one of that patient's caregivers.
+
+    Membership of the set, not equality with one id: a patient can have several
+    caregivers since 2026-08-28, and asking ``get_caregiver_id`` here would have
+    let the primary caregiver in and 403'd everybody else.
+    """
     if caller.is_anonymous:          # AUTH_ENABLED off — nothing to check
         return
     if caller.user_id == patient_id:
         return
-    if await crud.get_caregiver_id(db, patient_id) == caller.user_id:
+    if caller.user_id in await crud.get_caregiver_ids(db, patient_id):
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

@@ -13,8 +13,9 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
-    Alert, BehavioralProfile, DeviceToken, GPSData, PairingCode,
-    PushNotification, RiskScore, TripRequest, User,
+    Alert, BehavioralProfile, CaregiverInvite, DeviceToken, GPSData,
+    PairingCode, PatientCaregiver, PushNotification, RiskScore, TripRequest,
+    User,
 )
 
 
@@ -71,12 +72,42 @@ async def create_user(
         firebase_uid=firebase_uid,
         name=name,
         role=role,
-        caregiver_id=caregiver_id,
         severity_level=severity_level,
     )
     db.add(user)
     await db.flush()
+    # ``caregiver_id`` is still the argument callers pass — it was a column on
+    # ``users`` until 2026-08-28 and is now the first row in patient_caregivers.
+    # Whoever creates the patient is the primary caregiver.
+    if caregiver_id is not None:
+        await link_caregiver(db, user.id, caregiver_id, is_primary=True)
     return user
+
+
+async def link_caregiver(
+    db: AsyncSession, patient_id: int, caregiver_id: int,
+    is_primary: bool = False,
+) -> PatientCaregiver | None:
+    """Make ``caregiver_id`` responsible for ``patient_id``. Idempotent.
+
+    Returns None when the link already exists, so a caregiver added twice is a
+    no-op rather than a duplicate push and a duplicate row in the distance
+    ranking. The unique constraint enforces the same thing at the database, but
+    hitting it would abort the whole request's transaction.
+    """
+    existing = await db.scalar(
+        select(PatientCaregiver).where(
+            PatientCaregiver.patient_id == patient_id,
+            PatientCaregiver.caregiver_id == caregiver_id,
+        )
+    )
+    if existing is not None:
+        return None
+    row = PatientCaregiver(patient_id=patient_id, caregiver_id=caregiver_id,
+                           is_primary=is_primary)
+    db.add(row)
+    await db.flush()
+    return row
 
 
 # ── Device pairing ───────────────────────────────────────────────────────────
@@ -106,6 +137,41 @@ async def mark_pairing_code_used(
     db: AsyncSession, row: PairingCode, now: datetime | None = None,
 ) -> PairingCode:
     """Spend a code. Single use is enforced by the caller checking ``used_at``."""
+    row.used_at = now or datetime.now(timezone.utc)
+    await db.flush()
+    return row
+
+
+async def create_caregiver_invite(
+    db: AsyncSession, code: str, patient_id: int, invited_by: int | None,
+    expires_at: datetime,
+) -> CaregiverInvite:
+    """Store one unredeemed caregiver invite. ``code`` must be normalised."""
+    row = CaregiverInvite(code=code, patient_id=patient_id,
+                          invited_by=invited_by, expires_at=expires_at)
+    db.add(row)
+    await db.flush()
+    return row
+
+
+async def get_caregiver_invite(
+    db: AsyncSession, code: str,
+) -> CaregiverInvite | None:
+    """Look up an invite whether or not it is expired or spent.
+
+    Deliberately does not fall back to ``pairing_codes``: those two code spaces
+    stay separate so a code meant to set up a patient's phone can never be
+    redeemed for access to that patient's data.
+    """
+    result = await db.execute(
+        select(CaregiverInvite).where(CaregiverInvite.code == code))
+    return result.scalar_one_or_none()
+
+
+async def mark_caregiver_invite_used(
+    db: AsyncSession, row: CaregiverInvite, now: datetime | None = None,
+) -> CaregiverInvite:
+    """Spend an invite. Single use is enforced by the caller checking ``used_at``."""
     row.used_at = now or datetime.now(timezone.utc)
     await db.flush()
     return row
@@ -325,20 +391,19 @@ async def upsert_device_token(
 
 
 async def get_caregiver_tokens(db: AsyncSession, patient_id: int) -> list[str]:
-    """FCM tokens of the caregiver responsible for this patient.
+    """FCM tokens of every caregiver responsible for this patient.
 
-    Follows ``users.caregiver_id``, the FK the schema already carries — no
-    separate pairing table or invite code is needed. Returns [] when the patient
-    has no caregiver on file or that caregiver has never opened the app.
+    Every device of every caregiver, not one: since 2026-08-28 a patient can
+    have more than one, and the report has always said an alert goes to all of
+    them. Returns [] when the patient has no caregiver on file or none of them
+    has ever opened the app.
     """
-    caregiver_id = await db.scalar(
-        select(User.caregiver_id).where(User.id == patient_id)
-    )
-    if caregiver_id is None:
+    caregiver_ids = await get_caregiver_ids(db, patient_id)
+    if not caregiver_ids:
         return []
 
     result = await db.execute(
-        select(DeviceToken.token).where(DeviceToken.user_id == caregiver_id)
+        select(DeviceToken.token).where(DeviceToken.user_id.in_(caregiver_ids))
     )
     return list(result.scalars().all())
 
@@ -449,9 +514,52 @@ async def set_alert_resolved(
     return alert
 
 
+async def update_user_location(
+    db: AsyncSession, user_id: int, latitude: float, longitude: float,
+) -> User | None:
+    """Overwrite where this user last was. Returns None if there is no such user.
+
+    Overwrite, not append: only the current position is kept (see the columns'
+    comment in models.py). ``location_updated_at`` is set server-side rather
+    than taken from the caller so a phone with a wrong clock cannot make a stale
+    position look fresh and win a distance ranking it should have lost.
+    """
+    user = await db.get(User, user_id)
+    if user is None:
+        return None
+    user.last_latitude = latitude
+    user.last_longitude = longitude
+    user.location_updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return user
+
+
+async def get_caregiver_ids(db: AsyncSession, patient_id: int) -> list[int]:
+    """Every caregiver responsible for this patient, primary first.
+
+    The order is stable and meaningful: callers that must name one person (a
+    profile screen, a distance-ranking tie-break) take the first, and callers
+    that notify everybody take the list. Empty when nobody is linked.
+    """
+    result = await db.execute(
+        select(PatientCaregiver.caregiver_id)
+        .where(PatientCaregiver.patient_id == patient_id)
+        .order_by(desc(PatientCaregiver.is_primary), PatientCaregiver.id)
+    )
+    return list(result.scalars().all())
+
+
 async def get_caregiver_id(db: AsyncSession, patient_id: int) -> int | None:
-    """The caregiver responsible for this patient, or None if nobody is."""
-    return await db.scalar(select(User.caregiver_id).where(User.id == patient_id))
+    """The *primary* caregiver, or None if nobody is responsible.
+
+    Kept for the places that genuinely need one person rather than the set —
+    ``caregiver_id`` in an API response, for instance. Anything deciding who to
+    notify or who may read a patient's data must use ``get_caregiver_ids``:
+    since 2026-08-28 this function answers with one name out of possibly several
+    and is the wrong question for authorization.
+    """
+    ids = await get_caregiver_ids(db, patient_id)
+    return ids[0] if ids else None
 
 
 async def get_alert(db: AsyncSession, alert_id: int) -> Alert | None:

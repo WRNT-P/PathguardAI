@@ -117,3 +117,4 @@ async def test_a_patient_with_no_profile_gets_an_empty_list_not_a_404(
     assert r.status_code == 200
     assert r.json()["status"] == "no_profile"
     assert r.json()["recommendations"] == []
+

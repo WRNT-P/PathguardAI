@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, Float, ForeignKey,
-    Index, Integer, JSON, String, Text, func,
+    Index, Integer, JSON, String, Text, UniqueConstraint, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,18 +15,79 @@ class User(Base):
     firebase_uid: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # "patient" | "caregiver"
-    caregiver_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
+    # NOTE: ``caregiver_id`` lived here until 2026-08-28 — one nullable FK, so a
+    # patient could have exactly one caregiver. The report has always promised
+    # "alert every caregiver, ranked by distance", and the app side confirmed
+    # they want it, so the link moved to ``patient_caregivers`` below. The column
+    # is deliberately NOT dropped from the Neon database (see
+    # scripts/migrate_add_patient_caregivers.py): it is the only copy of the
+    # pre-migration state, and it is invisible to the ORM once it is gone from
+    # here, which is enough to stop anything reading it by accident.
     # 1 = early stage, 2 = moderate. The caregiver states it when creating the
     # patient; the report builds two different patient interfaces on it. Nothing
     # in app/ai reads it — a severity multiplier on the Module 3 weights would be
     # the only number in the rule KB without a citation behind it.
     severity_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Where this CAREGIVER last was. Added 2026-08-28 for the report's "alert
+    # every caregiver, ranked by distance" — you cannot rank by distance without
+    # knowing where the people are.
+    #
+    # Latest position only, deliberately: no history table, no trail. Ranking
+    # asks "who is nearest right now" and nothing asks anything else, so keeping
+    # a track would be surveillance of a family member who is not the patient
+    # and has not consented to being followed — a privacy cost with no feature
+    # behind it. ``location_updated_at`` exists because a position from
+    # yesterday must not win a ranking; whoever ranks decides how stale is too
+    # stale.
+    #
+    # Null for every patient (their positions live in gps_data, which is a
+    # different question with different retention) and for any caregiver whose
+    # app has not reported yet.
+    last_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    location_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     gps_records: Mapped[list["GPSData"]] = relationship("GPSData", back_populates="patient", cascade="all, delete-orphan")
     risk_scores: Mapped[list["RiskScore"]] = relationship("RiskScore", back_populates="patient", cascade="all, delete-orphan")
     alerts: Mapped[list["Alert"]] = relationship("Alert", back_populates="patient", cascade="all, delete-orphan")
     behavioral_profiles: Mapped[list["BehavioralProfile"]] = relationship("BehavioralProfile", back_populates="patient", cascade="all, delete-orphan")
+
+
+
+class PatientCaregiver(Base):
+    """Which caregivers are responsible for a patient. Many-to-many.
+
+    Replaces the single ``users.caregiver_id`` FK on 2026-08-28. Three things in
+    the report need this and none of them could be built on one FK: alerting
+    every caregiver, ranking them by distance, and one of them claiming "I'll
+    go and get them".
+
+    ``is_primary`` is the caregiver who created the patient through
+    ``POST /api/patients``. It is not a permission level — every row here grants
+    the same access — it exists because some questions have to have exactly one
+    answer: who is shown as *the* caregiver on a profile, and who breaks a tie
+    when two caregivers are the same distance away.
+    """
+    __tablename__ = "patient_caregivers"
+    __table_args__ = (
+        # A caregiver linked to the same patient twice would be pushed to twice
+        # and would appear twice in a distance ranking.
+        UniqueConstraint("patient_id", "caregiver_id",
+                         name="uq_patient_caregiver"),
+        Index("ix_patient_caregivers_patient", "patient_id"),
+        Index("ix_patient_caregivers_caregiver", "caregiver_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    patient_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False)
+    caregiver_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
 
 
 class GPSData(Base):
@@ -289,6 +350,43 @@ class PairingCode(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (Index("ix_pairing_code_patient", "patient_id"),)
+
+
+class CaregiverInvite(Base):
+    """The code an existing caregiver gives to a second caregiver of the same
+    patient. Added 2026-08-28 with ``patient_caregivers``.
+
+    **A separate table from ``pairing_codes`` on purpose, and this is the whole
+    reason it is not one table with a ``kind`` column.** A pairing code claims a
+    patient's *identity* — redeemed, it signs the holder in as the patient. An
+    invite grants *access to* that patient. Sharing one code space means a bug
+    or a missing filter turns a code meant to set up a phone into a code that
+    hands somebody a caregiver's view of a dementia patient's live position.
+    Two tables cannot be confused for one another by accident.
+
+    ``invited_by`` is kept because this row is the record of how an account
+    gained access to a patient's data. If the wrong person is ever in a family's
+    caregiver list, that column is the only thing that says who let them in.
+
+    Same code shape, expiry and single use as ``PairingCode`` — see its
+    docstring for why eight characters and not six digits.
+    """
+    __tablename__ = "caregiver_invites"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(16), nullable=False, unique=True)
+    patient_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False)
+    invited_by: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_caregiver_invite_patient", "patient_id"),)
 
 
 class TripRequest(Base):

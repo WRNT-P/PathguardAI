@@ -73,7 +73,9 @@ async def test_caregiver_creates_patient_and_gets_a_code(client, caregiver, db_s
 
     patient = await db_session.get(User, body["patient_id"])
     assert patient.role == "patient"
-    assert patient.caregiver_id == caregiver
+    # The link moved off users.caregiver_id into patient_caregivers on
+    # 2026-08-28. Whoever creates the patient is their primary caregiver.
+    assert await crud.get_caregiver_ids(db_session, body["patient_id"])         == [caregiver]
     assert patient.severity_level == 2
     # The whole design: the server chose the identity before the phone existed.
     assert patient.firebase_uid.startswith("pathguard:")

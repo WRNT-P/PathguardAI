@@ -24,13 +24,18 @@ contact with the schema:
   the exact collision ``api/sos.py`` gave itself a separate type to avoid. It
   also matters to the person reading the notification, who acts differently on
   "they asked to go somewhere" than on "they pressed the button".
-* "Every caregiver" is one caregiver: ``users.caregiver_id`` is a single
-  nullable FK. So the only recipient today is the person who just pressed
-  reject, and pushing to them would be notifying someone of their own decision.
-  The alert row is written regardless — it belongs in the timeline and the
-  dashboard reads it — and the push is skipped when the decider is the sole
-  recipient. When multi-caregiver support lands, that same rule starts notifying
-  the others without further change.
+* "Every caregiver" is still one caregiver in practice. The schema stopped
+  being the reason on 2026-08-28 — ``patient_caregivers`` holds many — but no
+  endpoint adds a second one yet, so the only recipient is the person who just
+  pressed reject, and pushing to them would notify someone of their own
+  decision. The alert row is written regardless; the push is skipped.
+
+  **An earlier version of this comment said the rule "starts notifying the
+  others without further change" once multi-caregiver landed. That was wrong.**
+  The check below is ``the caregiver == the decider``, which with several
+  caregivers skips the push to *all* of them, not just the decider. Making it
+  right needs ``notify_alert`` to take an excluded recipient, which is why it is
+  not free and why it is scheduled with the ranked fan-out rather than here.
 """
 import json
 import logging
@@ -272,10 +277,15 @@ async def decide_trip(
     # Report line 535 says notify every caregiver. Today that set is one person
     # and it is the person who just pressed reject, so pushing would notify them
     # of their own decision. The alert row is written either way — the timeline
-    # and the dashboard both read it — and this turns into a real push by itself
-    # once a patient can have more than one caregiver.
-    caregiver_id = await crud.get_caregiver_id(db, row.patient_id)
-    if caller.authenticated and caregiver_id == caller.user_id:
+    # and the dashboard both read it.
+    #
+    # ⚠️ This is deliberately still the single-caregiver rule. The moment a
+    # second caregiver can be added, "the decider is the only recipient" stops
+    # being true and this silently drops the push for everybody else. See the
+    # module docstring — it needs an excluded-recipient argument on notify_alert,
+    # not a wider query here.
+    caregivers = await crud.get_caregiver_ids(db, row.patient_id)
+    if caller.authenticated and caregivers == [caller.user_id]:
         push_status = "skipped_self"
     else:
         try:

@@ -44,7 +44,7 @@
 
 #### `users` (model: `User`)
 ข้อมูลผู้ใช้ทั้งผู้ป่วยและผู้ดูแล เป็น "แม่กุญแจ" ที่ทุกตารางอื่นอ้างถึงผ่าน FK `patient_id`
-- คอลัมน์หลัก: `id` (PK, int ภายใน), `firebase_uid` (string จาก Firebase, unique, **NOT NULL**), `name`, `role` (`patient`/`caregiver`), `caregiver_id` (FK ชี้ผู้ดูแลในตารางเดียวกัน), `severity_level`, `created_at`
+- คอลัมน์หลัก: `id` (PK, int ภายใน), `firebase_uid` (string จาก Firebase, unique, **NOT NULL**), `name`, `role` (`patient`/`caregiver`), ~~`caregiver_id` (FK ชี้ผู้ดูแลในตารางเดียวกัน)~~ **ย้ายออกไปตาราง `patient_caregivers` แล้ว 2026-08-28** เพราะผู้ป่วย 1 คนต้องมีผู้ดูแลได้หลายคน (คอลัมน์เดิมยังอยู่ในฐานข้อมูล Neon แต่ ORM ไม่อ่านแล้ว), `severity_level`, `created_at`
 - **`severity_level`** (เพิ่ม 26 ส.ค.) — `1` = ระยะต้น · `2` = ระยะกลาง · `NULL` = ผู้ดูแลไม่ได้ระบุ
   ผู้อ่านสามราย: `search_radius_adjustment.adjust_radius` (ระยะกลางหดรัศมี 20% ระยะต้นขยาย 20%) ·
   `api/recommendation.py` (Level 1 ได้ 3 รายการ Level 2 ได้ 5) · `api/trip_requests.py`

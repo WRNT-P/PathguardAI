@@ -33,20 +33,29 @@ from app.models.recommendation import (
 router = APIRouter()
 
 
-# How many places the patient's home screen shows, by stage (report, features
-# table). A Level 2 patient's search box is locked, so the grid is the only way
-# they can reach anywhere — it has to hold everywhere they might want to go. A
-# Level 1 patient can search, so three suggestions plus a search box is enough,
-# and a shorter list is less to read. Unstated stage falls back to the Level 1
-# behaviour, which is what every caller got before this existed.
-_TOP_N_BY_LEVEL = {1: 3, 2: 5}
+# How many places the patient's home screen shows, by stage. Three for BOTH
+# stages, which is deliberately not what the report says — the report gives a
+# Level 2 patient Top 5.
+#
+# The app side built the Level 2 homepage and asked for 3 on 2026-08-28. Their
+# screen shows three tiles at once with no scrolling, and their argument is that
+# a moderate-stage patient needs FEWER choices, not more. That beats the guess
+# this constant used to carry ("Level 2's search box is locked, so the grid has
+# to hold everywhere they might want to go"): the locked search box is real and
+# they confirmed it, but it was an argument for coverage on a screen nobody had
+# built yet. Now the screen exists and it holds three.
+#
+# Kept as a per-stage table rather than collapsed to one constant so that the
+# next person who reads "Top 5" in the report lands on this decision instead of
+# "fixing" the code back. See APP_SYNC_2026-08-28.md.
+_TOP_N_BY_LEVEL = {1: 3, 2: 3}
 _DEFAULT_TOP_N = 3
 
 
 @router.get(
     "/api/recommendation/{patient_id}",
     response_model=RecommendationResponse,
-    summary="สถานที่ที่น่าจะไป พร้อมคะแนนความมั่นใจ (3 อันดับ Level 1 / 5 อันดับ Level 2)",
+    summary="สถานที่ที่น่าจะไป พร้อมคะแนนความมั่นใจ (3 อันดับ ทั้ง Level 1 และ Level 2)",
 )
 async def get_recommendations(
     patient_id: int,
