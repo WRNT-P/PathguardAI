@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, Float, ForeignKey,
-    Index, Integer, JSON, String, Text, func,
+    Index, Integer, JSON, String, Text, UniqueConstraint, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,7 +15,14 @@ class User(Base):
     firebase_uid: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # "patient" | "caregiver"
-    caregiver_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
+    # NOTE: ``caregiver_id`` lived here until 2026-08-28 — one nullable FK, so a
+    # patient could have exactly one caregiver. The report has always promised
+    # "alert every caregiver, ranked by distance", and the app side confirmed
+    # they want it, so the link moved to ``patient_caregivers`` below. The column
+    # is deliberately NOT dropped from the Neon database (see
+    # scripts/migrate_add_patient_caregivers.py): it is the only copy of the
+    # pre-migration state, and it is invisible to the ORM once it is gone from
+    # here, which is enough to stop anything reading it by accident.
     # 1 = early stage, 2 = moderate. The caregiver states it when creating the
     # patient; the report builds two different patient interfaces on it. Nothing
     # in app/ai reads it — a severity multiplier on the Module 3 weights would be
@@ -27,6 +34,41 @@ class User(Base):
     risk_scores: Mapped[list["RiskScore"]] = relationship("RiskScore", back_populates="patient", cascade="all, delete-orphan")
     alerts: Mapped[list["Alert"]] = relationship("Alert", back_populates="patient", cascade="all, delete-orphan")
     behavioral_profiles: Mapped[list["BehavioralProfile"]] = relationship("BehavioralProfile", back_populates="patient", cascade="all, delete-orphan")
+
+
+
+class PatientCaregiver(Base):
+    """Which caregivers are responsible for a patient. Many-to-many.
+
+    Replaces the single ``users.caregiver_id`` FK on 2026-08-28. Three things in
+    the report need this and none of them could be built on one FK: alerting
+    every caregiver, ranking them by distance, and one of them claiming "I'll
+    go and get them".
+
+    ``is_primary`` is the caregiver who created the patient through
+    ``POST /api/patients``. It is not a permission level — every row here grants
+    the same access — it exists because some questions have to have exactly one
+    answer: who is shown as *the* caregiver on a profile, and who breaks a tie
+    when two caregivers are the same distance away.
+    """
+    __tablename__ = "patient_caregivers"
+    __table_args__ = (
+        # A caregiver linked to the same patient twice would be pushed to twice
+        # and would appear twice in a distance ranking.
+        UniqueConstraint("patient_id", "caregiver_id",
+                         name="uq_patient_caregiver"),
+        Index("ix_patient_caregivers_patient", "patient_id"),
+        Index("ix_patient_caregivers_caregiver", "caregiver_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    patient_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False)
+    caregiver_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
 
 
 class GPSData(Base):

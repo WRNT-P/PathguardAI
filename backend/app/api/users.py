@@ -48,4 +48,15 @@ async def register_user(
         role=payload.role,
         caregiver_id=payload.caregiver_id,
     )
-    return user
+    # Built by hand rather than straight off the ORM row: ``caregiver_id`` stopped
+    # being a column on ``users`` on 2026-08-28 and is now a patient_caregivers
+    # link, so ``from_attributes`` has nothing to read. The response field stays —
+    # the app is already parsing it.
+    return UserResponse(
+        id=user.id,
+        firebase_uid=user.firebase_uid,
+        name=user.name,
+        role=user.role,
+        caregiver_id=payload.caregiver_id,
+        created_at=user.created_at,
+    )
