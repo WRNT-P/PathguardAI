@@ -5,7 +5,10 @@ run two commands in the right order is a way to have one of them skipped:
 
 1. ``patient_caregivers``, and the data out of ``users.caregiver_id``;
 2. ``users.last_latitude`` / ``last_longitude`` / ``location_updated_at`` — where
-   a caregiver is, without which "ranked by distance" cannot be computed.
+   a caregiver is, without which "ranked by distance" cannot be computed;
+3. ``caregiver_invites`` — the only way a *second* caregiver can be added.
+   ``create_all`` would make this one by itself, but it is listed here so one
+   command leaves the database in a state the whole feature works against.
 
 
 ``users.caregiver_id`` was one nullable FK, so a patient had at most one
@@ -82,6 +85,21 @@ async def main() -> None:
             """))
             moved = result.rowcount
 
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS caregiver_invites (
+                id          BIGSERIAL PRIMARY KEY,
+                code        VARCHAR(16) NOT NULL UNIQUE,
+                patient_id  BIGINT NOT NULL REFERENCES users(id),
+                invited_by  BIGINT REFERENCES users(id),
+                expires_at  TIMESTAMPTZ NOT NULL,
+                used_at     TIMESTAMPTZ,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_caregiver_invite_patient "
+            "ON caregiver_invites (patient_id)"))
+
         # Where a caregiver last was. Nullable and never backfilled: inventing a
         # position for somebody would put them at the top of a distance ranking
         # for a patient they may be nowhere near. Latest only — no history table
@@ -107,6 +125,7 @@ async def main() -> None:
           f"{total} total")
     print("OK: users.last_latitude / last_longitude / location_updated_at present "
           "(existing rows left NULL)")
+    print("OK: caregiver_invites present")
     if orphans:
         # Not fatal and not necessarily wrong — a patient registered through
         # /api/register never had a caregiver. Printed because if it is not zero

@@ -13,8 +13,9 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
-    Alert, BehavioralProfile, DeviceToken, GPSData, PairingCode,
-    PatientCaregiver, PushNotification, RiskScore, TripRequest, User,
+    Alert, BehavioralProfile, CaregiverInvite, DeviceToken, GPSData,
+    PairingCode, PatientCaregiver, PushNotification, RiskScore, TripRequest,
+    User,
 )
 
 
@@ -136,6 +137,41 @@ async def mark_pairing_code_used(
     db: AsyncSession, row: PairingCode, now: datetime | None = None,
 ) -> PairingCode:
     """Spend a code. Single use is enforced by the caller checking ``used_at``."""
+    row.used_at = now or datetime.now(timezone.utc)
+    await db.flush()
+    return row
+
+
+async def create_caregiver_invite(
+    db: AsyncSession, code: str, patient_id: int, invited_by: int | None,
+    expires_at: datetime,
+) -> CaregiverInvite:
+    """Store one unredeemed caregiver invite. ``code`` must be normalised."""
+    row = CaregiverInvite(code=code, patient_id=patient_id,
+                          invited_by=invited_by, expires_at=expires_at)
+    db.add(row)
+    await db.flush()
+    return row
+
+
+async def get_caregiver_invite(
+    db: AsyncSession, code: str,
+) -> CaregiverInvite | None:
+    """Look up an invite whether or not it is expired or spent.
+
+    Deliberately does not fall back to ``pairing_codes``: those two code spaces
+    stay separate so a code meant to set up a patient's phone can never be
+    redeemed for access to that patient's data.
+    """
+    result = await db.execute(
+        select(CaregiverInvite).where(CaregiverInvite.code == code))
+    return result.scalar_one_or_none()
+
+
+async def mark_caregiver_invite_used(
+    db: AsyncSession, row: CaregiverInvite, now: datetime | None = None,
+) -> CaregiverInvite:
+    """Spend an invite. Single use is enforced by the caller checking ``used_at``."""
     row.used_at = now or datetime.now(timezone.utc)
     await db.flush()
     return row

@@ -79,6 +79,17 @@ def format_code(code: str) -> str:
     return f"{code[:4]}-{code[4:]}" if len(code) == _CODE_LENGTH else code
 
 
+def _as_utc(when: datetime) -> datetime:
+    """Timestamps come back naive from SQLite and aware from Postgres.
+
+    Comparing the two raises, so every expiry check has to go through here. It
+    was written inline in ``/api/pair`` and copied by the invite check below;
+    one function means the tests cannot pass on SQLite while a comparison
+    against Neon behaves differently.
+    """
+    return when.replace(tzinfo=timezone.utc) if when.tzinfo is None else when
+
+
 def _mint_custom_token(firebase_uid: str) -> str:
     """Firebase custom token for a uid that need not exist yet.
 
@@ -227,9 +238,7 @@ async def pair_device(
         raise HTTPException(status.HTTP_404_NOT_FOUND, _BAD_CODE)
     # SQLite hands back naive datetimes; normalise to UTC rather than letting a
     # tz-naive row raise TypeError and turn a pairing attempt into a 500.
-    expires_at = row.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    expires_at = _as_utc(row.expires_at)
     if expires_at <= datetime.now(timezone.utc):
         logger.info("pairing rejected: code for patient %s expired at %s",
                     row.patient_id, expires_at)
@@ -286,4 +295,165 @@ async def get_patient(
         patient_id=patient.id,
         name=patient.name,
         severity_level=patient.severity_level,
+    )
+
+
+# ── A second caregiver for the same patient (2026-08-28) ─────────────────────
+#
+# The report wants an alert to reach every caregiver, ranked by distance. The
+# schema can hold them since patient_caregivers landed, but nothing could put a
+# second person in it: POST /api/patients links whoever created the patient and
+# that was the only writer. This is the door.
+#
+# It reuses this module's code machinery — the alphabet with the ambiguous
+# letters removed, the eight-character length, the one-message-for-three-failures
+# rule — because a family reads these codes aloud the same way. It does NOT
+# reuse pairing_codes. See the CaregiverInvite docstring: one code space would
+# let a code meant to set up the patient's phone be redeemed for a caregiver's
+# view of that patient instead.
+
+_BAD_INVITE = "invalid, expired, or already-used invite code"
+
+
+class CaregiverInviteOut(BaseModel):
+    patient_id: int
+    invite_code: str
+    expires_at: datetime
+
+
+class RedeemInviteIn(BaseModel):
+    code: str = Field(..., min_length=1, max_length=32)
+    caregiver_id: int | None = Field(
+        None,
+        description="ต้องส่งเฉพาะตอน AUTH_ENABLED=false; เปิด auth แล้วยึดจาก token")
+
+
+class RedeemInviteOut(BaseModel):
+    patient_id: int
+    patient_name: str
+    caregiver_id: int
+    already_linked: bool
+
+
+@router.post(
+    "/api/patients/{patient_id}/caregiver-invites",
+    response_model=CaregiverInviteOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="ผู้ดูแลออกรหัสเชิญผู้ดูแลอีกคนมาดูผู้ป่วยคนเดียวกัน",
+)
+async def create_caregiver_invite(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    caller: Caller = Depends(verify_patient_access),
+) -> CaregiverInviteOut:
+    """Issue a code that adds whoever redeems it as a caregiver of this patient.
+
+    ``verify_patient_access`` lets the patient through as well, which is right
+    for reading their own data and wrong here: a patient with dementia handing
+    out access to their own live position is exactly the situation the caregiver
+    exists for. So the caller must additionally be one of the caregivers.
+
+    Any caregiver of the patient may invite, not only the primary. Every link
+    grants the same access already, so restricting it would stop nothing — a
+    caregiver who wanted to could share their own sign-in — while making the
+    common case (the person holding the phone is the second son, not the first)
+    fail for no gain.
+    """
+    if caller.authenticated:
+        if caller.user_id not in await crud.get_caregiver_ids(db, patient_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="only a caregiver of this patient may invite another",
+            )
+
+    expires_at = datetime.now(timezone.utc) + _CODE_TTL
+    for _ in range(_MAX_CODE_ATTEMPTS):
+        code = generate_code()
+        if await crud.get_caregiver_invite(db, code) is None:
+            await crud.create_caregiver_invite(
+                db, code, patient_id, caller.user_id, expires_at)
+            logger.info("caregiver invite for patient %s issued by %s",
+                        patient_id, caller.user_id)
+            return CaregiverInviteOut(
+                patient_id=patient_id,
+                invite_code=format_code(code),
+                expires_at=expires_at,
+            )
+    raise HTTPException(                                   # pragma: no cover
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="could not allocate a unique invite code",
+    )
+
+
+@router.post(
+    "/api/caregivers/redeem-invite",
+    response_model=RedeemInviteOut,
+    summary="ผู้ดูแลคนที่ 2 กรอกรหัสเชิญ เพื่อเข้าถึงผู้ป่วยคนนั้น",
+)
+async def redeem_caregiver_invite(
+    payload: RedeemInviteIn,
+    db: AsyncSession = Depends(get_db),
+    caller: Caller = Depends(current_caller),
+) -> RedeemInviteOut:
+    """Trade an invite code for a link to that patient.
+
+    Unlike ``POST /api/pair`` this mints no token and creates no account. The
+    second caregiver is an ordinary registered user already — they signed in
+    with Firebase and called ``/api/register`` like the first one. All that is
+    missing is the row saying which patient they may see, and that is all this
+    writes.
+    """
+    if caller.authenticated:
+        caregiver_id = caller.user_id
+    elif payload.caregiver_id is not None:
+        caregiver_id = payload.caregiver_id
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="caregiver_id is required while AUTH_ENABLED is false",
+        )
+
+    invite = await crud.get_caregiver_invite(db, normalise(payload.code))
+    now = datetime.now(timezone.utc)
+    # One message for all three failures, as with pairing codes: telling an
+    # outsider that a code exists but has expired confirms that it exists.
+    if invite is None:
+        reason = "no such code"
+    elif invite.used_at is not None:
+        reason = "already used"
+    elif _as_utc(invite.expires_at) <= now:
+        reason = "expired"
+    else:
+        reason = None
+    if reason is not None:
+        logger.info("caregiver invite rejected (%s)", reason)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=_BAD_INVITE)
+
+    user = await crud.get_user(db, caregiver_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"user {caregiver_id} not found — call /api/register first")
+    # A patient device redeeming this would give the patient a caregiver's view
+    # of themselves — and, more to the point, of whoever else the code was meant
+    # for. The role is the only thing separating the two kinds of account.
+    if user.role != "caregiver":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"user {caregiver_id} is a {user.role}, not a caregiver")
+
+    patient = await crud.get_user(db, invite.patient_id)
+    link = await crud.link_caregiver(db, invite.patient_id, caregiver_id)
+    # Spent either way. A code that stays live because the holder was already
+    # linked is a code that can be passed on to somebody who is not.
+    await crud.mark_caregiver_invite_used(db, invite, now)
+    logger.info("caregiver %s linked to patient %s by invite",
+                caregiver_id, invite.patient_id)
+
+    return RedeemInviteOut(
+        patient_id=invite.patient_id,
+        patient_name=patient.name,
+        caregiver_id=caregiver_id,
+        already_linked=link is None,
     )

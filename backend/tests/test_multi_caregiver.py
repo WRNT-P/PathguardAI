@@ -195,3 +195,151 @@ async def test_a_caregiver_who_has_never_reported_has_no_position(
     assert user.last_latitude is None
     assert user.last_longitude is None
     assert user.location_updated_at is None
+
+
+# ── how the second caregiver gets in ─────────────────────────────────────────
+
+async def _invite(client, patient_id, **kw):
+    return await client.post(
+        f"/api/patients/{patient_id}/caregiver-invites", json={}, **kw)
+
+
+async def test_an_invite_links_the_second_caregiver(client, db_session, household):
+    """The whole point: before this, patient_caregivers could hold several
+    people and nothing could put a second one in it."""
+    issued = await _invite(client, household["patient"])
+    assert issued.status_code == 201, issued.text
+
+    redeemed = await client.post("/api/caregivers/redeem-invite", json={
+        "code": issued.json()["invite_code"],
+        "caregiver_id": household["second"]})
+
+    assert redeemed.status_code == 200, redeemed.text
+    body = redeemed.json()
+    assert body["patient_id"] == household["patient"]
+    assert body["patient_name"] == "คุณยาย"
+    assert body["already_linked"] is False
+    assert await crud.get_caregiver_ids(db_session, household["patient"])         == [household["primary"], household["second"]]
+
+
+async def test_the_second_caregiver_can_then_read_the_patient(
+        client, db_session, household, auth_on, monkeypatch):
+    """End to end with auth on, which is the only configuration this matters in.
+
+    Note the redeem call carries no ``caregiver_id``: with auth on it is taken
+    from the token, so a caregiver cannot redeem an invite into someone else's
+    account.
+    """
+    monkeypatch.setattr(auth, "verify_firebase_token", lambda t: "uid-primary")
+    issued = await _invite(client, household["patient"], headers=bearer("tok"))
+    assert issued.status_code == 201, issued.text
+
+    monkeypatch.setattr(auth, "verify_firebase_token", lambda t: SECOND_UID)
+    redeemed = await client.post(
+        "/api/caregivers/redeem-invite",
+        json={"code": issued.json()["invite_code"]}, headers=bearer("tok"))
+    assert redeemed.status_code == 200, redeemed.text
+    assert redeemed.json()["caregiver_id"] == household["second"]
+
+    resp = await client.get(
+        f"/api/patients/{household['patient']}/alerts", headers=bearer("tok"))
+
+    assert resp.status_code == 200, resp.text
+
+
+async def test_an_invite_is_single_use(client, household):
+    """A code that survives redemption can be forwarded to somebody the family
+    never meant to let in."""
+    issued = await _invite(client, household["patient"])
+    code = issued.json()["invite_code"]
+    first = await client.post("/api/caregivers/redeem-invite", json={
+        "code": code, "caregiver_id": household["second"]})
+    assert first.status_code == 200
+
+    second = await client.post("/api/caregivers/redeem-invite", json={
+        "code": code, "caregiver_id": household["stranger"]})
+
+    assert second.status_code == 404
+    assert second.json()["detail"] ==         "invalid, expired, or already-used invite code"
+
+
+async def test_redeeming_when_already_linked_still_spends_the_code(
+        client, db_session, household):
+    """Otherwise the code stays live in the hands of someone who no longer needs
+    it, and can be passed to someone who was never invited."""
+    issued = await _invite(client, household["patient"])
+    resp = await client.post("/api/caregivers/redeem-invite", json={
+        "code": issued.json()["invite_code"],
+        "caregiver_id": household["primary"]})
+
+    assert resp.status_code == 200
+    assert resp.json()["already_linked"] is True
+    assert len(await crud.get_caregiver_ids(db_session, household["patient"])) == 1
+
+    again = await client.post("/api/caregivers/redeem-invite", json={
+        "code": issued.json()["invite_code"],
+        "caregiver_id": household["second"]})
+    assert again.status_code == 404
+
+
+async def test_a_pairing_code_cannot_be_redeemed_as_an_invite(
+        client, db_session, household):
+    """The reason caregiver_invites is a separate table. A code meant to sign a
+    phone in AS the patient must never grant a caregiver's view OF them."""
+    created = await client.post("/api/patients", json={
+        "name": "ยายอีกคน", "severity_level": 1,
+        "caregiver_id": household["primary"]})
+    pairing_code = created.json()["pairing_code"]
+
+    resp = await client.post("/api/caregivers/redeem-invite", json={
+        "code": pairing_code, "caregiver_id": household["second"]})
+
+    assert resp.status_code == 404
+
+
+async def test_a_patient_cannot_invite_a_caregiver_to_themselves(
+        client, db_session, household, auth_on, monkeypatch):
+    """verify_patient_access lets the patient through — correct for reading
+    their own data, wrong for handing out access to it. A person with dementia
+    giving away their own live position is what the caregiver is there to
+    prevent."""
+    monkeypatch.setattr(auth, "verify_firebase_token", lambda t: "uid-patient-2")
+
+    resp = await _invite(client, household["patient"], headers=bearer("tok"))
+
+    assert resp.status_code == 403
+    assert "caregiver of this patient" in resp.json()["detail"]
+
+
+async def test_an_unrelated_caregiver_cannot_issue_an_invite(
+        client, household, auth_on, monkeypatch):
+    monkeypatch.setattr(auth, "verify_firebase_token", lambda t: "uid-stranger-2")
+
+    resp = await _invite(client, household["patient"], headers=bearer("tok"))
+
+    assert resp.status_code == 403
+
+
+async def test_a_patient_device_cannot_redeem_an_invite(client, household):
+    """Role is the only thing separating the two kinds of account here."""
+    issued = await _invite(client, household["patient"])
+
+    resp = await client.post("/api/caregivers/redeem-invite", json={
+        "code": issued.json()["invite_code"],
+        "caregiver_id": household["patient"]})
+
+    assert resp.status_code == 422
+    assert "not a caregiver" in resp.json()["detail"]
+
+
+async def test_a_typed_invite_code_is_forgiving_of_case_and_separator(
+        client, household):
+    """Same rule as pairing codes — a family reads these aloud off one screen
+    and types them into another."""
+    issued = await _invite(client, household["patient"])
+    typed = issued.json()["invite_code"].lower().replace("-", " ") + " "
+
+    resp = await client.post("/api/caregivers/redeem-invite", json={
+        "code": typed, "caregiver_id": household["second"]})
+
+    assert resp.status_code == 200, resp.text

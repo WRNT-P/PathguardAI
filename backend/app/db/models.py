@@ -352,6 +352,43 @@ class PairingCode(Base):
     __table_args__ = (Index("ix_pairing_code_patient", "patient_id"),)
 
 
+class CaregiverInvite(Base):
+    """The code an existing caregiver gives to a second caregiver of the same
+    patient. Added 2026-08-28 with ``patient_caregivers``.
+
+    **A separate table from ``pairing_codes`` on purpose, and this is the whole
+    reason it is not one table with a ``kind`` column.** A pairing code claims a
+    patient's *identity* — redeemed, it signs the holder in as the patient. An
+    invite grants *access to* that patient. Sharing one code space means a bug
+    or a missing filter turns a code meant to set up a phone into a code that
+    hands somebody a caregiver's view of a dementia patient's live position.
+    Two tables cannot be confused for one another by accident.
+
+    ``invited_by`` is kept because this row is the record of how an account
+    gained access to a patient's data. If the wrong person is ever in a family's
+    caregiver list, that column is the only thing that says who let them in.
+
+    Same code shape, expiry and single use as ``PairingCode`` — see its
+    docstring for why eight characters and not six digits.
+    """
+    __tablename__ = "caregiver_invites"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(16), nullable=False, unique=True)
+    patient_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False)
+    invited_by: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_caregiver_invite_patient", "patient_id"),)
+
+
 class TripRequest(Base):
     """A Level 2 patient asking to go somewhere they have never been (report C-3).
 
