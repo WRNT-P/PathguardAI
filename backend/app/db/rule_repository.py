@@ -43,6 +43,18 @@ KNOWN_THRESHOLDS = frozenset(
      GPS_GAP_SECONDS, PUSH_COOLDOWN_SECONDS, SOS_COOLDOWN_SECONDS}
 )
 
+# Tunable, but not load-bearing for scoring. ``get_all_thresholds`` refuses to
+# load when a KNOWN_THRESHOLD is missing, and that strictness is right for the
+# numbers risk scoring is computed from — a half-loaded rule set would produce a
+# score that looks fine and is wrong. It is the wrong trade for a knob that only
+# orders a list: adding a ranking cut-off to KNOWN_THRESHOLDS would mean that
+# deploying this code against a database that has not been re-seeded takes *risk
+# scoring* down, for a feature risk scoring does not use. That exact failure
+# already happened once, on 2026-08-27, when a missing ``sos_cooldown_seconds``
+# stopped scoring rather than SOS.
+CAREGIVER_LOCATION_MAX_AGE_S = "caregiver_location_max_age_seconds"
+OPTIONAL_THRESHOLDS = frozenset({CAREGIVER_LOCATION_MAX_AGE_S})
+
 ZONE_TYPES = frozenset({"highway", "waterway", "construction", "other"})
 
 TREND_ESCALATION = "trend_escalation"
@@ -80,8 +92,13 @@ async def get_all_thresholds(session: AsyncSession) -> dict[str, float]:
         select(RiskThreshold).where(RiskThreshold.active)
     )).scalars().all()
     thresholds = {r.threshold_name: r.value for r in rows}
-    if set(thresholds) != KNOWN_THRESHOLDS:
-        missing = sorted(KNOWN_THRESHOLDS - set(thresholds))
+    # Missing is fatal; extra is not. This used to be ``!=``, which meant that
+    # seeding any new tunable row — one nothing here reads — took risk scoring
+    # down on the next request. What this function has to guarantee is that
+    # every number the scoring formula needs is present, not that the table
+    # contains nothing else.
+    missing = sorted(KNOWN_THRESHOLDS - set(thresholds))
+    if missing:
         raise RuntimeError(
             f"Rule KB is missing active thresholds for {missing} — "
             "run: python -m app.mock.seed_risk_rules"
@@ -89,15 +106,25 @@ async def get_all_thresholds(session: AsyncSession) -> dict[str, float]:
     return thresholds
 
 
-async def get_threshold(session: AsyncSession, name: str) -> float:
-    """One active threshold value by name (use the module constants)."""
-    if name not in KNOWN_THRESHOLDS:
+async def get_threshold(
+    session: AsyncSession, name: str, default: float | None = None,
+) -> float:
+    """One active threshold value by name (use the module constants).
+
+    ``default`` is for the OPTIONAL_THRESHOLDS: a knob that is absent should
+    fall back to a documented number rather than fail the request it sits in.
+    Passing it for a KNOWN_THRESHOLD would hide the seed problem the strict
+    error exists to surface, so callers of those pass nothing and let it raise.
+    """
+    if name not in KNOWN_THRESHOLDS and name not in OPTIONAL_THRESHOLDS:
         raise RuleValidationError(f"Unknown threshold {name!r}")
     row = (await session.execute(
         select(RiskThreshold)
         .where(RiskThreshold.threshold_name == name, RiskThreshold.active)
     )).scalar_one_or_none()
     if row is None:
+        if default is not None:
+            return default
         raise RuntimeError(
             f"No active threshold {name!r} — run: python -m app.mock.seed_risk_rules"
         )

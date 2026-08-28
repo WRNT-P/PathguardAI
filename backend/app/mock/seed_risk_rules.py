@@ -107,6 +107,20 @@ SEED_THRESHOLDS = [
                    "60 s keeps a genuine repeat while collapsing a burst. Every "
                    "press still writes its own alerts row regardless — the audit "
                    "trail and the dashboard show all of them.")},
+    {"threshold_name": "caregiver_location_max_age_seconds", "value": 1800.0,
+     "unit": "second",
+     "source_reference": "pilot default, pending the app's reporting interval",
+     "rationale": ("How old a caregiver's reported position may be before the "
+                   "distance ranking stops trusting it. A position from "
+                   "yesterday must not win a ranking. 1800 s is a placeholder "
+                   "chosen to be looser than any plausible reporting interval, "
+                   "because the failure directions are not symmetric: too loose "
+                   "ranks somebody slightly wrong, too tight marks every "
+                   "caregiver unusable at the moment a patient is missing. "
+                   "Replace it once the app side says how often it reports. "
+                   "Crossing this line demotes a caregiver to the bottom of the "
+                   "list — it never removes them, so even an all-stale family "
+                   "still gets a ranked list rather than an empty one.")},
 ]
 
 # Temporal rules use a patient's score HISTORY. Tunables live in `parameters`

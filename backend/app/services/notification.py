@@ -57,6 +57,82 @@ def _send_one(token: str, title: str, body: str, data: dict[str, str]) -> None:
     )
 
 
+async def _push_to_tokens(
+    db: AsyncSession, patient_id: int, tokens: list[str],
+    title: str, body: str, data: dict[str, str],
+) -> int:
+    """Send one message to every token. Returns how many were delivered.
+
+    Split out on 2026-08-28 so the claim notification sends through exactly the
+    same path as an alert, including the unregistered-token cleanup. A second
+    copy of this loop would have drifted: the first thing it would have missed
+    is that a token Firebase rejects has to be deleted, or every future push to
+    that family keeps failing on it forever.
+    """
+    delivered = 0
+    for token in tokens:
+        try:
+            # firebase-admin is synchronous HTTP; off-thread so a slow FCM call
+            # can't stall the event loop mid-GPS-ingest.
+            await asyncio.to_thread(_send_one, token, title, body, data)
+            delivered += 1
+        except messaging.UnregisteredError:
+            # App uninstalled or token rotated — drop it, or every future push
+            # fails on it forever.
+            logger.info("dropping unregistered device token for patient=%s",
+                        patient_id)
+            await crud.delete_device_token(db, token)
+        except Exception:
+            logger.exception("FCM send failed for patient=%s", patient_id)
+    return delivered
+
+
+async def notify_claim(db: AsyncSession, alert: Alert, claimer_name: str) -> dict:
+    """Tell the *other* caregivers that someone is on their way (report C-2).
+
+    Three deliberate differences from ``notify_alert``:
+
+    * **No cooldown.** The cooldown exists because an automatic alert repeats
+      itself while a condition holds. A claim happens because a person pressed a
+      button, so the volume is already bounded by human hands — and suppressing
+      the second one is exactly wrong: claim, change of mind, someone else
+      claims is the sequence where the others most need telling.
+    * **No ``alerts`` row.** A claim is a state change on the alert it answers,
+      not a new event. Writing a second row would put "somebody is going" in the
+      timeline as a thing that happened *to the patient*.
+    * **The claimer is excluded**, which is the whole point.
+
+    Never raises, for the same reason ``notify_alert`` does not: it runs after
+    the claim is already recorded, and a Firebase outage must not un-claim it.
+    """
+    try:
+        tokens = await crud.get_caregiver_tokens(
+            db, alert.patient_id, exclude_user_id=alert.claimed_by)
+        if not tokens:
+            # The only caregiver is the one who claimed it — the normal case for
+            # a single-caregiver family, and not a failure.
+            return {"status": "no_other_caregiver", "recipients": 0}
+
+        data = {
+            "alert_id": str(alert.id),
+            "patient_id": str(alert.patient_id),
+            "alert_type": alert.alert_type,
+            "event": "claimed",
+            "claimed_by": str(alert.claimed_by),
+        }
+        delivered = await _push_to_tokens(
+            db, alert.patient_id, tokens,
+            "PathGuard — มีคนไปรับแล้ว",
+            f"{claimer_name} กำลังไปรับผู้ป่วย",
+            data,
+        )
+        return ({"status": "sent", "recipients": delivered} if delivered
+                else {"status": "failed", "recipients": 0})
+    except Exception:
+        logger.exception("claim notification failed for alert %s", alert.id)
+        return {"status": "error", "recipients": 0}
+
+
 async def notify_alert(db: AsyncSession, alert: Alert, cooldown_s: float) -> dict:
     """Push one alert to the patient's caregiver, subject to the cooldown.
 
@@ -101,21 +177,8 @@ async def _notify_alert(db: AsyncSession, alert: Alert, cooldown_s: float) -> di
     }
     title = _TITLES.get(alert.alert_type, "PathGuard")
 
-    delivered = 0
-    for token in tokens:
-        try:
-            # firebase-admin is synchronous HTTP; off-thread so a slow FCM call
-            # can't stall the event loop mid-GPS-ingest.
-            await asyncio.to_thread(_send_one, token, title, alert.message, data)
-            delivered += 1
-        except messaging.UnregisteredError:
-            # App uninstalled or token rotated — drop it, or every future push
-            # fails on it forever.
-            logger.info("dropping unregistered device token for patient=%s",
-                        alert.patient_id)
-            await crud.delete_device_token(db, token)
-        except Exception:
-            logger.exception("FCM send failed for patient=%s", alert.patient_id)
+    delivered = await _push_to_tokens(
+        db, alert.patient_id, tokens, title, alert.message, data)
 
     if delivered == 0:
         return {"status": "failed", "recipients": 0}

@@ -16,11 +16,12 @@ Like ``tracking.py``, this is a promotion of ``scripts/demo_server.py``'s
 read-only layer, not a rewrite — it always read the real table.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
 from app.db.database import get_db
+from app.services.notification import notify_claim
 from app.services.auth import (
     Caller, assert_may_access_patient, current_caller, verify_patient_access,
 )
@@ -37,6 +38,9 @@ class AlertOut(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     resolved: bool
+    claimed_by: int | None = None
+    claimed_by_name: str | None = None
+    claimed_at: str | None = None
     created_at: str
 
 
@@ -50,7 +54,7 @@ class AlertPatch(BaseModel):
     resolved: bool
 
 
-def _to_out(alert) -> AlertOut:
+def _to_out(alert, claimed_by_name: str | None = None) -> AlertOut:
     return AlertOut(
         id=alert.id,
         patient_id=alert.patient_id,
@@ -60,6 +64,9 @@ def _to_out(alert) -> AlertOut:
         latitude=alert.latitude,
         longitude=alert.longitude,
         resolved=alert.resolved,
+        claimed_by=alert.claimed_by,
+        claimed_by_name=claimed_by_name,
+        claimed_at=None if alert.claimed_at is None else alert.claimed_at.isoformat(),
         created_at=alert.created_at.isoformat(),
     )
 
@@ -110,3 +117,123 @@ async def patch_alert(
 
     alert = await crud.set_alert_resolved(db, alert_id, payload.resolved)
     return _to_out(alert)
+
+
+# ── "I'll go and get them" (report C-2) ───────────────────────────────────────
+
+class ClaimOut(BaseModel):
+    alert: AlertOut
+    push: str = Field(
+        ..., description="ผลการแจ้งผู้ดูแลคนอื่น: sent | no_other_caregiver | failed | error")
+
+
+@router.post(
+    "/api/alerts/{alert_id}/claim",
+    response_model=ClaimOut,
+    summary="รับเรื่องเอง — บอกผู้ดูแลคนอื่นว่ากำลังไปรับผู้ป่วย",
+)
+async def claim_alert(
+    alert_id: int,
+    db: AsyncSession = Depends(get_db),
+    caller: Caller = Depends(current_caller),
+) -> ClaimOut:
+    """Take responsibility for one alert, and tell the other caregivers.
+
+    **409 when somebody else already holds it, and the body names them.** The
+    caregiver who lost the race is about to decide whether to set off anyway, so
+    "taken" without a name is not an answer they can act on — and two people
+    driving to the same place while a third assumes it is handled is the failure
+    this whole feature exists to prevent.
+
+    Claiming is **not** resolving. Resolved means the patient is safe; claimed
+    means somebody is on their way. An alert that closed itself when a caregiver
+    said "I'm going" would erase the row that says the situation is still open.
+
+    The push goes to everyone *except* the claimer and carries no cooldown — see
+    ``notify_claim``.
+    """
+    existing = await crud.get_alert(db, alert_id)
+    if existing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"alert {alert_id} not found",
+        )
+    await assert_may_access_patient(db, caller, existing.patient_id)
+
+    if caller.user_id is None:
+        # Auth off: there is no "who". Recording a claim by nobody would show
+        # the family that somebody is going when nothing was decided.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="claiming an alert requires a signed-in caregiver",
+        )
+
+    if existing.claimed_by is not None and existing.claimed_by != caller.user_id:
+        holder = await crud.get_user(db, existing.claimed_by)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "alert already claimed",
+                "claimed_by": existing.claimed_by,
+                "claimed_by_name": holder.name if holder else None,
+                "claimed_at": (None if existing.claimed_at is None
+                               else existing.claimed_at.isoformat()),
+            },
+        )
+
+    already_mine = existing.claimed_by == caller.user_id
+    alert = await crud.claim_alert(db, alert_id, caller.user_id)
+    me = await crud.get_user(db, caller.user_id)
+    name = me.name if me else str(caller.user_id)
+
+    # Re-claiming something you already hold is a duplicate tap, not news. The
+    # others were told the first time; telling them again on every tap is how a
+    # notification channel gets muted.
+    push_status = "duplicate" if already_mine else (
+        await notify_claim(db, alert, name))["status"]
+
+    return ClaimOut(alert=_to_out(alert, claimed_by_name=name), push=push_status)
+
+
+@router.delete(
+    "/api/alerts/{alert_id}/claim",
+    response_model=AlertOut,
+    summary="ยกเลิกการรับเรื่อง — ไปไม่ได้แล้ว ให้คนอื่นรับแทน",
+)
+async def release_alert(
+    alert_id: int,
+    db: AsyncSession = Depends(get_db),
+    caller: Caller = Depends(current_caller),
+) -> AlertOut:
+    """Give a claimed alert back so somebody else can take it.
+
+    This exists because the alternative is worse than an extra endpoint: a
+    caregiver who says "I'm going" and then cannot — the car will not start,
+    they are further away than they thought — would otherwise leave an alert
+    that reads as handled while nobody is on their way. That is the exact state
+    the claim was introduced to make impossible.
+
+    **Only the holder may release**, and releasing does not notify: the point of
+    releasing is that this person is not going, and the caregiver who picks it up
+    next will send the notification that matters when they claim it.
+    """
+    existing = await crud.get_alert(db, alert_id)
+    if existing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"alert {alert_id} not found",
+        )
+    await assert_may_access_patient(db, caller, existing.patient_id)
+
+    if existing.claimed_by is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="alert is not claimed",
+        )
+    if caller.authenticated and existing.claimed_by != caller.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="only the caregiver who claimed this alert may release it",
+        )
+
+    return _to_out(await crud.release_alert(db, alert_id))

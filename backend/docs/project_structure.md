@@ -95,7 +95,7 @@ backend/
     │       └── evaluation.py                    — ชุดวัดความซื่อสัตย์ของโมเดล (temporal split, bootstrap CI, baselines, go/no-go)
     │
     ├── api/                         — ชั้น endpoint ที่รับ request จากแอป Flutter (25 route)
-    │   ├── users.py                 — POST /api/register ลงทะเบียนผู้ใช้ใหม่จาก Firebase UID · PUT /api/caregivers/{id}/location เก็บตำแหน่งล่าสุดของผู้ดูแล (28 ส.ค.)
+    │   ├── users.py                 — POST /api/register ลงทะเบียนผู้ใช้ใหม่จาก Firebase UID · PUT /api/caregivers/{id}/location เก็บตำแหน่งล่าสุดของผู้ดูแล · GET /api/patients/{id}/caregivers เรียงผู้ดูแลตามระยะทาง (A4, 28 ส.ค.)
     │   ├── pairing.py               — POST /api/patients (ผู้ดูแลสร้างผู้ป่วย + ออกรหัส) · POST /api/pair (แลกรหัสเป็น custom token) · GET /api/patients/{id} (ชื่อ + ระดับอาการ) · POST /api/patients/{id}/caregiver-invites + POST /api/caregivers/redeem-invite (ผู้ดูแลคนที่สอง, 28 ส.ค.) (26–28 ส.ค.)
     │   ├── gps.py                   — POST /api/gps + /api/gps/batch บันทึก GPS ผ่าน gps_processor แล้วสั่งคิด risk เอง (throttle 60 วิ)
     │   ├── prediction.py            — GET /api/predict-destination/{id} — **ไม่ได้ mount** (ตัด TensorFlow) โค้ดยังอยู่
@@ -107,7 +107,7 @@ backend/
     │   ├── danger_zones.py          — POST/GET/DELETE /api/danger-zones เขตอันตราย (ใช้ร่วมทุกคนไข้ ไม่มี patient_id)
     │   ├── devices.py               — POST /api/devices/token เก็บ FCM token ของเครื่องผู้ดูแล (22 ส.ค.)
     │   ├── tracking.py              — GET /api/patients/{id}/track เส้นทางล่าสุดให้แอปวาดแผนที่ (22 ส.ค.)
-    │   ├── alerts.py                — GET /api/patients/{id}/alerts + PATCH /api/alerts/{id} ปิดแจ้งเตือน (22 ส.ค.)
+    │   ├── alerts.py                — GET /api/patients/{id}/alerts + PATCH /api/alerts/{id} ปิดแจ้งเตือน (22 ส.ค.) · POST/DELETE /api/alerts/{id}/claim "ฉันจะไปรับ" (A5, 28 ส.ค.)
     │   ├── sos.py                   — POST /api/sos ปุ่มฉุกเฉิน ข้ามการคิดคะแนนทั้งหมด cooldown ของตัวเอง 60 วิ (26 ส.ค.)
     │   └── trip_requests.py         — POST /api/trip-requests · GET /api/patients/{id}/trip-requests · PATCH /api/trip-requests/{id} (C-3, 26 ส.ค.)
     │
