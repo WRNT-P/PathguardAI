@@ -61,6 +61,16 @@ class SOSOut(BaseModel):
     alert_id: int
     patient_id: int
     severity: str
+    # The disease stage, echoed back because pressing SOS is exactly where the
+    # report branches on it (§1.6): stage 1 goes to Safe Zone Navigation and is
+    # guided to the nearest police station or hospital, stage 2 goes to Zero-UI
+    # Mode and is told to stand still until somebody arrives.
+    #
+    # ⚠️ Not the same thing as ``severity`` above, which is the alert's
+    # criticality and is always "critical" here. Two fields, similar names,
+    # opposite meanings — and reading the wrong one sends a moderate-stage
+    # patient walking down a road. Named in full and documented in contract §8.
+    severity_level: int | None
     latitude: float | None
     longitude: float | None
     push: str  # sent | cooldown | no_caregiver | failed | error
@@ -107,6 +117,8 @@ async def raise_sos(
         if latest is not None:
             lat, lng = latest.latitude, latest.longitude
 
+    patient = await crud.get_user(db, payload.patient_id)
+
     alert = await crud.save_alert(
         db,
         payload.patient_id,
@@ -132,6 +144,7 @@ async def raise_sos(
         alert_id=alert.id,
         patient_id=payload.patient_id,
         severity=alert.severity,
+        severity_level=patient.severity_level if patient else None,
         latitude=lat,
         longitude=lng,
         push=push["status"],
