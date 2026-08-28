@@ -51,7 +51,12 @@ class User(Base):
 
     gps_records: Mapped[list["GPSData"]] = relationship("GPSData", back_populates="patient", cascade="all, delete-orphan")
     risk_scores: Mapped[list["RiskScore"]] = relationship("RiskScore", back_populates="patient", cascade="all, delete-orphan")
-    alerts: Mapped[list["Alert"]] = relationship("Alert", back_populates="patient", cascade="all, delete-orphan")
+    # foreign_keys pins this to Alert.patient_id: since 2026-08-28 alerts carry a
+    # second FK to users (claimed_by), and without it SQLAlchemy cannot tell
+    # which one makes an alert "belong" to a user.
+    alerts: Mapped[list["Alert"]] = relationship(
+        "Alert", back_populates="patient", cascade="all, delete-orphan",
+        foreign_keys="Alert.patient_id")
     behavioral_profiles: Mapped[list["BehavioralProfile"]] = relationship("BehavioralProfile", back_populates="patient", cascade="all, delete-orphan")
 
 
@@ -142,9 +147,28 @@ class Alert(Base):
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # "I'll go and get them" (report C-2). Which caregiver is on their way, and
+    # since when. Added 2026-08-28.
+    #
+    # State on the alert rather than a table of its own: a claim is not an event
+    # in its own right, it is an answer to one specific alert, and exactly one
+    # answer can stand at a time. A claims table would make "who is going" a
+    # query with an ordering question in it, and the wrong answer to that
+    # question is two people driving to the same place while a third assumes it
+    # is handled.
+    #
+    # Deliberately separate from ``resolved``: claimed means somebody is on
+    # their way, resolved means the patient is safe. Collapsing them would let
+    # pressing "I'm going" close the alert, and the family would lose the one
+    # row that says the situation is still open.
+    claimed_by: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    patient: Mapped["User"] = relationship("User", back_populates="alerts")
+    patient: Mapped["User"] = relationship(
+        "User", back_populates="alerts", foreign_keys=[patient_id])
 
 
 class BehavioralProfile(Base):

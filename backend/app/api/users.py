@@ -6,18 +6,28 @@ The Flutter app calls this once (e.g. after Firebase sign-in) so an internal
 int ``users.id`` exists before any GPS for that patient is ingested. The app
 keeps the returned id and sends it as ``patient_id`` on every later request.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import crud
+# Plain geometry, borrowed rather than copied: three haversine implementations
+# already exist in app/ai and a fourth would be the one that drifts.
+from app.ai.module2_prediction.cluster_matcher import haversine_km
+from app.db import crud, rule_repository
 from app.db.database import get_db
-from app.services.auth import Caller, current_caller, verified_uid
+from app.services.auth import (
+    Caller, current_caller, verified_uid, verify_patient_access,
+)
 from app.models.user_profile import UserCreate, UserResponse
 
 router = APIRouter()
+
+# Used only if the KB row is missing. Same number as the seed, stated twice on
+# purpose: the ranking must not fail on a database nobody has re-seeded, and a
+# silent 0 here would mark every caregiver unusable.
+_FALLBACK_LOCATION_MAX_AGE_S = 1800.0
 
 
 @router.post(
@@ -130,4 +140,108 @@ async def update_caregiver_location(
     return CaregiverLocationOut(
         caregiver_id=caregiver_id,
         location_updated_at=updated.location_updated_at,
+    )
+
+
+# ── Who is nearest (report: "alert every caregiver, ranked by distance") ──────
+
+class RankedCaregiver(BaseModel):
+    caregiver_id: int
+    name: str
+    is_primary: bool
+    distance_m: float | None = Field(
+        None, description="ระยะทางถึงตำแหน่งล่าสุดของผู้ป่วย · null = ไม่รู้ตำแหน่งผู้ดูแล")
+    location_age_s: float | None = Field(
+        None, description="ตำแหน่งของผู้ดูแลเก่ากี่วินาที · null = ไม่เคยส่งเลย")
+    usable: bool = Field(
+        ..., description="ตำแหน่งใหม่พอที่จะเชื่อได้ไหม · false = ยังอยู่ในรายการแต่ท้ายแถว")
+
+
+class RankedCaregiversOut(BaseModel):
+    patient_id: int
+    patient_latitude: float | None
+    patient_longitude: float | None
+    max_age_s: float
+    caregivers: list[RankedCaregiver]
+
+
+@router.get(
+    "/api/patients/{patient_id}/caregivers",
+    response_model=RankedCaregiversOut,
+    summary="ผู้ดูแลของผู้ป่วยคนนี้ เรียงตามระยะทางจากผู้ป่วย ใกล้สุดขึ้นก่อน",
+)
+async def rank_caregivers(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
+) -> RankedCaregiversOut:
+    """Order this patient's caregivers by how far they are from the patient.
+
+    **Nobody is ever dropped from this list.** A caregiver whose position is too
+    old, or who has never reported one at all, sinks to the bottom instead of
+    disappearing. The alternative was tempting and wrong: filtering by freshness
+    means that on the day the app's reporting interval turns out to be longer
+    than the cut-off, this endpoint answers "nobody" — at the moment a patient
+    is missing, to a family that is standing right there. A wrongly ordered list
+    is recoverable by a human reading it; an empty one is not.
+
+    That is also why the cut-off being unanswered by the app side does not block
+    this: it decides *ordering*, not *membership*.
+
+    Read-only. It does not push, does not write, and may be polled.
+    """
+    latest = await crud.get_latest_gps(db, patient_id)
+    # Smoothed position when the Kalman filter has one, raw otherwise: the same
+    # choice the map makes, so the ranking and the pin agree.
+    if latest is None:
+        p_lat = p_lng = None
+    else:
+        p_lat = latest.smooth_latitude if latest.smooth_latitude is not None else latest.latitude
+        p_lng = latest.smooth_longitude if latest.smooth_longitude is not None else latest.longitude
+
+    max_age_s = await rule_repository.get_threshold(
+        db, rule_repository.CAREGIVER_LOCATION_MAX_AGE_S,
+        default=_FALLBACK_LOCATION_MAX_AGE_S)
+
+    now = datetime.now(timezone.utc)
+    rows: list[RankedCaregiver] = []
+    for user, is_primary in await crud.get_caregivers_with_location(db, patient_id):
+        age_s = None
+        if user.location_updated_at is not None:
+            stamped = user.location_updated_at
+            if stamped.tzinfo is None:                      # SQLite gives naive
+                stamped = stamped.replace(tzinfo=timezone.utc)
+            age_s = max(0.0, (now - stamped).total_seconds())
+
+        distance_m = None
+        if (p_lat is not None and user.last_latitude is not None
+                and user.last_longitude is not None):
+            distance_m = haversine_km(
+                p_lat, p_lng, user.last_latitude, user.last_longitude) * 1000.0
+
+        rows.append(RankedCaregiver(
+            caregiver_id=user.id,
+            name=user.name,
+            is_primary=is_primary,
+            distance_m=distance_m,
+            location_age_s=age_s,
+            usable=(distance_m is not None and age_s is not None
+                    and age_s <= max_age_s),
+        ))
+
+    # Three tiers, then distance, then the primary wins a tie. `is_primary` is
+    # not a permission and never has been — this is the one thing it decides.
+    rows.sort(key=lambda c: (
+        not c.usable,
+        c.distance_m if c.distance_m is not None else float("inf"),
+        not c.is_primary,
+        c.caregiver_id,
+    ))
+
+    return RankedCaregiversOut(
+        patient_id=patient_id,
+        patient_latitude=p_lat,
+        patient_longitude=p_lng,
+        max_age_s=max_age_s,
+        caregivers=rows,
     )

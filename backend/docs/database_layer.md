@@ -123,7 +123,19 @@
 
 #### `alerts` (model: `Alert`)
 การแจ้งเตือนที่เกิดขึ้น
-- คอลัมน์หลัก: `patient_id` (FK), `alert_type`, `severity` (`low`/`medium`/`high`/`critical`), `message`, `latitude`/`longitude` (ตำแหน่งตอนเตือน), `resolved` (bool), `resolved_at`, `created_at`
+- คอลัมน์หลัก: `patient_id` (FK), `alert_type`, `severity` (`low`/`medium`/`high`/`critical`), `message`, `latitude`/`longitude` (ตำแหน่งตอนเตือน), `resolved` (bool), `resolved_at`, **`claimed_by` (FK ผู้ดูแล) / `claimed_at`** (28 ส.ค.), `created_at`
+- **`claimed_by` / `claimed_at` — "ฉันจะไปรับ" (C-2)** เก็บเป็น*สถานะบนแถวเดิม* ไม่ใช่ตารางใหม่:
+  การรับเรื่องไม่ใช่เหตุการณ์ของตัวเอง มันคือคำตอบของ alert ใบนั้น และตอบได้ทีละคำตอบ
+  ตารางแยกจะทำให้ "ใครกำลังไป" กลายเป็นคำถามที่ต้องเรียงลำดับ ซึ่งตอบผิดแล้วแปลว่า
+  สองคนขับรถไปที่เดียวกันขณะที่คนที่สามคิดว่ามีคนจัดการแล้ว
+- 🛑 **`claimed` ≠ `resolved` แยกกันตั้งใจ** — `resolved` แปลว่าผู้ป่วยปลอดภัยแล้ว
+  `claimed` แปลว่ามีคนกำลังไป ถ้ายุบเป็นฟิลด์เดียว การกด "ฉันไปรับ" จะปิด alert ทิ้ง
+  และครอบครัวเสียแถวเดียวที่บอกว่าเรื่องยังไม่จบ
+- ⚠️ **`alerts` มี FK ไป `users` สองเส้นแล้ว** (`patient_id` และ `claimed_by`) ความสัมพันธ์
+  ORM ทั้งสองฝั่งจึงต้องระบุ `foreign_keys` ไม่งั้น SQLAlchemy แยกไม่ออกว่าเส้นไหนแปลว่า
+  "alert ของผู้ใช้คนนี้"
+- การรับเรื่องแจ้งผู้ดูแลคนอื่นผ่าน `notify_claim` ซึ่ง **ไม่มี cooldown และไม่เขียน alert
+  แถวใหม่** — เหตุผลอยู่ใน docstring ของมัน
 - **`alert_type` มีหกค่า** (แก้ข้อความเดิมที่เขียนไว้สี่): `wandering` · `geofence` · `gps_loss` · `emergency` · `sos` · `trip_denied`
   รายการตัวจริงอยู่ที่ `app/models/alert.py` (`AlertType` / `ALERT_TYPES`) **ที่เดียว** และ
   `tests/test_alert_types.py` สแกน `app/api/` ด้วย `ast` เพื่อกันไม่ให้มีใครเขียนค่านอกลิสต์

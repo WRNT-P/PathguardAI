@@ -22,10 +22,41 @@ async def test_seeded_weights_sum_to_one(db_session):
 
 
 async def test_seeded_thresholds_complete(db_session):
+    """Every required threshold is present. Extras are allowed on purpose.
+
+    This asserted equality until 2026-08-28, which quietly made the seed file a
+    closed set: adding any tunable row that scoring does not read would fail
+    here *and*, worse, take get_all_thresholds down in production. What this
+    function actually has to guarantee is that nothing the scoring formula needs
+    is missing.
+    """
     thresholds = await repo.get_all_thresholds(db_session)
-    assert set(thresholds) == repo.KNOWN_THRESHOLDS
+    assert repo.KNOWN_THRESHOLDS <= set(thresholds)
+    assert set(thresholds) <= repo.KNOWN_THRESHOLDS | repo.OPTIONAL_THRESHOLDS
     assert thresholds[repo.EMERGENCY_SCORE] == 80.0
     assert thresholds[repo.GPS_GAP_SECONDS] == 600.0
+
+
+async def test_a_missing_optional_threshold_falls_back_instead_of_raising(db_session):
+    """An unseeded knob must not fail the request it sits in.
+
+    The mirror of the rule above: a KNOWN_THRESHOLD with no row still raises,
+    because a half-loaded scoring rule set has to be loud.
+    """
+    assert await repo.get_threshold(
+        db_session, repo.CAREGIVER_LOCATION_MAX_AGE_S) == 1800.0
+
+    row = (await db_session.execute(
+        select(RiskThreshold).where(
+            RiskThreshold.threshold_name == repo.CAREGIVER_LOCATION_MAX_AGE_S)
+    )).scalar_one()
+    row.active = False
+    await db_session.flush()
+
+    assert await repo.get_threshold(
+        db_session, repo.CAREGIVER_LOCATION_MAX_AGE_S, default=42.0) == 42.0
+    # ...and scoring is untouched by that row being gone.
+    assert repo.KNOWN_THRESHOLDS <= set(await repo.get_all_thresholds(db_session))
 
 
 async def test_seeded_danger_zones(db_session):

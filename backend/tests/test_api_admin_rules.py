@@ -17,7 +17,9 @@ async def test_rules_lists_all_active_rules_with_citations(client):
     body = resp.json()
 
     assert {w["factor_name"] for w in body["weights"]} == set(repo.KNOWN_FACTORS)
-    assert {t["threshold_name"] for t in body["thresholds"]} == set(repo.KNOWN_THRESHOLDS)
+    # Superset, not equality: the KB also carries tunables that scoring does
+    # not read (repo.OPTIONAL_THRESHOLDS), and the admin view shows them all.
+    assert repo.KNOWN_THRESHOLDS <= {t["threshold_name"] for t in body["thresholds"]}
     assert len(body["danger_zones"]) == 2
 
     # The instructor's requirement: every rule carries source + rationale.

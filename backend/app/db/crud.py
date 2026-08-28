@@ -390,15 +390,26 @@ async def upsert_device_token(
     return row
 
 
-async def get_caregiver_tokens(db: AsyncSession, patient_id: int) -> list[str]:
+async def get_caregiver_tokens(
+    db: AsyncSession, patient_id: int, exclude_user_id: int | None = None,
+) -> list[str]:
     """FCM tokens of every caregiver responsible for this patient.
 
     Every device of every caregiver, not one: since 2026-08-28 a patient can
     have more than one, and the report has always said an alert goes to all of
     them. Returns [] when the patient has no caregiver on file or none of them
     has ever opened the app.
+
+    ``exclude_user_id`` drops one person's devices — the caregiver who caused
+    the notification. Pushing somebody a notification about the button they just
+    pressed teaches them the notifications are noise, and these are the
+    notifications that have to be read. It belongs here rather than at the call
+    site because the alternative is every caller filtering a token list it did
+    not build, and one of them forgetting.
     """
     caregiver_ids = await get_caregiver_ids(db, patient_id)
+    if exclude_user_id is not None:
+        caregiver_ids = [c for c in caregiver_ids if c != exclude_user_id]
     if not caregiver_ids:
         return []
 
@@ -547,6 +558,59 @@ async def get_caregiver_ids(db: AsyncSession, patient_id: int) -> list[int]:
         .order_by(desc(PatientCaregiver.is_primary), PatientCaregiver.id)
     )
     return list(result.scalars().all())
+
+
+async def get_caregivers_with_location(
+    db: AsyncSession, patient_id: int,
+) -> list[tuple[User, bool]]:
+    """Every caregiver of this patient with their row and their primary flag.
+
+    Primary first, same order as ``get_caregiver_ids``, so a caller that ranks
+    by distance inherits a stable tie-break without asking a second question.
+    The ``User`` row carries ``last_latitude`` / ``last_longitude`` /
+    ``location_updated_at``, which may be NULL — a caregiver who has never
+    reported a position is a real case and not an error.
+    """
+    result = await db.execute(
+        select(User, PatientCaregiver.is_primary)
+        .join(PatientCaregiver, PatientCaregiver.caregiver_id == User.id)
+        .where(PatientCaregiver.patient_id == patient_id)
+        .order_by(desc(PatientCaregiver.is_primary), PatientCaregiver.id)
+    )
+    return [(row[0], bool(row[1])) for row in result.all()]
+
+
+async def claim_alert(
+    db: AsyncSession, alert_id: int, user_id: int,
+) -> Alert | None:
+    """Record that this caregiver is on their way. None if no such alert.
+
+    Does not check whether somebody else holds it — the endpoint does, because
+    the answer it has to give ("taken, by this person") needs the existing row,
+    and a crud function returning "no" would throw that away.
+    """
+    alert = await db.get(Alert, alert_id)
+    if alert is None:
+        return None
+    alert.claimed_by = user_id
+    alert.claimed_at = datetime.now(timezone.utc)
+    await db.flush()
+    return alert
+
+
+async def release_alert(db: AsyncSession, alert_id: int) -> Alert | None:
+    """Give a claimed alert back. None if there is no such alert.
+
+    Both columns are cleared together: a ``claimed_at`` left behind with no
+    claimer reads as "somebody went at 14:02" to anything scanning the history.
+    """
+    alert = await db.get(Alert, alert_id)
+    if alert is None:
+        return None
+    alert.claimed_by = None
+    alert.claimed_at = None
+    await db.flush()
+    return alert
 
 
 async def get_caregiver_id(db: AsyncSession, patient_id: int) -> int | None:

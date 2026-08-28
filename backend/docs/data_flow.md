@@ -254,6 +254,9 @@ rank (100/40/10/3) และวินาที ส่วนคลัสเตอ
 | `link_caregiver()` | เขียน `patient_caregivers` | `crud.create_user` (ตอนสร้างผู้ป่วย) · `api/pairing.py` (redeem รหัสเชิญ) |
 | `create_caregiver_invite()` / `get_caregiver_invite()` / `mark_caregiver_invite_used()` | รหัสเชิญผู้ดูแลคนถัดไป | `api/pairing.py` (28 ส.ค.) |
 | `update_user_location()` | เขียนตำแหน่งล่าสุดของ**ผู้ดูแล** ลง `users` (ไม่มีตารางประวัติ) | `api/users.py` (`PUT /api/caregivers/{id}/location`, 28 ส.ค.) |
+| `get_caregivers_with_location()` | อ่านผู้ดูแลทุกคน + ตำแหน่ง สำหรับจัดอันดับระยะทาง | `api/users.py` (`GET /api/patients/{id}/caregivers`, A4) |
+| `claim_alert()` / `release_alert()` | เขียน `alerts.claimed_by` / `claimed_at` | `api/alerts.py` (`POST`/`DELETE /api/alerts/{id}/claim`, A5) |
+| `get_caregiver_tokens(..., exclude_user_id=)` | token ของผู้ดูแล **ยกเว้นคนเดียว** — คนที่เพิ่งกดปุ่ม | `services/notification.py` (`notify_claim`) |
 | `get_user()` | อ่านทั้งแถว `users` (ชื่อ, uid, `severity_level`) | `api/pairing.py`, `api/recommendation.py`, `api/search_area.py`, `api/trip_requests.py` |
 | `create_pairing_code()` / `get_pairing_code()` / `mark_pairing_code_used()` | รหัสจับคู่เครื่อง | `api/pairing.py` (26 ส.ค.) |
 | `create_trip_request()` / `get_trip_request(s)()` / `decide_trip_request()` | คำขออนุมัติเดินทาง C-3 | `api/trip_requests.py` (26 ส.ค.) |
