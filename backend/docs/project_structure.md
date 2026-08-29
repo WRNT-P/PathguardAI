@@ -38,6 +38,11 @@ backend/
 │   ├── build_routine_patterns.py    — สร้าง routine_patterns (กิจวัตรรายชั่วโมง) จากประวัติ GPS + หมุด (26 ส.ค.) — ต้องรันใหม่ทุกครั้งที่หมุดเปลี่ยน
 │   ├── migrate_add_synthetic_injected.py — migration เพิ่มคอลัมน์ synthetic_injected (gps_data + danger_zones)
 │   ├── migrate_add_severity_level.py — migration เพิ่มคอลัมน์ users.severity_level (26 ส.ค.) ✅ รันกับ Neon แล้ว 27 ส.ค.
+│   ├── migrate_add_alert_claim.py   — migration เพิ่ม alerts.claimed_by / claimed_at (A5, 28 ส.ค.) ✅ รันกับ Neon แล้ว
+│   ├── migrate_add_patient_caregivers.py — migration ตาราง patient_caregivers + caregiver_invites + 3 คอลัมน์ตำแหน่งผู้ดูแล (28 ส.ค.) ✅ รันกับ Neon แล้ว
+│   ├── delete_patient.py            — 🧹 **ลบผู้เข้าร่วม 1 คนออกจากทุกตาราง** (29 ส.ค.) dry run เป็นค่าตั้งต้น ต้อง `--confirm` ถึงลบจริง
+│   │                                   ทีละ id เท่านั้น ไม่มี `--all` · กันชนปฏิเสธถ้ามี GPS ≥ 1,000 จุด (กัน GeoLife 025)
+│   │                                   แถวของคนอื่นที่ชี้มาหาคนนี้ถูก SET NULL ไม่ใช่ลบ — คนนี้ออกไปต้องไม่ลบ alert ของครอบครัวอื่น
 │   ├── demo_run.py                  — terminal demo: รัน Module 1–5 ต่อผู้ป่วย แล้ว print narrative (TF-free)
 │   ├── demo_server.py               — เซิร์ฟเวอร์ dashboard ผู้ดูแล (mount router จริงชุดเดียวกับ app/main.py + เสิร์ฟ dashboard.html)
 │   ├── dashboard.html               — หน้า dashboard ภาษาไทย: แผนที่ Leaflet, เกจความเสี่ยง, ฟีดแจ้งเตือน
