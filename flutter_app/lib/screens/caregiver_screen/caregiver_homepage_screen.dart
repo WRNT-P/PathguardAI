@@ -3,7 +3,8 @@ import 'dart:io';
 import 'add_patient_screen.dart';
 import 'track_screen.dart';
 import 'notification_screen.dart';
-import '../../services/patient_directory.dart';
+import 'dart:convert';
+import '../../services/api_client.dart';
 
 class CaregiverHomePageScreen extends StatefulWidget {
   final String? caregiverName;
@@ -46,28 +47,44 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 ),
               );
               if (result != null) {
-                final id = PatientDirectory.instance.addPatient(result);
-                setState(() {
-                  patients.add({...result, 'id': id});
+                final severityLevel = (result['state'] as String).startsWith('2') ? 2 : 1;
+
+                final response = await apiPost('/api/patients', body: {
+                  'name': result['name'],
+                  'severity_level': severityLevel,
+                  'caregiver_id': 12, // TODO: replace with the real signed-in caregiver's id once caregiver login/register is wired
                 });
-                if (mounted) {
-                  showDialog(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: const Text('Patient Added'),
-                      content: Text(
-                        'Give this ID to the patient to log in:\n\n$id',
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('OK'),
-                        ),
-                      ],
-                    ),
+
+                 if (!mounted) return;
+
+                if (response.statusCode != 201) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Could not add patient, try again')),
                   );
+                  return;
                 }
+
+                final data = jsonDecode(response.body);
+                setState(() {
+                  patients.add({...result, 'id': data['patient_id']});
+                });
+
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Patient Added'),
+                    content: Text(
+                      'Give this code to the patient to log in:\n\n${data['pairing_code']}',
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
               }
             },
             style: ElevatedButton.styleFrom(

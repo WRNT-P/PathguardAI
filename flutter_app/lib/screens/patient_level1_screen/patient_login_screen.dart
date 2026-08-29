@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'patient_homepage_screen.dart';
 import '../patient_level2_screen/patient_homepage_screen.dart' as level2;
-import '../../services/patient_directory.dart';
-
+import '../../services/api_client.dart';
 class PatientLoginScreen extends StatefulWidget {
   const PatientLoginScreen({super.key});
 
@@ -14,30 +15,56 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
   final TextEditingController _idController = TextEditingController();
   String? _errorMessage;
 
-  void _handleLogin() {
-    final id = _idController.text.trim();
-    final patient = PatientDirectory.instance.getPatientById(id);
+  Future<void> _handleLogin() async{
+    final code = _idController.text.trim();
+    
+    final pairResponse = await apiPost('/api/pair', body: {'code': code});
 
-    if (patient == null) {
+    if (!mounted) return;
+
+    if (pairResponse.statusCode != 200){
       setState(() {
-        _errorMessage = 'Patient ID not found. Please check and try again.';
+        _errorMessage = 'Patient ID not found. Please check and try again';
       });
       return;
     }
 
-    // Mock-stage routing: reads the level straight from the local
-    // PatientDirectory entry (state == '2 : Memory Loss-Severe' -> Level 2).
-    // Once the backend ships severity_level in the /api/pair response, this
-    // should read from there instead — the routing logic itself won't change.
-    final state = patient['state'] as String?;
-    final isLevel2 = state != null && state.startsWith('2');
+    final pairData = jsonDecode(pairResponse.body);
+    await FirebaseAuth.instance.signInWithCustomToken(pairData['firebase_custom_token']);
+
+    final severityLevel = pairData['severity_level'] as int?;
+
+    if (severityLevel == null){
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Ask your caregiver to set a severity level first.';
+      });
+      return;
+    }
+
+    final nameResponse = await apiGet('/api/patients/${pairData['patient_id']}');
+    if (!mounted) return;
+
+    final name = nameResponse.statusCode == 200
+    ? jsonDecode(nameResponse.body)['name'] as String?
+    : null;
+
+    if (name == null){
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Patient data not found. Please check and try again.';
+      });
+      return;
+    }
+
+    final isLevel2 = severityLevel == 2;
 
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => isLevel2
-            ? level2.PatientHomePageScreen(patientName: patient['name'])
-            : PatientHomePageScreen(patientName: patient['name']),
+            ? level2.PatientHomePageScreen(patientName: name)
+            : PatientHomePageScreen(patientName: name),
       ),
     );
   }
