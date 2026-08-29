@@ -236,3 +236,45 @@ async def test_no_registered_caregiver_phone_still_stores_the_alert(
     assert resp.json()["push"] == "no_caregiver"
     assert len(await _alert_rows(db_session, patient_id)) == 1
     assert fcm.sent == []
+
+
+async def test_sos_says_which_stage_the_patient_is(client, db_session):
+    """Report 1.6: pressing SOS is where the system branches on Alzheimer stage —
+    stage 1 is navigated to the nearest safe place, stage 2 is told to stand
+    still and wait. The app has to know which, at exactly this moment.
+
+    It could read the stage from pairing and remember it, and it should; this
+    removes the case where it did not, and removes a round trip in the one
+    request that must not need a second one.
+    """
+    caregiver = await crud.create_user(
+        db_session, firebase_uid="uid-sos-stage-cg", name="ลูก", role="caregiver")
+    await db_session.flush()
+    patient = await crud.create_user(
+        db_session, firebase_uid="uid-sos-stage-pt", name="ยาย", role="patient",
+        caregiver_id=caregiver.id, severity_level=2)
+    await db_session.commit()
+
+    body = (await client.post("/api/sos", json={"patient_id": patient.id})).json()
+
+    assert body["severity_level"] == 2
+    # ...and it is NOT the alert's criticality, which is the adjacent field with
+    # the confusingly similar name.
+    assert body["severity"] == "critical"
+
+
+async def test_sos_stage_is_null_when_the_caregiver_never_stated_one(
+        client, db_session):
+    """Null means unstated, and the app must treat it as "do not assume stage 1"
+    — guiding somebody to walk is the riskier branch of the two."""
+    caregiver = await crud.create_user(
+        db_session, firebase_uid="uid-sos-nostage-cg", name="ลูก", role="caregiver")
+    await db_session.flush()
+    patient = await crud.create_user(
+        db_session, firebase_uid="uid-sos-nostage-pt", name="ยาย", role="patient",
+        caregiver_id=caregiver.id)
+    await db_session.commit()
+
+    body = (await client.post("/api/sos", json={"patient_id": patient.id})).json()
+
+    assert body["severity_level"] is None
