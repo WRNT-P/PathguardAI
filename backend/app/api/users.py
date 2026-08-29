@@ -206,12 +206,7 @@ async def rank_caregivers(
     now = datetime.now(timezone.utc)
     rows: list[RankedCaregiver] = []
     for user, is_primary in await crud.get_caregivers_with_location(db, patient_id):
-        age_s = None
-        if user.location_updated_at is not None:
-            stamped = user.location_updated_at
-            if stamped.tzinfo is None:                      # SQLite gives naive
-                stamped = stamped.replace(tzinfo=timezone.utc)
-            age_s = max(0.0, (now - stamped).total_seconds())
+        age_s = crud.location_age_seconds(user, now)
 
         distance_m = None
         if (p_lat is not None and user.last_latitude is not None

@@ -383,3 +383,114 @@ async def test_a_stranger_cannot_claim_someone_elses_alert(
 
     assert resp.status_code == 403
     assert await db_session.get(Alert, alert_id) is not None
+
+
+# ── Where the claimer is, 2026-08-29 ─────────────────────────────────────────
+#
+# The app side asked to see "status + name + position of whoever pressed the
+# button". We replied that the position was already available from the ranking
+# endpoint. It was not: `RankedCaregiver` carries `distance_m` and no
+# coordinates, and `AlertOut` carried no position at all. Reading the response
+# models instead of the contract is what found it.
+#
+# Fixing it surfaced a second, shipped defect these tests now hold down: the
+# list and the PATCH built their rows with no claimer at all, so a claimed
+# alert came back as an id with a null name — on the one screen whose whole
+# purpose is saying who is going.
+
+async def claimed_alert(client, db_session, household, monkeypatch, uid=SECOND_UID):
+    alert_id = await make_alert(db_session, household["patient"])
+    monkeypatch.setattr(auth, "verify_firebase_token", lambda t: uid)
+    resp = await client.post(f"/api/alerts/{alert_id}/claim", headers=bearer("tok"))
+    assert resp.status_code == 200, resp.text
+    return alert_id
+
+
+async def test_the_alert_list_names_the_claimer_it_does_not_just_give_an_id(
+        client, db_session, household, auth_on, monkeypatch):
+    """The bug this file shipped with: `_to_out` took a name and the list never
+    passed one, so the feed said `claimed_by: 5, claimed_by_name: null`. A
+    caregiver cannot read an id. Nothing failed — which is why it survived."""
+    await put_location(db_session, household["second"], 300)
+    alert_id = await claimed_alert(client, db_session, household, monkeypatch)
+
+    body = (await client.get(
+        f"/api/patients/{household['patient']}/alerts",
+        headers=bearer("tok"))).json()
+    row = next(a for a in body["alerts"] if a["id"] == alert_id)
+
+    assert row["claimed_by"] == household["second"]
+    assert row["claimed_by_name"] == "ลูกชาย"
+
+
+async def test_the_list_says_where_the_claimer_was_and_how_old_that_is(
+        client, db_session, household, auth_on, monkeypatch):
+    await put_location(db_session, household["second"], 300, age_s=120)
+    alert_id = await claimed_alert(client, db_session, household, monkeypatch)
+
+    body = (await client.get(
+        f"/api/patients/{household['patient']}/alerts",
+        headers=bearer("tok"))).json()
+    row = next(a for a in body["alerts"] if a["id"] == alert_id)
+
+    assert row["claimed_by_latitude"] == pytest.approx(north(300)[0])
+    assert row["claimed_by_longitude"] == pytest.approx(north(300)[1])
+    # The age is reported, never silently treated as fresh: the family is about
+    # to watch this dot, and a two-minute-old dot that reads as live is how you
+    # get somebody to stop waiting.
+    assert 110 <= row["claimed_by_location_age_s"] <= 200
+
+
+async def test_an_unclaimed_alert_carries_no_position_at_all(
+        client, db_session, household, auth_on, monkeypatch):
+    """Nobody is going, so there is nobody to put on the map. Falling back to
+    the primary caregiver's last position would draw a dot that means
+    'somebody is on their way' when nobody has said so."""
+    await put_location(db_session, household["primary"], 100)
+    await make_alert(db_session, household["patient"])
+    monkeypatch.setattr(auth, "verify_firebase_token", lambda t: SECOND_UID)
+
+    body = (await client.get(
+        f"/api/patients/{household['patient']}/alerts",
+        headers=bearer("tok"))).json()
+    row = body["alerts"][0]
+
+    assert row["claimed_by"] is None
+    assert row["claimed_by_name"] is None
+    assert row["claimed_by_latitude"] is None
+    assert row["claimed_by_longitude"] is None
+    assert row["claimed_by_location_age_s"] is None
+
+
+async def test_a_claimer_who_never_reported_a_position_is_still_named(
+        client, db_session, household, auth_on, monkeypatch):
+    """Same rule as the ranking: a missing position demotes, it never deletes
+    the person. Here it must not delete their name either."""
+    alert_id = await claimed_alert(client, db_session, household, monkeypatch)
+
+    body = (await client.get(
+        f"/api/patients/{household['patient']}/alerts",
+        headers=bearer("tok"))).json()
+    row = next(a for a in body["alerts"] if a["id"] == alert_id)
+
+    assert row["claimed_by_name"] == "ลูกชาย"
+    assert row["claimed_by_latitude"] is None
+    assert row["claimed_by_location_age_s"] is None
+
+
+async def test_resolving_an_alert_does_not_erase_who_went(
+        client, db_session, household, auth_on, monkeypatch):
+    """PATCH had the same hole as the list. Resolving is the moment the family
+    reads the row one last time; losing the name there loses the record of who
+    actually went."""
+    await put_location(db_session, household["second"], 300)
+    alert_id = await claimed_alert(client, db_session, household, monkeypatch)
+
+    resp = await client.patch(
+        f"/api/alerts/{alert_id}", json={"resolved": True}, headers=bearer("tok"))
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["resolved"] is True
+    assert body["claimed_by_name"] == "ลูกชาย"
+    assert body["claimed_by_latitude"] == pytest.approx(north(300)[0])
