@@ -105,12 +105,26 @@ Branch `frontend1` (แยกจาก `main` วันที่ 29 ส.ค.) �
 
 1. ต่อ `GET /api/recommendation/{id}` จริง แทน `recommendedPlaces` mock — รู้แล้วว่าทำได้เลยวันนี้ไม่ต้องรอ Firebase
 2. ทดสอบ trip approval flow บน 2 emulator/device จริงพร้อมกัน (ตอนนี้ทดสอบด้วยการสลับ role เครื่องเดียว)
-3. Firebase Auth / pairing จริง — `_getAuthToken()` ใน `api_client.dart` ยังเป็น placeholder คืน `null` เสมอ ต้องเปลี่ยนเป็น `FirebaseAuth.instance.currentUser?.getIdToken()` จริง ก่อนที่ฝั่งคุณจะเปิด `AUTH_ENABLED=true` ได้
+3. ~~Firebase Auth / pairing จริง~~ — **เริ่มแล้ว 30 ส.ค. ดูหัวข้อ 5 ด้านล่าง** ฝั่งผู้ป่วยเสร็จ ฝั่งผู้ดูแลยังไม่เริ่ม
 4. ต่อ SOS ให้ยิง alert จริงไป backend แทน stub ปัจจุบัน
 5. ดึงเบอร์โทรผู้ดูแลจริงมาแทน mock (ต่อจากข้อ 1 คงง่ายขึ้นถ้ามี endpoint คล้ายกันอยู่แล้ว)
 
 ---
 
-## 4. คำถามกลับไปหาพวกคุณ
+## 4. อัพเดต 30 ส.ค. — เริ่มต่อ pairing จริงแล้ว (§2 ในสัญญา)
+
+**เอา `PatientDirectory` mock ออก เปลี่ยนเป็นยิง backend จริงตามสัญญา §2 ทีละขั้น:**
+
+- `firebase_auth` ติดตั้งแล้ว, `api_client.dart`'s `_getAuthToken()` อ่านจาก `FirebaseAuth.instance.currentUser?.getIdToken()` จริงแล้ว (ไม่ใช่ `null` เฉยๆ อีกต่อไป)
+- **ฝั่งผู้ดูแล** (`caregiver_homepage_screen.dart`): "Add Patient" ยิง `POST /api/patients` จริง โชว์ `pairing_code` จริงที่ backend ส่งมา (ไม่ใช่ id ปลอมที่ generate เอง)
+- **ฝั่งผู้ป่วย** (`patient_login_screen.dart`): กรอกรหัสยิง `POST /api/pair` จริง แล้ว `signInWithCustomToken` ทันที (เป็นจุดที่ Firebase user ตัวจริงถูกสร้างขึ้น) อ่าน `severity_level` จาก response มาตัดสิน routing Level 1/2 (ไม่ default เป็น 1 ตามที่สัญญาเตือนไว้ — ถ้า `null` โชว์ error ให้ไปขอผู้ดูแลตั้งค่าก่อน) แล้วยิง `GET /api/patients/{id}` เพิ่มอีกรอบเพื่อเอาชื่อผู้ป่วย (response ของ `/api/pair` เองไม่มี `name`)
+
+🟡 **ที่ยังไม่จบ (ต่อพรุ่งนี้):** `POST /api/patients` ตอนนี้ยังส่ง **`caregiver_id: 12` แบบ hardcode** เพราะฝั่งผู้ดูแล (`caregiver_login_screen.dart`, `form_login_screen.dart`) **ยังไม่ต่อ Firebase Auth/`.` `POST /api/register` เลยแม้แต่นิดเดียว** — เข้าใจว่าต้อง sign in Firebase ปกติ (ไม่ใช่ custom token แบบผู้ป่วย) แล้วค่อย `POST /api/register` ด้วย `role: "caregiver"` ตามที่ระบุไว้ใน "ข้อควรรู้" ท้ายหัวข้อ §2 — จะเริ่มทำต่อพรุ่งนี้
+
+🟡 **ยังไม่ได้เช็คใน Firebase Console ว่ามี user จริงเกิดขึ้นหลัง pairing** — คุยกันไว้ว่าน่าจะใช่ตามทฤษฎี (backend pre-assign uid ตอน `POST /api/patients`, Firebase สร้าง record จริงตอน `signInWithCustomToken`) แต่ยังไม่ได้ verify ด้วยตาจริง
+
+---
+
+## 5. คำถามกลับไปหาพวกคุณ
 
 จาก `APP_SYNC_2026-08-29_2.md` ที่ถามว่าจะเอา `claimed_by_latitude` / `claimed_by_longitude` / `claimed_by_location_age_s` เพิ่มใน `AlertOut` ไหม — **[ยังไม่ได้ตัดสินใจ จะตอบแยกอีกที]** ไม่ block งานที่ทำอยู่ตอนนี้
