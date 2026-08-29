@@ -53,6 +53,24 @@ async def get_user(db: AsyncSession, user_id: int) -> User | None:
     return result.scalar_one_or_none()
 
 
+def location_age_seconds(user: User | None, now: datetime) -> float | None:
+    """How old ``user``'s last reported position is, or ``None`` if there is none.
+
+    One owner, because two callers ask it — the distance ranking in
+    ``api/users.py`` and the claimed-alert feed in ``api/alerts.py`` — and the
+    tz-normalisation below is a rule about the column, not about either caller.
+    Postgres hands the timestamp back aware and SQLite hands it back naive, so a
+    second copy of this that forgot the ``replace`` would raise on one backend
+    and pass the whole test suite on the other.
+    """
+    if user is None or user.location_updated_at is None:
+        return None
+    stamped = user.location_updated_at
+    if stamped.tzinfo is None:                      # SQLite gives naive
+        stamped = stamped.replace(tzinfo=timezone.utc)
+    return max(0.0, (now - stamped).total_seconds())
+
+
 async def create_user(
     db: AsyncSession,
     firebase_uid: str,

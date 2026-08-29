@@ -15,6 +15,8 @@ and the column is a record of judgement, not an irreversible state machine.
 Like ``tracking.py``, this is a promotion of ``scripts/demo_server.py``'s
 read-only layer, not a rewrite — it always read the real table.
 """
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +43,15 @@ class AlertOut(BaseModel):
     claimed_by: int | None = None
     claimed_by_name: str | None = None
     claimed_at: str | None = None
+    # Where the caregiver who claimed this was, last time their app reported.
+    # The app side asked for it so the family can watch somebody actually
+    # approach rather than read a name and wonder. Only ever the claimer's
+    # position, only while the claim stands — this is not a caregiver map.
+    claimed_by_latitude: float | None = None
+    claimed_by_longitude: float | None = None
+    claimed_by_location_age_s: float | None = Field(
+        None,
+        description="ตำแหน่งของคนที่กดรับเก่ากี่วินาที · null = ไม่เคยส่งตำแหน่งเลย")
     created_at: str
 
 
@@ -54,7 +65,16 @@ class AlertPatch(BaseModel):
     resolved: bool
 
 
-def _to_out(alert, claimed_by_name: str | None = None) -> AlertOut:
+def _to_out(alert, claimer=None, now: datetime | None = None) -> AlertOut:
+    """Render one alert, filling in whoever claimed it if the row was loaded.
+
+    Takes the caregiver *row* rather than their name, because the app needs
+    three things about them and passing a name meant the other two could not be
+    reached. It also fixes a hole this signature caused: the list and the PATCH
+    called it with no name at all, so every claimed alert the caregiver's app
+    listed came back ``claimed_by: 5, claimed_by_name: null`` — an id where a
+    person's name belongs, on the one screen that exists to say who is going.
+    """
     return AlertOut(
         id=alert.id,
         patient_id=alert.patient_id,
@@ -65,10 +85,29 @@ def _to_out(alert, claimed_by_name: str | None = None) -> AlertOut:
         longitude=alert.longitude,
         resolved=alert.resolved,
         claimed_by=alert.claimed_by,
-        claimed_by_name=claimed_by_name,
+        claimed_by_name=None if claimer is None else claimer.name,
         claimed_at=None if alert.claimed_at is None else alert.claimed_at.isoformat(),
+        claimed_by_latitude=None if claimer is None else claimer.last_latitude,
+        claimed_by_longitude=None if claimer is None else claimer.last_longitude,
+        claimed_by_location_age_s=crud.location_age_seconds(
+            claimer, now or datetime.now(timezone.utc)),
         created_at=alert.created_at.isoformat(),
     )
+
+
+async def _claimers(db: AsyncSession, alerts) -> dict[int, object]:
+    """Load every distinct caregiver named by ``alerts``, once each.
+
+    Most alerts are unclaimed and a claimed one is usually claimed by the same
+    person, so this is a couple of rows per page, not one per alert.
+    """
+    ids = {a.claimed_by for a in alerts if a.claimed_by is not None}
+    loaded = {}
+    for user_id in ids:
+        user = await crud.get_user(db, user_id)
+        if user is not None:
+            loaded[user_id] = user
+    return loaded
 
 
 @router.get(
@@ -88,10 +127,12 @@ async def list_alerts(
             detail=f"unknown patient_id {patient_id} — call /api/register first",
         )
     rows = await crud.get_alerts(db, patient_id, limit=limit)
+    claimers = await _claimers(db, rows)
+    now = datetime.now(timezone.utc)
     return AlertsOut(
         patient_id=patient_id,
         count=len(rows),
-        alerts=[_to_out(a) for a in rows],
+        alerts=[_to_out(a, claimers.get(a.claimed_by), now) for a in rows],
     )
 
 
@@ -116,7 +157,10 @@ async def patch_alert(
     await assert_may_access_patient(db, caller, existing.patient_id)
 
     alert = await crud.set_alert_resolved(db, alert_id, payload.resolved)
-    return _to_out(alert)
+    # Resolving does not clear the claim, so the answer must still carry it.
+    claimer = (None if alert.claimed_by is None
+               else await crud.get_user(db, alert.claimed_by))
+    return _to_out(alert, claimer)
 
 
 # ── "I'll go and get them" (report C-2) ───────────────────────────────────────
@@ -192,7 +236,7 @@ async def claim_alert(
     push_status = "duplicate" if already_mine else (
         await notify_claim(db, alert, name))["status"]
 
-    return ClaimOut(alert=_to_out(alert, claimed_by_name=name), push=push_status)
+    return ClaimOut(alert=_to_out(alert, me), push=push_status)
 
 
 @router.delete(
