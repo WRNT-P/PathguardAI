@@ -43,6 +43,15 @@ class User(Base):
     # Null for every patient (their positions live in gps_data, which is a
     # different question with different retention) and for any caregiver whose
     # app has not reported yet.
+    # The CAREGIVER's phone number, for the patient's SOS contact screen. Added
+    # 2026-08-30 because the app side wired a Call button with a hardcoded
+    # number: there was nowhere in the schema to read a real one from.
+    #
+    # A free-text string, not a validated phone type: this is a Thai pilot and
+    # the number is dialled by ``tel:`` on the phone that stored it, so the only
+    # format that matters is the one the caregiver typed. Null for every patient
+    # and for any caregiver who registered before this column existed.
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     location_updated_at: Mapped[datetime | None] = mapped_column(
