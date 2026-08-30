@@ -67,6 +67,24 @@ def _firebase_user(email: str, password: str) -> tuple[str, bool]:
         user = fb_auth.create_user(email=email, password=password,
                                    display_name=email.split("@")[0])
         return user.uid, True
+    except fb_auth.ConfigurationNotFoundError:
+        # Firebase Authentication has never been switched on for this project.
+        # Worth its own message because the raw error says only
+        # "No auth provider found for the given identifier", which reads like a
+        # problem with the email address rather than with the whole service —
+        # and because **the patient pairing flow is broken by the same thing**:
+        # POST /api/pair mints its custom token offline and returns 200, and the
+        # app's signInWithCustomToken is what actually fails. So this looks like
+        # an app bug from the app side and like a working endpoint from ours.
+        for line in (
+            "FAIL  Firebase Authentication is not enabled on this project.",
+            "      Console -> Authentication -> Get started, then enable the",
+            "      Email/Password provider. Nothing here can turn it on.",
+            "      Until it is on, signInWithCustomToken fails too, so device",
+            "      pairing cannot work no matter what this backend returns.",
+        ):
+            print(line)
+        raise SystemExit(1)
 
 
 def _verify_sign_in(api_key: str, email: str, password: str) -> str | None:
