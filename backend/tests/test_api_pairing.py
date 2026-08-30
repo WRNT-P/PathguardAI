@@ -118,6 +118,27 @@ async def test_unknown_caregiver_is_404_not_a_dangling_row(client, db_session):
     assert (await db_session.execute(select(User))).scalars().all() == []
 
 
+async def test_a_patients_id_cannot_be_used_as_the_caregiver(client, db_session):
+    """Existing is not the same as being a caregiver.
+
+    Shipped without this check, so the app side's placeholder ``caregiver_id``
+    — an id that belongs to a seed *patient* — returned 201 and a pairing code,
+    and linked a new patient to somebody with dementia. Nothing would be wrong
+    until an alert fired and had nobody to reach.
+    """
+    patient = await crud.create_user(
+        db_session, firebase_uid="uid-not-a-caregiver", name="คุณตา",
+        role="patient")
+    await db_session.commit()
+
+    r = await create_patient(client, patient.id)
+
+    assert r.status_code == 422
+    assert "not 'caregiver'" in r.json()["detail"]
+    # No half-made patient, and no code that would have paired a phone to it.
+    assert len((await db_session.execute(select(User))).scalars().all()) == 1
+
+
 async def test_caregiver_id_required_while_auth_is_off(client, caregiver):
     """With no token there is nothing to infer the caregiver from."""
     r = await client.post("/api/patients", json={"name": "คุณยาย"})
