@@ -41,7 +41,6 @@ import urllib.error
 import urllib.request
 import json
 
-import firebase_admin
 from firebase_admin import auth as fb_auth
 
 from app.db.database import AsyncSessionLocal, init_firebase
