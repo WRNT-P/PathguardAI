@@ -78,6 +78,7 @@ async def create_user(
     role: str,
     caregiver_id: int | None = None,
     severity_level: int | None = None,
+    phone: str | None = None,
 ) -> User:
     """Create a user row (the FK target GPS/risk/alert data references).
 
@@ -91,6 +92,7 @@ async def create_user(
         name=name,
         role=role,
         severity_level=severity_level,
+        phone=phone,
     )
     db.add(user)
     await db.flush()

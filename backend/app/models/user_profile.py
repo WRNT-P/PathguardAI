@@ -8,6 +8,8 @@ class UserCreate(BaseModel):
     name: str
     role: Literal["patient", "caregiver"]
     caregiver_id: int | None = None
+    # Caregivers only — this is the number the patient's SOS screen dials.
+    phone: str | None = None
 
 
 class UserResponse(BaseModel):
@@ -16,6 +18,7 @@ class UserResponse(BaseModel):
     name: str
     role: str
     caregiver_id: int | None
+    phone: str | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
