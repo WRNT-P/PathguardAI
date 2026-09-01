@@ -18,7 +18,8 @@ from app.ai.module2_prediction.cluster_matcher import haversine_km
 from app.db import crud, rule_repository
 from app.db.database import get_db
 from app.services.auth import (
-    Caller, current_caller, verified_uid, verify_patient_access,
+    Caller, current_caller, signed_in_caller, verified_uid,
+    verify_patient_access,
 )
 from app.models.user_profile import UserCreate, UserResponse
 
@@ -72,6 +73,65 @@ async def register_user(
         name=user.name,
         role=user.role,
         caregiver_id=payload.caregiver_id,
+        phone=user.phone,
+        created_at=user.created_at,
+    )
+
+
+class MeOut(BaseModel):
+    """Who the bearer token belongs to."""
+    id: int
+    firebase_uid: str
+    name: str
+    role: str
+    phone: str | None
+    created_at: datetime
+
+
+@router.get(
+    "/api/me",
+    response_model=MeOut,
+    summary="ผู้ถือ token นี้คือใคร (แลก Firebase uid เป็น users.id)",
+)
+async def read_me(
+    db: AsyncSession = Depends(get_db),
+    caller: Caller = Depends(signed_in_caller),
+) -> MeOut:
+    """The one thing the app could not ask for, and the reason it guessed.
+
+    ``users.id`` is an int the app must carry on nearly every later request, and
+    until now the only route that ever handed one out was ``POST /api/register``
+    — which fires exactly once, at sign-up. A caregiver signing in again, or
+    reinstalling, had no way back to their own id. The app's answer was to read
+    a hardcoded ``CAREGIVER_TEST_ID`` out of ``.env``, so every returning
+    caregiver became the test account: patients created under somebody else's
+    row, and a caregiver whose own patients were invisible to them.
+
+    ``role`` is returned for the same reason. Nothing stopped a *patient's*
+    Firebase account from signing into the caregiver screen and it would have
+    looked like it worked; the app can now refuse it in one comparison.
+
+    Deliberately **not** ``/api/caregivers/me``: a patient device holds a token
+    too, and a route under ``caregivers`` that answers ``role: "patient"`` is a
+    URL that lies. One route, both roles, the role in the body.
+
+    Note this needs a real token even while ``AUTH_ENABLED`` is off — see
+    ``auth.signed_in_caller`` for why that is the point rather than an oversight.
+    """
+    # Straight off the row rather than the Caller: the dataclass carries only
+    # identity, and re-reading also means a row deleted between token issue and
+    # this call cannot be reported as still existing.
+    user = await crud.get_user(db, caller.user_id)
+    if user is None:                                           # pragma: no cover
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="user row disappeared between sign-in and this request",
+        )
+    return MeOut(
+        id=user.id,
+        firebase_uid=user.firebase_uid,
+        name=user.name,
+        role=user.role,
         phone=user.phone,
         created_at=user.created_at,
     )

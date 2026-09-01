@@ -180,3 +180,35 @@ def log_startup_state() -> None:
             "sequential integers. Acceptable only while the URL is unshared "
             "(plan D5). Set AUTH_ENABLED=true before any real-patient data."
         )
+
+
+async def signed_in_caller(
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Caller:
+    """The caller behind this token — **regardless of ``AUTH_ENABLED``**.
+
+    Every other dependency here short-circuits to ``ANONYMOUS`` when the switch
+    is off, because their question is "may this request proceed", and with the
+    switch off the answer is yes. This one's question is *"who is holding this
+    token"*, and ``ANONYMOUS`` is not an answer to it — it is the absence of one.
+    An endpoint built on ``current_caller`` would hand back a null id with the
+    switch off, which is exactly the state that made the app hardcode an id out
+    of ``.env`` in the first place.
+
+    So this deliberately does not read the flag. The cost is honest and small:
+    ``GET /api/me`` needs Firebase reachable and a real ID token even in the
+    open dev mode the rest of the suite runs in. Nothing else changes — the
+    switch still governs every other route.
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise _unauthorized("missing bearer token")
+
+    uid = verify_firebase_token(authorization.split(" ", 1)[1].strip())
+    user_id = await crud.get_user_id_by_firebase_uid(db, uid)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="signed in but not registered — call /api/register first",
+        )
+    return Caller(user_id=user_id, firebase_uid=uid, authenticated=True)
