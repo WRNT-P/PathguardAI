@@ -114,7 +114,7 @@ uvicorn app.main:app --reload
 ```
 Then open **http://127.0.0.1:8000/docs** for the interactive API docs.
 
-Endpoints live today — **34 routes, listed straight off `app.openapi()`** so this
+Endpoints live today — **35 routes, listed straight off `app.openapi()`** so this
 table cannot drift from what the process actually serves:
 
 | Method | Path | What |
@@ -129,6 +129,7 @@ table cannot drift from what the process actually serves:
 | GET | `/api/risk/{id}` | Module 3 — risk score 0–100 ⚠️ **has side effects, never poll** |
 | GET | `/api/search-area/{id}` | Module 4 — Monte Carlo + KDE ⚠️ **has side effects, never poll** |
 | GET | `/api/recommendation/{id}` | Module 5 — where the patient likely wants to go |
+| GET | `/api/predict-destination/{id}` | Module 2 — next place, from the Markov transition matrix. Read `scorer` and `history_status` before displaying a percentage |
 | POST/GET | `/api/patients/{id}/places` | caregiver-pinned places (whole set) |
 | PUT | `/api/patients/{id}/places/home` | upsert just the home pin, without wiping the rest |
 | GET | `/api/patients/{id}/track` | recent GPS track for the map |
@@ -144,18 +145,18 @@ table cannot drift from what the process actually serves:
 | GET | `/api/admin/rules`, `/api/admin/rules/history` | rule knowledge-base — **read-only, both are GETs** |
 | GET | `/`, `/health` | service info, liveness probe |
 
-> **`GET /api/predict-destination/{id}` is NOT in this list and used to be.** The
-> LSTM destination model was cut by the 4-week plan (section 08);
-> `app/api/prediction.py` is still in the repo but `app/main.py` does not mount it
-> and TensorFlow is not installed. Mounting it without installing TensorFlow first
-> stops the **whole application** from booting — the import chain is top-level all
-> the way to `lstm_utils.py` — so read the docstring at the top of `app/main.py`
-> before touching it.
+> **`/api/predict-destination` is served by `app/api/destination.py`, NOT by the
+> LSTM.** The LSTM destination model was cut by the 4-week plan (section 08);
+> `app/api/prediction.py` is still in the repo, is not mounted, and **must not be**
+> — its import chain reaches `lstm_utils.py:6 import tensorflow` at module scope,
+> so mounting it without installing TensorFlow first stops the **whole application**
+> from booting, and its path is now taken. Read the docstrings at the top of
+> `app/main.py` and `app/api/prediction.py` before touching either.
 >
-> That is the LSTM alone, not Module 2. `wandering_detection` (Isolation Forest),
-> `route_prediction` (Markov + Viterbi) and `stop_confusion_classification` run on
-> every GPS point through `app/ai/module3_risk/risk_data_collection.py` and carry
-> 0.25 + 0.30 + 0.20 of the risk weights between them.
+> The cut was the LSTM alone, not Module 2. `wandering_detection` (Isolation
+> Forest), `route_prediction` (Markov + Viterbi) and `stop_confusion_classification`
+> run on every GPS point through `app/ai/module3_risk/risk_data_collection.py` and
+> carry 0.25 + 0.30 + 0.20 of the risk weights between them.
 
 
 ---
@@ -164,7 +165,7 @@ table cannot drift from what the process actually serves:
 
 All 5 AI modules described in the architecture doc are implemented under
 `backend/app/ai/` and wired into the API above. Verified with the full test
-suite (`python -m pytest -q` from `backend/`, 407 tests passing) plus an
+suite (`python -m pytest -q` from `backend/`, 419 tests passing) plus an
 end-to-end integration test (`tests/test_phase4_integration.py`) that drives
 Module 1 → 2 → 3 → 4 → 5 back to back and asserts a high-risk emergency is
 correctly triggered and traced back to an injected wandering episode.
