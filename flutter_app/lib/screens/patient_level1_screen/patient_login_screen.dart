@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'patient_homepage_screen.dart';
 import '../patient_level2_screen/patient_homepage_screen.dart' as level2;
 import '../../services/api_client.dart';
+import '../../services/session.dart';
 class PatientLoginScreen extends StatefulWidget {
   const PatientLoginScreen({super.key});
 
@@ -58,6 +59,14 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
     }
 
     final isLevel2 = severityLevel == 2;
+
+    await Session.instance.save(
+      patientId: pairData['patient_id'] as int,
+      patientName: name,
+      severityLevel: severityLevel,
+    );
+
+    if (!mounted) return;
 
     Navigator.push(
       context,

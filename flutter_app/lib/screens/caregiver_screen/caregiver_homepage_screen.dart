@@ -5,6 +5,8 @@ import 'track_screen.dart';
 import 'notification_screen.dart';
 import 'dart:convert';
 import '../../services/api_client.dart';
+import '../../services/location_service.dart';
+import '../../services/caregiver_session.dart';
 
 class CaregiverHomePageScreen extends StatefulWidget {
   final String? caregiverName;
@@ -46,13 +48,14 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                   builder: (context) => const AddPatientScreen(),
                 ),
               );
+
               if (result != null) {
                 final severityLevel = (result['state'] as String).startsWith('2') ? 2 : 1;
 
                 final response = await apiPost('/api/patients', body: {
                   'name': result['name'],
                   'severity_level': severityLevel,
-                  'caregiver_id': 12, // TODO: replace with the real signed-in caregiver's id once caregiver login/register is wired
+                  'caregiver_id': CaregiverSession.instance.caregiverId,
                 });
 
                  if (!mounted) return;
@@ -65,6 +68,44 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 }
 
                 final data = jsonDecode(response.body);
+                final patientId = data['patient_id'] as int;
+                final places = <Map<String, dynamic>>[];
+
+                final home = result['home'] as ParsedLocation?;
+
+                if (home != null) {
+                  places.add({
+                    'place_name': 'บ้าน',
+                    'latitude': home.latitude,
+                    'longitude': home.longitude,
+                    'visit_rank': 'daily_live',
+                    'stay_rank': 'all_day',
+                    'is_home': true,
+                  });
+                }
+                for (final place in (result['otherPlaces'] as List)) {
+                  final loc = place['location'] as ParsedLocation;
+                  places.add({
+                    'place_name': place['name'] as String,
+                    'latitude': loc.latitude,
+                    'longitude': loc.longitude,
+                    'visit_rank': 'most_days',
+                    'stay_rank': 'few_hours',
+                    'is_home': false,
+                  });
+                }
+
+                if (places.isNotEmpty) {
+                   final placesResponse = await apiPost('/api/patients/$patientId/places', body: {'places': places});
+                   if (placesResponse.statusCode != 201 && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Patient added, but saving places failed')),
+                    );
+                   }
+                }
+
+                if (!mounted) return;
+
                 setState(() {
                   patients.add({...result, 'id': data['patient_id']});
                 });

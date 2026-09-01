@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
-import 'form_login_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'caregiver_homepage_screen.dart';
+import 'caregiver_register_screen.dart';
+import '../../services/caregiver_session.dart';
 class PasswordTextField extends StatelessWidget {
-  const PasswordTextField({super.key});
+  final TextEditingController controller;
+  const PasswordTextField({super.key, required this.controller});
 
   @override
   Widget build(BuildContext context) {
-    return const FractionallySizedBox(
+    return FractionallySizedBox(
       widthFactor: 0.7,
       child: TextField(
+        controller: controller,
         obscureText: true,
-        decoration: InputDecoration(
+        decoration: const InputDecoration(
           border: OutlineInputBorder(),
           labelText: 'Password',
           hintText: 'Enter your password',
@@ -20,13 +26,16 @@ class PasswordTextField extends StatelessWidget {
 }
 
 class EmailTextField extends StatelessWidget {
-  const EmailTextField({super.key});
+  final TextEditingController controller;
+  const EmailTextField({super.key, required this.controller});
 
   @override
   Widget build(BuildContext context) {
-    return const FractionallySizedBox(
+    return FractionallySizedBox(
       widthFactor: 0.7,
       child: TextField(
+        controller: controller,
+        keyboardType: TextInputType.emailAddress,
         decoration: InputDecoration(
           border: OutlineInputBorder(),
           labelText: 'Username',
@@ -60,8 +69,58 @@ class _RememberMeCheckBoxState extends State<RememberMeCheckBox> {
 }
 
 
-class CaregiverLoginScreen extends StatelessWidget {
+class CaregiverLoginScreen extends StatefulWidget {
   const CaregiverLoginScreen({super.key});
+
+  @override
+  State<CaregiverLoginScreen> createState() => _CaregiverLoginScreenState();
+}
+
+class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  String? _errorMessage;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+    } on FirebaseAuthException catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = "Wrong email or password.";
+      });
+      return;
+    }
+
+    // No "who am I" endpoint exists yet for returning caregivers, so this
+    // falls back to the known test account's id from .env — real accounts
+    // created via CaregiverRegistrationScreen get their id from
+    // POST /api/register instead. See project memory for the reasoning.
+    await CaregiverSession.instance.save(
+      caregiverId: int.parse(dotenv.env['CAREGIVER_TEST_ID']!),
+      caregiverName: FirebaseAuth.instance.currentUser?.email ?? 'Caregiver',
+    );
+
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CaregiverHomePageScreen(
+          caregiverName: FirebaseAuth.instance.currentUser?.email,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -82,9 +141,13 @@ class CaregiverLoginScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    const EmailTextField(),
+                    EmailTextField(controller: _emailController),
                     const SizedBox(height: 16),
-                    const PasswordTextField(),
+                    PasswordTextField(controller: _passwordController),
+                    if (_errorMessage != null) ...[
+                      const SizedBox(height: 8),
+                      Text(_errorMessage!, style: const TextStyle(color: Colors.red,fontSize: 14)),
+                    ],
                     const SizedBox(height: 5),
                     const FractionallySizedBox(
                       widthFactor: 0.7,
@@ -101,14 +164,7 @@ class CaregiverLoginScreen extends StatelessWidget {
                       child: SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const FormLoginScreen(),
-                              ),
-                            );
-                          },
+                          onPressed: _handleLogin,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blue,
                             minimumSize: const Size(0, 48),
@@ -131,22 +187,32 @@ class CaregiverLoginScreen extends StatelessWidget {
                     const SizedBox(height: 10),
                     FractionallySizedBox(
                       widthFactor: 0.7,
-                      child: RichText(
-                        textAlign: TextAlign.center,
-                        text: const TextSpan(
-                          text: "Need an account? ",
-                          style: TextStyle(color: Colors.black),
-                          children: <TextSpan>[
-                            TextSpan(
-                              text: 'SIGN UP',
-                              style: TextStyle(
-                                color: Colors.black,
-                                decoration: TextDecoration.underline,
-                                decorationColor: Color.fromARGB(255, 0, 0, 0),
-                                decorationStyle: TextDecorationStyle.wavy,
-                              ),
+                      child: GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const CaregiverRegistrationScreen(),
                             ),
-                          ],
+                          );
+                        },
+                        child: RichText(
+                          textAlign: TextAlign.center,
+                          text: const TextSpan(
+                            text: "Need an account? ",
+                            style: TextStyle(color: Colors.black),
+                            children: <TextSpan>[
+                              TextSpan(
+                                text: 'SIGN UP',
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  decoration: TextDecoration.underline,
+                                  decorationColor: Color.fromARGB(255, 0, 0, 0),
+                                  decorationStyle: TextDecorationStyle.wavy,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

@@ -37,6 +37,11 @@ class _NotificationScreenState extends State<NotificationScreen> {
               '${request.patientName} want to ask to go to ${request.place['name']}',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
+            if (request.confidence != null)
+              Text(
+                'Confidence: ${(request.confidence! * 100).toStringAsFixed(0)}%',
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
+              ),
             const SizedBox(height: 12),
             Row(
               children: [

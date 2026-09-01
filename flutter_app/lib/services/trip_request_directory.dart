@@ -19,6 +19,7 @@ class TripRequest {
   final String id;
   final String patientName;
   final Map<String, dynamic> place;
+  final double? confidence;
   TripRequestStatus status;
   final Completer<bool> _decision = Completer<bool>();
 
@@ -26,6 +27,7 @@ class TripRequest {
     required this.id,
     required this.patientName,
     required this.place,
+    this.confidence,
     this.status = TripRequestStatus.pending,
   });
 
@@ -76,6 +78,7 @@ class TripRequestDirectory extends ChangeNotifier {
             id: id,
             patientName: map['patientName'] as String,
             place: Map<String, dynamic>.from(map['place'] as Map),
+            confidence: (map['confidence'] as num?)?.toDouble()
           );
       request.status = status;
       if (status != TripRequestStatus.pending) {
@@ -87,16 +90,17 @@ class TripRequestDirectory extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<TripRequest> create({required String patientName, required Map<String, dynamic> place}) async {
+  Future<TripRequest> create({required String patientName, required Map<String, dynamic> place, double? confidence}) async {
     final ref = _ref.push();
     final id = ref.key!;
-    final request = TripRequest(id: id, patientName: patientName, place: place);
+    final request = TripRequest(id: id, patientName: patientName, place: place, confidence: confidence);
     _liveRequests[id] = request;
 
     await ref.set({
       'patientName': patientName,
       'place': place,
       'status': 'pending',
+      if (confidence != null) 'confidence': confidence,
     });
 
     return request;

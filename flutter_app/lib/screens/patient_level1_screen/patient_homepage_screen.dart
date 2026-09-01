@@ -6,6 +6,12 @@ import 'package:uuid/uuid.dart';
 import '../../services/places_service.dart';
 import '../../services/sos_service.dart';
 import '../../services/trip_approval_service.dart';
+import '../../services/gps_reporter.dart';
+import 'dart:convert';
+import '../../services/api_client.dart';
+import '../../services/session.dart';
+import 'package:geolocator/geolocator.dart';
+import '../../services/safe_zone_service.dart';
 
 enum _ScreenState { browsing, waitingApproval, rejected }
 
@@ -18,11 +24,8 @@ class PatientHomePageScreen extends StatefulWidget {
 }
 
 class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
-  final List<Map<String, dynamic>> recommendedPlaces = const [
-    {'name': 'Market', 'distanceKm': 2.0, 'temp': 35, 'lat': 13.7580, 'lng': 100.5040},
-    {'name': 'Temple', 'distanceKm': 3.7, 'temp': 35, 'lat': 13.7600, 'lng': 100.5100},
-    {'name': 'Department Store', 'distanceKm': 5.6, 'temp': 35, 'lat': 13.7650, 'lng': 100.5200},
-  ];
+  List<Map<String, dynamic>> recommendedPlaces = [];
+  bool _loadingPlaces = true;
 
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -34,9 +37,17 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   Map<String, dynamic>? _selectedPlace;
 
   @override
+  void initState() {
+    super.initState();
+    startGpsReporting();
+    _loadRecommendations();
+  }
+
+  @override
   void dispose() {
     _debounce?.cancel();
     _searchController.dispose();
+    stopGpsReporting();
     super.dispose();
   }
 
@@ -48,31 +59,57 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
 
     await triggerSOS();
 
+    Map<String, dynamic>? safePlace;
+    try {
+      final position = await Geolocator.getCurrentPosition().timeout(const Duration(seconds: 5));
+      safePlace = await findNearestSafePlace(position.latitude, position.longitude);
+    } catch (_) {}
+
     if (!mounted) return;
     setState(() {
       _sosSending = false;
     });
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(Icons.check_circle, color: Colors.green, size: 64),
-        title: const Text('Alert Sent', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        content: const Text('Your caregiver has been notified.', style: TextStyle(fontSize: 18)),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SosContactsScreen()),
-              );
-            },
-            child: const Text('OK', style: TextStyle(fontSize: 18)),
-          ),
-        ],
-      ),
-    );
+    if (safePlace != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => NavigationScreen(place: safePlace!)),
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const SosContactsScreen()),
+      );
+    }
+  }
+
+  Future<void> _loadRecommendations() async {
+    final patientId = Session.instance.patientId;
+    if (patientId == null) return;
+
+    final response = await apiGet('/api/recommendation/$patientId');
+    if (!mounted) return;
+
+    if (response.statusCode != 200) {
+      setState(() => _loadingPlaces = false);
+      return;
+    }
+
+    final body = jsonDecode(response.body);
+    final recommendations = body['recommendations'] as List;
+
+    setState(() {
+      recommendedPlaces = recommendations
+          .where((r) => r['place_name'] != null)
+          .map((r) => {
+                'name': r['place_name'] as String,
+                'lat': (r['latitude'] as num).toDouble(),
+                'lng': (r['longitude'] as num).toDouble(),
+                'confidence_pct': r['confidence_pct'],
+              })
+          .toList();
+      _loadingPlaces = false;
+    });
   }
 
   Future<void> _requestTrip(Map<String, dynamic> place) async {
@@ -249,7 +286,9 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                       itemCount: _predictions.length,
                       itemBuilder: (context, index) => _buildPredictionTile(_predictions[index]),
                     )
-                  : filteredPlaces.isEmpty
+                  : _loadingPlaces
+                      ? const Center(child: CircularProgressIndicator())
+                      : filteredPlaces.isEmpty
                       ? const Center(
                           child: Text(
                             'No places found',
@@ -271,7 +310,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                                     margin: const EdgeInsets.symmetric(vertical: 6),
                                     child: ListTile(
                                       title: Text(place['name']),
-                                      subtitle: Text('${place['distanceKm']} km · ${place['temp']}°C'),
+                                      subtitle: const Text('Often visited'),
                                       trailing: ElevatedButton(
                                         onPressed: () => _requestTrip(place),
                                         child: const Text('Start'),

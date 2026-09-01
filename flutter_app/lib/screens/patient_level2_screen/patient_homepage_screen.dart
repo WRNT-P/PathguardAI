@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'navigation_screen.dart';
-import 'sos_contact_screen.dart';
 import '../../services/sos_service.dart';
 import '../../services/trip_approval_service.dart';
+import '../../services/gps_reporter.dart';
+import 'dart:convert';
+import '../../services/api_client.dart';
+import '../../services/session.dart';
 
-enum _ScreenState { picking, waitingApproval, rejected }
+enum _ScreenState { picking, waitingApproval, rejected, sosActive }
 
 class PatientHomePageScreen extends StatefulWidget {
   final String? patientName;
@@ -15,18 +18,55 @@ class PatientHomePageScreen extends StatefulWidget {
 }
 
 class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
-  // Level 2 gets 3 places (locked selection, no search) — fewer choices than
-  // Level 1's list, matching the recommendation that moderate-stage patients
-  // need less to decide between, not more.
-  final List<Map<String, dynamic>> recommendedPlaces = const [
-    {'name': 'Market', 'lat': 13.7580, 'lng': 100.5040},
-    {'name': 'Temple', 'lat': 13.7600, 'lng': 100.5100},
-    {'name': 'Daughter\'s House', 'lat': 13.7650, 'lng': 100.5200},
-  ];
+  List<Map<String,dynamic>> recommendedPlaces = [];
+  bool _loadingPlaces = true;
+
+  Future<void> _loadRecommendations() async {
+    final patientId = Session.instance.patientId;
+    if(patientId == null) return;
+
+    final response = await apiGet('/api/recommendation/$patientId');
+    if(!mounted) return;
+
+    if (response.statusCode != 200) {
+      setState(() => _loadingPlaces = false);
+      return;
+    }
+
+    final body = jsonDecode(response.body);
+    final recommendations = body['recommendations'] as List;
+
+    setState(() {
+      recommendedPlaces = recommendations
+          .where((r) => r['place_name'] != null)
+          .map((r) => {
+                'name': r['place_name'] as String,
+                'lat': (r['latitude'] as num).toDouble(),
+                'lng': (r['longitude'] as num).toDouble(),
+              })
+          .toList();
+      _loadingPlaces = false;
+    });
+   }
+
+  @override
+  void initState() {
+    super.initState();
+    startGpsReporting();
+    _loadRecommendations();
+  }
+
+
 
   _ScreenState _state = _ScreenState.picking;
   Map<String, dynamic>? _selectedPlace;
   bool _sosSending = false;
+
+  @override
+  void dispose() {
+    stopGpsReporting();
+    super.dispose();
+  }
 
   Future<void> _handleSelectPlace(Map<String, dynamic> place) async {
     setState(() {
@@ -69,24 +109,27 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     if (!mounted) return;
     setState(() {
       _sosSending = false;
+      _state = _ScreenState.sosActive;
     });
+  }
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(Icons.check_circle, color: Colors.green, size: 64),
-        title: const Text('Alert Sent', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        content: const Text('Your caregiver has been notified.', style: TextStyle(fontSize: 18)),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SosContactScreen()),
-              );
-            },
-            child: const Text('OK', style: TextStyle(fontSize: 18)),
+  Widget _buildStayPutState() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.favorite, size: 120, color: Colors.red),
+          SizedBox(height: 24),
+          Text(
+            'Stay where you are.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 12),
+          Text(
+            'Help is coming.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
           ),
         ],
       ),
@@ -204,6 +247,9 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   }
 
   Widget _buildPickingState() {
+    if (_loadingPlaces) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (recommendedPlaces.isEmpty) {
       return _buildEmptyState();
     }
@@ -232,6 +278,9 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
         break;
       case _ScreenState.rejected:
         content = _buildRejectedState();
+        break;
+      case _ScreenState.sosActive:
+        content = _buildStayPutState();
         break;
     }
 

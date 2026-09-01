@@ -65,3 +65,4 @@ Future<String> _resolveRedirect(String url) async {
     client.close();
   }
 }
+
