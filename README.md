@@ -30,8 +30,11 @@ python -m venv backend/venv      # create once
 # activate — Windows: backend\venv\Scripts\activate  |  macOS/Linux: source backend/venv/bin/activate
 pip install -r backend/requirements.txt
 ```
-`tensorflow` (Module 1 LSTM only) is heavy; if you're not on that module you can
-install everything else and skip it — the rest of the backend runs without it.
+`tensorflow` is **commented out in `requirements.txt` and not installed** — the
+4-week plan cut the Module 2 LSTM (section 08) and `app/main.py` does not mount
+the router that needs it. Everything else, including the Isolation Forest and
+Markov parts of Module 2, runs without it. Do not uncomment it unless you are
+deliberately bringing the LSTM back; see the docstring at the top of `app/main.py`.
 
 To also run the test suite, install the dev deps too:
 ```bash
@@ -111,26 +114,49 @@ uvicorn app.main:app --reload
 ```
 Then open **http://127.0.0.1:8000/docs** for the interactive API docs.
 
-Endpoints live today:
-| Method | Path | Module |
+Endpoints live today — **34 routes, listed straight off `app.openapi()`** so this
+table cannot drift from what the process actually serves:
+
+| Method | Path | What |
 |---|---|---|
-| POST | `/api/register` | user registration |
-| POST | `/api/gps` | GPS ingestion (see TODO below) |
-| GET | `/api/predict-destination/{patient_id}` | Module 2 — Destination Prediction |
-| GET | `/api/risk/{patient_id}` | Module 3 — Risk Scoring |
-| GET | `/api/search-area/{patient_id}` | Module 4 — Search Area Prediction |
-| GET | `/api/recommendation/{patient_id}` | Module 5 — Smart Recommendation |
-| GET | `/api/admin/rules`, `/api/admin/rules/history` | rule knowledge-base admin |
-| POST/GET | `/api/patients/{id}/places` | caregiver-pinned places |
-| POST/GET/DELETE | `/api/danger-zones` | danger zone admin |
-| POST | `/api/devices/token` | caregiver FCM token — see `backend/API_CONTRACT_APP.md` |
+| POST | `/api/register` | create the `users` row for a signed-in Firebase account |
+| GET | `/api/me` | who this bearer token belongs to — `users.id`, `role`, `phone` |
+| POST | `/api/patients` | caregiver creates a patient, gets an 8-char pairing code |
+| POST | `/api/pair` | the patient's phone trades that code for a Firebase custom token |
+| GET | `/api/patients/{id}` | patient name + `severity_level` — the phone reading its own stage |
+| POST | `/api/gps`, `/api/gps/batch` | GPS ingestion — Kalman → Postgres → Firebase, then risk scoring |
+| POST | `/api/sos` | patient pressed the button — skips scoring entirely |
+| GET | `/api/risk/{id}` | Module 3 — risk score 0–100 ⚠️ **has side effects, never poll** |
+| GET | `/api/search-area/{id}` | Module 4 — Monte Carlo + KDE ⚠️ **has side effects, never poll** |
+| GET | `/api/recommendation/{id}` | Module 5 — where the patient likely wants to go |
+| POST/GET | `/api/patients/{id}/places` | caregiver-pinned places (whole set) |
+| PUT | `/api/patients/{id}/places/home` | upsert just the home pin, without wiping the rest |
 | GET | `/api/patients/{id}/track` | recent GPS track for the map |
-| GET/PATCH | `/api/patients/{id}/alerts`, `/api/alerts/{id}` | alert feed + mark resolved |
-| GET | `/api/patients/{patient_id}` | patient name + `severity_level` — the phone reading its own stage |
+| GET | `/api/patients/{id}/alerts` · PATCH `/api/alerts/{id}` | alert feed + mark resolved |
+| POST/DELETE | `/api/alerts/{id}/claim` | "I'll go and get them", and releasing it again |
+| GET | `/api/patients/{id}/caregivers` | caregivers ranked by distance to the patient |
 | POST | `/api/patients/{id}/caregiver-invites` | invite a second caregiver to this patient |
 | POST | `/api/caregivers/redeem-invite` | the second caregiver redeems that code |
-| PUT | `/api/caregivers/{id}/location` | the caregiver app reports where it is (for distance ranking) |
-| GET | `/` | service info |
+| PUT | `/api/caregivers/{id}/location` | the caregiver app reports where it is (latest only) |
+| POST | `/api/devices/token` | FCM device token — see `backend/API_CONTRACT_APP.md` |
+| POST | `/api/trip-requests` · GET `/api/patients/{id}/trip-requests` · PATCH `/api/trip-requests/{id}` | C-3 trip approval |
+| POST/GET/DELETE | `/api/danger-zones` | danger zone admin (DELETE is a soft deactivate) |
+| GET | `/api/admin/rules`, `/api/admin/rules/history` | rule knowledge-base — **read-only, both are GETs** |
+| GET | `/`, `/health` | service info, liveness probe |
+
+> **`GET /api/predict-destination/{id}` is NOT in this list and used to be.** The
+> LSTM destination model was cut by the 4-week plan (section 08);
+> `app/api/prediction.py` is still in the repo but `app/main.py` does not mount it
+> and TensorFlow is not installed. Mounting it without installing TensorFlow first
+> stops the **whole application** from booting — the import chain is top-level all
+> the way to `lstm_utils.py` — so read the docstring at the top of `app/main.py`
+> before touching it.
+>
+> That is the LSTM alone, not Module 2. `wandering_detection` (Isolation Forest),
+> `route_prediction` (Markov + Viterbi) and `stop_confusion_classification` run on
+> every GPS point through `app/ai/module3_risk/risk_data_collection.py` and carry
+> 0.25 + 0.30 + 0.20 of the risk weights between them.
+
 
 ---
 
@@ -138,7 +164,7 @@ Endpoints live today:
 
 All 5 AI modules described in the architecture doc are implemented under
 `backend/app/ai/` and wired into the API above. Verified with the full test
-suite (`python -m pytest -q` from `backend/`, 367 tests passing) plus an
+suite (`python -m pytest -q` from `backend/`, 407 tests passing) plus an
 end-to-end integration test (`tests/test_phase4_integration.py`) that drives
 Module 1 → 2 → 3 → 4 → 5 back to back and asserts a high-risk emergency is
 correctly triggered and traced back to an injected wandering episode.
@@ -171,6 +197,10 @@ above).
   1.5 กม. จากจุดศูนย์กลางตัวเอง และ `cluster_places` ไม่ใส่ชื่อสถานที่มาให้เลย — สถานที่ที่
   ระบบเรียนรู้เองจึงบอกครอบครัวเป็นคำพูดไม่ได้ **production ใช้หมุดที่ผู้ดูแลปักเท่านั้น**
   (`POST /api/patients/{id}/places`) โค้ดยังอยู่ในรีโปเพื่อใช้เป็นผลการทดลองในรายงาน
+- **Flutter dev** — on every *later* sign-in call `GET /api/me` to get that same
+  `users.id` back, plus `role` and `phone`. Do not cache the id in a config file:
+  it is per-account, and a hardcoded one silently files every caregiver's patients
+  under somebody else's row. Contract §14.
 - **Flutter dev** — after Firebase sign-in, call `POST /api/register` once so the
   `users` row exists before any GPS is sent. Send timestamps as **UTC ISO**
   strings ending in `Z`. Then `POST /api/devices/token` with the caregiver's FCM
