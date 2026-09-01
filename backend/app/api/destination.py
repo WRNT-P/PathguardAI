@@ -89,8 +89,9 @@ class DestinationResponse(BaseModel):
     history_status: str = Field(
         "unknown",
         description=(
-            'ok | sparse | none — "none" คือยังไม่เคยเห็นคนไข้ย้ายออกจากที่ที่ยืนอยู่เลย '
-            "ตัวเลขที่ได้จึงเป็นการหารเท่ากัน ไม่ใช่คำทำนาย"
+            'ok | sparse | none | unknown — "none" คือยังไม่เคยเห็นคนไข้ย้ายออกจาก '
+            "ที่ที่ยืนอยู่เลย ตัวเลขที่ได้จึงเป็นการหารเท่ากัน ไม่ใช่คำทำนาย; "
+            '"unknown" มากับ status ที่ไม่ใช่ ok เสมอ — ยังไปไม่ถึงขั้นตัดสิน'
         ),
     )
     transitions_observed: int = Field(
