@@ -1206,3 +1206,94 @@ Places API จะคืนโรงพักที่อยู่**คนละ�
 ทำให้พื้นที่ที่ต้องค้นหาขยายออกทุกนาที และคนสับสนที่เดินตามคำสั่งเลี้ยวข้ามถนน
 อันตรายกว่าการยืนอยู่กับที่ **แนะนำให้มีเพดานระยะทาง** เกินกว่านั้นแสดงว่า
 "อยู่ตรงนี้นะ ผู้ดูแลกำลังไปหา" แทนการนำทาง — ตัวเลขเท่าไหร่คุณตัดสินได้เลย เป็นเรื่องหน้าจอ
+
+---
+
+# 14. `GET /api/me` — "ผู้ถือ token นี้คือใคร" (ใหม่ 2026-09-01)
+
+**เพิ่มมาเพราะ `caregiver_login_screen.dart:110` ต้องอ่าน `CAREGIVER_TEST_ID` จาก `.env`**
+ซึ่งไม่ใช่ความผิดฝั่งแอป — ก่อนหน้านี้ backend **ไม่มี route ไหนเลย** ที่ตอบคำถามนี้ได้
+
+`POST /api/register` เป็น route เดียวที่เคยคืน `users.id` และมันยิงครั้งเดียวตอนสมัคร
+ผู้ดูแลที่ login ซ้ำ หรือลงแอปเครื่องใหม่ จึงหาทางกลับไปหา id ของตัวเองไม่เจอ
+
+## Request
+
+```http
+GET /api/me
+Authorization: Bearer <Firebase ID token>
+```
+
+ไม่มี body ไม่มี query param
+
+## Response 200
+
+```json
+{
+  "id": 21,
+  "firebase_uid": "AbCdEfGhIjKlMnOpQrStUvWxYz01",
+  "name": "ผู้ดูแลทดสอบ",
+  "role": "caregiver",
+  "phone": "0812345678",
+  "created_at": "2026-08-30T14:22:01.482913Z"
+}
+```
+
+| field | ใช้ทำอะไร |
+|---|---|
+| `id` | **ตัวที่มาแทน `CAREGIVER_TEST_ID`** — เก็บลง `CaregiverSession` แล้วส่งเป็น `caregiver_id` ใน `POST /api/patients` |
+| `role` | `"caregiver"` หรือ `"patient"` — **ใช้กันคนไข้ล็อกอินเข้าหน้าผู้ดูแล** ตอนนี้ไม่มีอะไรกันเลย และมันจะดูเหมือนสำเร็จด้วย |
+| `phone` | เบอร์ที่หน้าจอ SOS ของคนไข้กดโทร (null ได้) |
+| `name` | ชื่อที่แสดงบนหน้าโฮม |
+
+## Error
+
+| status | เมื่อไหร่ | ทำยังไงต่อ |
+|---|---|---|
+| **401** `missing bearer token` | ไม่ได้ส่ง header หรือส่ง `Bearer ` ว่างๆ | ให้ผู้ใช้ login ใหม่ |
+| **401** `invalid or expired ID token` | token หมดอายุ / ปลอม | `getIdToken(true)` แล้วลองใหม่ ถ้ายังไม่ผ่านให้ login ใหม่ |
+| **403** `signed in but not registered — call /api/register first` | Firebase มี account แล้ว แต่ยังไม่มีแถวใน `users` | **สถานะนี้เกิดขึ้นจริงได้** — สมัคร Firebase สำเร็จแต่ `POST /api/register` พลาด ให้พาไปหน้ากรอกชื่อ/เบอร์แล้ว register ใหม่ |
+
+## ⚠️ สองข้อที่ต่างจาก route อื่นทั้งหมด
+
+**1. ต้องมี token เสมอ แม้ `AUTH_ENABLED` จะปิดอยู่**
+route อื่นตอนนี้เรียกได้โดยไม่ต้องมี header เลย แต่ตัวนี้ไม่ได้ — เพราะคำถามของมันคือ
+"คุณคือใคร" และถ้าไม่มี token ก็ไม่มีคำตอบ ไม่ใช่ตอบว่า "ไม่มีใคร"
+→ **แปลว่าต้องเรียกหลัง `signInWithEmailAndPassword` / `signInWithCustomToken` สำเร็จแล้วเท่านั้น**
+
+**2. ไม่ใช่ `/api/caregivers/me`** — เครื่องคนไข้ก็ถือ token เหมือนกันและก็เรียกได้
+route ที่อยู่ใต้ `caregivers` แต่ตอบ `role: "patient"` คือ URL ที่โกหก จึงเป็น `/api/me` เฉยๆ
+แล้วบอก role ใน body
+
+## เสนอให้แก้ตรงไหน (Dart — ⚠️ ไม่เคย compile บนเครื่องนี้ ไม่มี Flutter)
+
+`caregiver_login_screen.dart` ตรงที่อ่าน `.env`:
+
+```dart
+// เดิม
+// caregiverId: int.parse(dotenv.env['CAREGIVER_TEST_ID']!),
+
+final meResponse = await apiGet('/api/me');
+if (meResponse.statusCode != 200) {
+  setState(() => _errorMessage = meResponse.statusCode == 403
+      ? 'บัญชีนี้ยังไม่ได้ลงทะเบียน กรุณาสมัครใหม่'
+      : 'เข้าสู่ระบบไม่สำเร็จ ลองอีกครั้ง');
+  return;
+}
+final me = jsonDecode(meResponse.body);
+
+if (me['role'] != 'caregiver') {
+  setState(() => _errorMessage = 'บัญชีนี้เป็นของผู้ป่วย ไม่ใช่ผู้ดูแล');
+  return;
+}
+
+await CaregiverSession.instance.save(
+  caregiverId: me['id'] as int,
+  caregiverName: me['name'] as String,
+);
+```
+
+ลบ `CAREGIVER_TEST_ID` ออกจาก `.env` ได้เลยหลังแก้เสร็จ
+
+`caregiver_register_state2_screen.dart` **ไม่ต้องแก้** — มันได้ `id` จาก `POST /api/register`
+อยู่แล้วซึ่งถูกต้อง

@@ -1,10 +1,31 @@
 # pathguard/backend/app/main.py
 """FastAPI application entry point.
 
-Mounts all routers except ``prediction``: its LSTM destination model pulls in
+Mounts every router except ``prediction``: its LSTM destination model pulls in
 TensorFlow, which the 4-week plan cut (section 08) and which would add ~600 MB
-to the deployed image for an endpoint the app never calls. ``app/api/prediction.py``
-is left in place — re-add the import and ``include_router`` line to bring it back.
+to the image for an endpoint the app never calls.
+
+⚠️ **Adding ``include_router(prediction.router)`` without installing TensorFlow
+first does not break that one endpoint — it stops this whole application from
+booting.** The import is top-level the entire way down:
+
+    app/api/prediction.py:6
+      → app/ai/module2_prediction/destination_prediction.py:16
+        → app/ai/lstm_utils.py:6   import tensorflow as tf   ← ModuleNotFoundError
+
+so the failure happens while ``app.main`` is being imported and takes ``/api/gps``,
+``/api/sos`` and ``/api/pair`` down with it. (``module2_prediction/__init__.py``
+has a lazy-import guard for exactly this; importing ``destination_prediction``
+directly, as ``prediction.py`` does, walks straight past it.)
+
+To bring the LSTM back, in this order: uncomment ``tensorflow`` in
+requirements.txt → install it → then add the import and ``include_router`` line.
+
+Nothing else in Module 2 needs TensorFlow. ``wandering_detection`` (Isolation
+Forest), ``route_prediction`` (Markov + Viterbi) and ``stop_confusion_classification``
+run on every GPS point today through ``module3_risk/risk_data_collection.py``, and
+between them carry 75% of the risk score — so "Module 2 is not wired up" is a
+statement about the LSTM alone, not about the module.
 
 Run locally:  uvicorn app.main:app --reload
 """
