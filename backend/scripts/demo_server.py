@@ -27,8 +27,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import (
-    admin_rules, alerts, danger_zones, devices, gps, pairing, places,
-    recommendation, risk, search_area, sos, tracking, trip_requests, users,
+    admin_rules, alerts, danger_zones, destination, devices, gps, pairing,
+    places, recommendation, risk, search_area, sos, tracking, trip_requests,
+    users,
 )
 from app.db.database import get_db, init_db
 from app.db.models import BehavioralProfile, GPSData, User
@@ -60,7 +61,7 @@ app = FastAPI(title="PathGuard AI — Demo Dashboard", lifespan=lifespan)
 # same request against app.main worked — a difference nothing announced.
 for module in (users, gps, recommendation, risk, search_area, admin_rules,
                places, danger_zones, devices, tracking, alerts, sos, pairing,
-               trip_requests):
+               trip_requests, destination):
     app.include_router(module.router)
 
 
