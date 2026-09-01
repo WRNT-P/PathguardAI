@@ -1,4 +1,22 @@
-"""Module 2 API — predict patient's destination from current GPS + behavioral profile."""
+"""Module 2 API — LSTM destination prediction. NOT MOUNTED, AND SUPERSEDED.
+
+⚠️ **Do not add this router to app/main.py.** Two separate reasons:
+
+1. **It would stop the whole application booting.** The import below reaches
+   ``app/ai/lstm_utils.py:6 import tensorflow`` at module scope, and TensorFlow
+   is deliberately not installed (4-week plan §08). The ImportError happens
+   while ``app.main`` is being imported, so ``/api/gps``, ``/api/sos`` and
+   ``/api/pair`` go down with it — not just this endpoint.
+2. **Its path is already served.** ``app/api/destination.py`` answers
+   ``GET /api/predict-destination/{patient_id}`` with a Markov prediction read
+   off the transition matrix ``RoutePredictor`` already fits on every risk
+   score. Mounting both would register the same path twice, and the winner
+   would be whichever ``include_router`` ran last.
+
+Kept in the repo because the LSTM is a real piece of work and the report
+describes it. To restore it: install TensorFlow, unmount ``destination``, then
+mount this — in that order, and decide first which one ``scorer`` should say.
+"""
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
