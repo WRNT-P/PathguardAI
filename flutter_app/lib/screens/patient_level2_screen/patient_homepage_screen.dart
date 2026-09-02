@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'navigation_screen.dart';
 import '../../services/sos_service.dart';
 import '../../services/trip_approval_service.dart';
@@ -6,6 +7,7 @@ import '../../services/gps_reporter.dart';
 import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/session.dart';
+import '../login_screen.dart';
 
 enum _ScreenState { picking, waitingApproval, rejected, sosActive }
 
@@ -62,6 +64,17 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   Map<String, dynamic>? _selectedPlace;
   bool _sosSending = false;
 
+  Future<void> _handleLogout() async {
+    await stopGpsReporting();
+    await FirebaseAuth.instance.signOut();
+    await Session.instance.clear();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      (route) => false,
+    );
+  }
+
   @override
   void dispose() {
     super.dispose();
@@ -103,7 +116,9 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       _sosSending = true;
     });
 
-    await triggerSOS();
+    try {
+      await triggerSOS();
+    } catch (_) {}
 
     if (!mounted) return;
     setState(() {
@@ -286,6 +301,12 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Hello, ${widget.patientName ?? "Friend"}'),
+        actions: [
+          IconButton(
+            onPressed: _handleLogout,
+            icon: const Icon(Icons.logout),
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
