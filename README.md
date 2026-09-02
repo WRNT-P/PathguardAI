@@ -46,10 +46,23 @@ pip install -r backend/requirements-dev.txt
 FIREBASE_CREDENTIALS_PATH=./serviceAccountKey.json
 FIREBASE_DATABASE_URL=https://<your-project>.firebaseio.com
 DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/pathguard
-APP_HOST=0.0.0.0
-APP_PORT=8000
+AUTH_ENABLED=false
 DEBUG=True
 ```
+
+> `backend/.env.example` is the authoritative list and carries the reasoning for
+> each key — copy that rather than this block if you are setting up fresh.
+>
+> **`AUTH_ENABLED` is the one that matters and it used to be missing here.**
+> Default `false` means **every endpoint is open, and patient ids are sequential
+> integers** — anyone holding the URL can read a patient's live position by
+> guessing `1`. That is a deliberate choice for a watched pilot behind an
+> unshared URL (plan D5), and the server logs a warning at startup saying so.
+> Turn it on before any real-patient data leaves the laptop.
+>
+> This block also used to list `APP_HOST` and `APP_PORT`. **No code reads
+> either** — the host and port come from the `uvicorn` command line. They are
+> dropped rather than documented, so nobody sets them and expects an effect.
 
 **Database options for `DATABASE_URL`:**
 - **Cloud (recommended for the team):** a free [Neon](https://neon.tech) Postgres project — everyone shares one DB. Paste Neon's connection string directly; `database.py` auto-adapts it (handles the `+asyncpg` driver and the `sslmode`/`channel_binding` SSL params), so the raw `postgresql://…?sslmode=require` string works as-is.
@@ -152,7 +165,7 @@ from what the process actually serves. Re-counted 2026-09-02:
 | PUT | `/api/caregivers/{id}/location` | the caregiver app reports where it is (latest only) |
 | POST | `/api/devices/token` | FCM device token — see `backend/API_CONTRACT_APP.md` |
 | POST | `/api/trip-requests` · GET `/api/patients/{id}/trip-requests` · PATCH `/api/trip-requests/{id}` | C-3 trip approval |
-| POST/GET/DELETE | `/api/danger-zones` | danger zone admin (DELETE is a soft deactivate) |
+| POST/GET | `/api/danger-zones` · DELETE `/api/danger-zones/{zone_id}` | danger zone admin. **DELETE is a soft deactivate** — it sets `active=False` through `rule_repository` with an audit row, so the zone is recoverable and traceable, never removed |
 | GET | `/api/admin/rules`, `/api/admin/rules/history` | rule knowledge-base — **read-only, both are GETs** |
 | GET | `/`, `/health` | service info, liveness probe |
 
