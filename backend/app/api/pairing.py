@@ -36,7 +36,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
 from app.db.database import get_db
-from app.services.auth import Caller, current_caller, verify_patient_access
+from app.services.auth import (
+    Caller, current_caller, signed_in_caller, verify_patient_access,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -472,4 +474,64 @@ async def redeem_caregiver_invite(
         patient_name=patient.name,
         caregiver_id=caregiver_id,
         already_linked=link is None,
+    )
+
+
+class MyPatient(BaseModel):
+    patient_id: int
+    name: str
+    severity_level: int | None = None
+    # Whoever created this patient. Not a permission — every link grants the
+    # same access — but a profile screen has to name one caregiver.
+    is_primary: bool
+
+
+class MyPatientsOut(BaseModel):
+    count: int
+    patients: list[MyPatient]
+
+
+@router.get(
+    "/api/patients",
+    response_model=MyPatientsOut,
+    summary="ผู้ป่วยทั้งหมดที่ผู้ถือ token นี้ดูแลอยู่",
+)
+async def list_my_patients(
+    db: AsyncSession = Depends(get_db),
+    caller: Caller = Depends(signed_in_caller),
+) -> MyPatientsOut:
+    """The list a caregiver app has to rebuild every time it launches.
+
+    Nothing could ask this before. ``get_caregiver_ids`` goes patient →
+    caregivers and there was no route the other way, so the caregiver screen
+    kept its patients in memory and lost them on restart — taking the track
+    screen, the alert feed and every per-patient call with them. That is the
+    same shape as the hardcoded ``CAREGIVER_TEST_ID``: it looks like a shortcut
+    on the app side and it was the only thing we had left them.
+
+    **Guarded by ``signed_in_caller``, not ``current_caller``** — the same
+    exception ``GET /api/me`` makes, for the same reason. "Which patients are
+    mine" is a question about *who is asking*, and with ``AUTH_ENABLED`` off
+    ``current_caller`` answers ``ANONYMOUS``, which is not an identity. This
+    route would then have to either return everybody's patients or nobody's,
+    and the first is a privacy hole while the second is a screen that is empty
+    in exactly the mode the pilot runs in. So it needs a real token in both
+    modes.
+
+    A caregiver with no patients gets ``count: 0`` and a 200. An empty list is
+    the true answer to "who do I look after" for someone who has not added
+    anyone yet, and a 404 would read as "your account is missing".
+    """
+    rows = await crud.get_patients_for_caregiver(db, caller.user_id)
+    return MyPatientsOut(
+        count=len(rows),
+        patients=[
+            MyPatient(
+                patient_id=user.id,
+                name=user.name,
+                severity_level=user.severity_level,
+                is_primary=is_primary,
+            )
+            for user, is_primary in rows
+        ],
     )
