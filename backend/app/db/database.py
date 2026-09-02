@@ -44,8 +44,27 @@ def _normalize_url(raw: str) -> tuple[str, dict]:
 
 
 _url, _connect_args = _normalize_url(DATABASE_URL)
+# ``pool_pre_ping`` and ``pool_recycle`` are load-bearing against Neon, not
+# tuning. Neon is serverless and drops idle connections on its own; without a
+# pre-ping SQLAlchemy hands out a socket the far side has already closed and the
+# request dies with ``asyncpg.InterfaceError: connection is closed``. The pool
+# then discards it, so the *next* request succeeds — which is the worst shape
+# this failure could take: it only ever hits the first call after a quiet spell,
+# looks intermittent, and is invisible under load or in the test suite (SQLite,
+# no pool). Measured 2026-09-02 on the live tunnel: three requests in a row
+# after an idle gap gave 500, 200, 200.
+#
+# A caregiver opening the app after an hour is exactly "the first call after a
+# quiet spell", so untreated this lands on the demo rather than on us.
+#
+# pre_ping costs one round-trip per checkout; recycle at 300 s retires
+# connections before Neon's idle timeout rather than after it.
 engine = create_async_engine(
-    _url, echo=bool(os.getenv("DEBUG", False)), connect_args=_connect_args
+    _url,
+    echo=bool(os.getenv("DEBUG", False)),
+    connect_args=_connect_args,
+    pool_pre_ping=True,
+    pool_recycle=300,
 )
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 

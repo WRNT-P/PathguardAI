@@ -47,11 +47,11 @@ async def _seed_normal_routine(db, patient_id, days=25):
     for d in range(days, 0, -1):  # oldest -> newest, all older than the injection
         day0 = now - timedelta(days=d)
         for visit, (plat, plon) in enumerate(_PLACES):
-            for k in range(8):  # >=5 pts within ~10 m => a cluster
+            for k in range(8):  # spans ~21 min -> a real stay, not a passing fix
                 jlat, jlon = _offset(plat, plon, k * 1.5, k * 1.5)
                 await crud.save_gps_point(
                     db, patient_id, latitude=jlat, longitude=jlon,
-                    speed=1.2, recorded_at=day0 + timedelta(hours=visit, minutes=k),
+                    speed=1.2, recorded_at=day0 + timedelta(hours=visit, minutes=k * 3),
                 )
     await db.commit()
 

@@ -238,8 +238,14 @@ def main() -> None:
     ap.add_argument("--match-radius", type=float, default=DEFAULT_MATCH_RADIUS_M)
     ap.add_argument("--coverage", type=float, default=0.95,
                     help="share of the patient's time that must be at known places")
+    # NOTE 2026-09-02: `cluster_places` itself now does stay-point extraction
+    # with these exact defaults (100m/15min/min_visits=2) — the fix this flag
+    # prototyped is in production. With default values, --stops and no --stops
+    # now measure the same pipeline. This flag still earns its keep for sweeping
+    # non-default radius/minutes/min-visits values against the reference window.
     ap.add_argument("--stops", action="store_true",
-                    help="cluster stay points instead of raw GPS points (proposal)")
+                    help="use this script's own stay-point params instead of cluster_places' "
+                         "defaults (only differs from no-flag when other --stop-* args are set)")
     ap.add_argument("--stop-radius", type=float, default=100.0)
     ap.add_argument("--stop-minutes", type=float, default=15.0)
     ap.add_argument("--min-visits", type=int, default=2,

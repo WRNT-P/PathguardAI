@@ -126,7 +126,9 @@ def test_decode_tolerates_a_column_it_cannot_read():
 # ── Through the real nightly job ─────────────────────────────────────────────
 
 async def _seed_two_places(db, patient_id: int, days: int = 10) -> None:
-    """Enough clustered GPS for DBSCAN to learn something to merge in."""
+    """Enough real *stays* (>=15 continuous minutes near one spot) for the
+    stay-point pipeline to learn something to merge in — a dense burst of
+    fixes a couple of minutes apart doesn't qualify as a stay any more."""
     now = datetime.now(timezone.utc)
     for d in range(days, 0, -1):
         day0 = now - timedelta(days=d)
@@ -136,7 +138,7 @@ async def _seed_two_places(db, patient_id: int, days: int = 10) -> None:
                 await crud.save_gps_point(
                     db, patient_id,
                     latitude=plat + k * 0.00002, longitude=plon + k * 0.00002,
-                    speed=1.2, recorded_at=day0 + timedelta(hours=visit, minutes=k),
+                    speed=1.2, recorded_at=day0 + timedelta(hours=visit, minutes=k * 3),
                 )
     await db.commit()
 
