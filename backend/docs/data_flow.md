@@ -33,6 +33,10 @@
 > **แก้ 27 ส.ค.: `sequence_learning.py` ถูกลบไปแล้ว** พร้อมการตัด TensorFlow — เอกสารฉบับก่อนยังนับมันอยู่
 > และในสองตัวที่เหลือ **`lstm_utils.py` กับ `destination_prediction.py` ไม่ได้ถูกเรียกใน production**
 > (`api/prediction.py` ไม่ได้ mount) ส่วน `place_clustering.py` ไม่ถูกเรียกเพราะ **ตัดสินใจไม่ใช้**
+> ♻️ **แก้ 2 ก.ย.: ประโยคข้างบนยังถูก แต่จะอ่านผิดได้ถ้าไม่มีบรรทัดนี้** — path
+> `/api/predict-destination` **มีคนตอบแล้ว** ตั้งแต่ 1 ก.ย. (`b8ce1ef`) เพียงแต่ผู้ตอบคือ
+> `api/destination.py` ซึ่งอ่าน transition matrix ของ **Markov** ไม่ใช่ `api/prediction.py`
+> ที่เป็นฉบับ LSTM **LSTM ยังไม่ถูกเรียกจริงเหมือนเดิม** ที่เปลี่ยนคือ endpoint ไม่ได้ 404 แล้ว
 > เหลือที่ทำงานจริงบนเส้นทาง serving คือ `wandering_detection.py` ตัวเดียว และ `ranker.py`
 > เฉพาะเมื่อมีไฟล์โมเดลของผู้ป่วยคนนั้น
 
@@ -87,7 +91,7 @@ Module 2/3/4/5 อ่านข้อมูลจาก **PostgreSQL** (`GPSData`
 ## Module 2 — Prediction (ทำนายปลายทาง/เส้นทาง + ตรวจหลงทาง)
 
 **ระดับโมดูล**
-- **เข้า:** `patient_id` + ตำแหน่งปัจจุบัน (จาก `api/prediction.py`) ; `known_places` + ประวัติ `GPSData` (จาก DB ผ่าน `crud`)
+- **เข้า:** `patient_id` + ตำแหน่งปัจจุบัน (จาก `api/destination.py` — ฉบับ Markov ที่ mount จริง ; `api/prediction.py` ฉบับ LSTM ยังไม่ mount) ; `known_places` + ประวัติ `GPSData` (จาก DB ผ่าน `crud`)
 - **ออก:** `PredictionResponse` (cluster ปัจจุบัน/ปลายทาง, confidence, top 3) ให้ frontend ; **และ detector ทั้งสาม (Wandering/Confusion/Route) ถูก Module 3 เรียกใช้โดยตรง** เพื่อคิดคะแนนเสี่ยง
 
 **ระดับไฟล์**
@@ -97,7 +101,9 @@ Module 2/3/4/5 อ่านข้อมูลจาก **PostgreSQL** (`GPSData`
 - `stop_confusion_classification.py` 🟡 — รับ: `classify(recent_gps, stop_duration, lat, lng, predicted_route, known_places)` → ทำ: สกัด 5 features → คะแนนแบบ rule-based (`_rule_based_score`, มี `fit_synthetic()` ทำ label จำลอง) → ส่ง: `{status: normal|confused, confidence_score (0–1)}` (Module 3 ใช้เป็นค่า confusion)
 - `wandering_detection.py` 🟢 — รับ: `fit(gps_30d, known_places)` แล้ว `detect(recent_gps)` → ทำ: sliding-window 5 features → **IsolationForest** anomaly score → map เป็น 0–1 (fallback เป็น rule เมื่อยังไม่ fit) → ส่ง: `{wandering_detected, wandering_score (0–1), wandering_level}` (MILD=0.55, HIGH=0.75 ; Module 3 ใช้ `wandering_score`)
 - `__init__.py` ⚪ — export `find_nearest_cluster/get_familiarity/haversine_km` ทันที + lazy-import `DestinationPredictor` (เลี่ยงดึง TensorFlow) ; `WanderingDetector/StopConfusionClassifier/RoutePredictor` import จากไฟล์ตรง ๆ
-- `prediction.py` (API) ⚪ — รับ: `GET /api/predict-destination/{patient_id}?lat&lng` (+ `POST .../train`) → ทำ: `_get_predictor()` → `predictor.predict(db, ...)` → ส่ง: `PredictionResponse`
+- `destination.py` (API) ⚪ — **ตัวที่ mount จริง** (`main.py:84`, 1 ก.ย.) รับ: `GET /api/predict-destination/{patient_id}` → ทำ: `RoutePredictor.fit()` บนประวัติ 30 วัน → อ่าน `transition_matrix[current]` ซึ่งเป็นการแจกแจงความน่าจะเป็นของ*สถานที่ถัดไป* นับจากที่ผู้ป่วยเคยย้ายจากที่นี่ไปที่นั่นจริง → ส่ง: 3 อันดับแรก + `scorer` / `history_status` / `transitions_observed`
+  > ทำไมต้องมีสามฟิลด์หลัง: ถ้ามีหมุด 4 จุดและแทบไม่มีประวัติ เมทริกซ์จะเกือบแบน แล้ว "25%" เปล่า ๆ จะถูกอ่านเป็นคำตัดสินของโมเดล ทั้งที่มันคือ 1 หาร 4 — โปรเจกต์นี้เคยส่งตัวเลขที่วัดระยะทางแล้วแสดงเป็นความปลอดภัยมาแล้วครั้งหนึ่ง (เพดาน confidence ของ C-3) และราคาของมันคือการเขียนใหม่
+- `prediction.py` (API) ⚪ — path เดียวกันแต่เป็นฉบับ LSTM **ไม่ได้ mount** รับ: `GET /api/predict-destination/{patient_id}?lat&lng` (+ `POST .../train`) → ทำ: `_get_predictor()` → `predictor.predict(db, ...)` → ส่ง: `PredictionResponse` ⚠️ import ไฟล์นี้โดยไม่มี TensorFlow = แอปทั้งตัวไม่ boot จึงต้องแยกเป็นคนละไฟล์ และ **mount พร้อมกันไม่ได้**
 
 ---
 
@@ -257,7 +263,8 @@ rank (100/40/10/3) และวินาที ส่วนคลัสเตอ
 | `get_caregivers_with_location()` | อ่านผู้ดูแลทุกคน + ตำแหน่ง สำหรับจัดอันดับระยะทาง | `api/users.py` (`GET /api/patients/{id}/caregivers`, A4) |
 | `claim_alert()` / `release_alert()` | เขียน `alerts.claimed_by` / `claimed_at` | `api/alerts.py` (`POST`/`DELETE /api/alerts/{id}/claim`, A5) |
 | `get_caregiver_tokens(..., exclude_user_id=)` | token ของผู้ดูแล **ยกเว้นคนเดียว** — คนที่เพิ่งกดปุ่ม | `services/notification.py` (`notify_claim`) |
-| `get_user()` | อ่านทั้งแถว `users` (ชื่อ, uid, `severity_level`) | `api/pairing.py`, `api/recommendation.py`, `api/search_area.py`, `api/trip_requests.py` |
+| `get_user()` | อ่านทั้งแถว `users` (ชื่อ, uid, `severity_level`, **`phone`** — เพิ่ม 30 ส.ค. ให้จอ SOS ของผู้ป่วยมีเบอร์กด) | `api/pairing.py`, `api/recommendation.py`, `api/search_area.py`, `api/trip_requests.py`, **`api/users.py` (`GET /api/me`)** |
+| **`GET /api/me`** (1 ก.ย.) | แลก Firebase token เป็น `users.id` + `role` + `phone` — เส้นเดียวที่ตอบคำถาม "ฉันคือใคร" ได้หลังสมัครแล้ว เดิมมีแต่ `POST /api/register` ซึ่งยิงครั้งเดียวตอนสมัคร ฝั่งแอปเลยฮาร์ดโค้ด `CAREGIVER_TEST_ID` แทน | `api/users.py` — ⚠️ ใช้ `signed_in_caller` จึง**ต้องมี token จริงแม้ `AUTH_ENABLED` ปิดอยู่** ตั้งใจ เพราะ `ANONYMOUS` ไม่ใช่คำตอบของ "ฉันคือใคร" มันคือการไม่มีคำตอบ |
 | `create_pairing_code()` / `get_pairing_code()` / `mark_pairing_code_used()` | รหัสจับคู่เครื่อง | `api/pairing.py` (26 ส.ค.) |
 | `create_trip_request()` / `get_trip_request(s)()` / `decide_trip_request()` | คำขออนุมัติเดินทาง C-3 | `api/trip_requests.py` (26 ส.ค.) |
 

@@ -6,14 +6,24 @@
 > `weather_provider.py` ย้ายจาก `module5_recommend/` ไป `app/mock/`
 > ♻️ **ไล่ซ้ำ 28 ส.ค. 2026**: `models.py` เป็น 16 ตาราง · `users.py` มี `PUT /api/caregivers/{id}/location`
 > · `pairing.py` มีรหัสเชิญผู้ดูแลสองเส้น
+> ♻️ **ไล่ซ้ำ 2 ก.ย. 2026 — รอบนี้แก้ของที่เขียน *ผิด* ไม่ใช่แค่ของที่ *ขาด*:** เอกสารบอกว่า
+> `/api/predict-destination` **ไม่ได้ mount** ซึ่งไม่จริงแล้วตั้งแต่ `b8ce1ef` (1 ก.ย.) —
+> `api/destination.py` mount อยู่ที่ `app/main.py:84` **นี่คือบั๊กแบบเดียวกับที่ README เคยเป็น
+> แค่กลับด้าน**: ตอนนั้น README โฆษณา endpoint ที่ยังไม่มี ฝั่งแอปเลยไปตามหา · รอบนี้เอกสารบอกว่า
+> ไม่มีทั้งที่มีแล้ว ซึ่งทำให้มีคนสร้างซ้ำหรือเขียนลงรายงานว่ายังไม่ได้ทำ
+> ที่เพิ่ม: `api/destination.py` · `GET /api/me` · `users.phone`
 > **`ls` ที่โฟลเดอร์จริงคือคำตอบที่ถูกเสมอ** อันนี้ใช้ดูว่าแต่ละส่วนทำหน้าที่อะไร
 
 โครงสร้างไฟล์จริงของ backend พร้อมคำอธิบายภาษาไทยทุกโฟลเดอร์และทุกไฟล์
 (ชื่อไฟล์/โฟลเดอร์เป็นภาษาอังกฤษ คำอธิบายเป็นภาษาไทย)
 
-> หมายเหตุ: โมดูล AI ครบทั้ง 1–5 มีโค้ดจริงแล้ว — แต่ **Module 2 ไม่ได้ถูก mount**
-> (`api/prediction.py` ยังอยู่ แต่ `app/main.py` ไม่ include แล้ว เพราะตัด TensorFlow ออก)
-> และ **Module 1 ไม่มีใครเรียกใน production** ตั้งใจ ดู `plan_person3_lane.md`
+> หมายเหตุ: โมดูล AI ครบทั้ง 1–5 มีโค้ดจริงแล้ว — **Module 2 ถูก mount แล้วตั้งแต่ 1 ก.ย.**
+> ผ่าน `api/destination.py` (Markov) **ไม่ใช่** `api/prediction.py` (LSTM) ซึ่งยังไม่ mount
+> เพราะตัด TensorFlow ออก · ทั้งสองไฟล์ให้บริการ path เดียวกันและ **mount พร้อมกันไม่ได้**
+> ⚠️ อย่าอ่านว่า "Module 2 ไม่ได้ต่อ" — Isolation Forest, Markov/Viterbi และตัวจำแนกความสับสน
+> ของโมดูลนี้ **ทำงานทุกจุด GPS อยู่แล้ว** ผ่าน `module3_risk/risk_data_collection.py` และกินน้ำหนัก
+> 75% ของคะแนนเสี่ยง สิ่งที่ถูกตัดคือ **LSTM ตัวเดียว** ไม่ใช่ทั้งโมดูล
+> ส่วน **Module 1 ไม่มีใครเรียกใน production** ตั้งใจ ดู `plan_person3_lane.md`
 
 ```
 backend/
@@ -70,7 +80,7 @@ backend/
     │   │
     │   ├── module2_prediction/      — ตรวจจับการเดินหลงทางและทำนายปลายทาง/เส้นทาง
     │   │   ├── cluster_matcher.py             — ระยะ Haversine + หาคลัสเตอร์ที่คุ้นเคยที่ใกล้ที่สุด (เคารพ radius_m ของแต่ละหมุด)
-    │   │   ├── destination_prediction.py      — ใช้ LSTM ทำนายปลายทาง — **ไม่ได้ mount** (ตัด TensorFlow)
+    │   │   ├── destination_prediction.py      — ใช้ LSTM ทำนายปลายทาง — **ไม่ได้ mount** (ตัด TensorFlow) ตัวที่ให้บริการจริงคือ `api/destination.py`
     │   │   ├── route_prediction.py            — HMM + Viterbi + DTW ทำนายเส้นทาง
     │   │   ├── stop_confusion_classification.py — จำแนกการหยุดว่าปกติหรือสับสน ด้วย Gradient Boosting (5 features)
     │   │   └── wandering_detection.py         — ตรวจจับพฤติกรรมเดินวนหลงทางด้วย Isolation Forest (5 features)
@@ -101,11 +111,12 @@ backend/
     │       ├── featurize.py                     — สร้าง 8 features คงที่ให้ ranker
     │       └── evaluation.py                    — ชุดวัดความซื่อสัตย์ของโมเดล (temporal split, bootstrap CI, baselines, go/no-go)
     │
-    ├── api/                         — ชั้น endpoint ที่รับ request จากแอป Flutter (25 route)
-    │   ├── users.py                 — POST /api/register ลงทะเบียนผู้ใช้ใหม่จาก Firebase UID · PUT /api/caregivers/{id}/location เก็บตำแหน่งล่าสุดของผู้ดูแล · GET /api/patients/{id}/caregivers เรียงผู้ดูแลตามระยะทาง (A4, 28 ส.ค.)
+    ├── api/                         — ชั้น endpoint ที่รับ request จากแอป Flutter (**33 operation ใต้ `/api/*` จาก 30 path** — นับจาก `app.openapi()` เมื่อ 2 ก.ย. ไม่ใช่นับมือ เดิมเอกสารเขียน 25)
+    │   ├── users.py                 — POST /api/register ลงทะเบียนผู้ใช้ใหม่จาก Firebase UID · **GET /api/me แลก token เป็น `users.id` + `role` + `phone` (1 ก.ย.) — ต้องมี token จริงแม้ปิด `AUTH_ENABLED` อยู่ ตั้งใจ** · PUT /api/caregivers/{id}/location เก็บตำแหน่งล่าสุดของผู้ดูแล · GET /api/patients/{id}/caregivers เรียงผู้ดูแลตามระยะทาง (A4, 28 ส.ค.)
     │   ├── pairing.py               — POST /api/patients (ผู้ดูแลสร้างผู้ป่วย + ออกรหัส) · POST /api/pair (แลกรหัสเป็น custom token) · GET /api/patients/{id} (ชื่อ + ระดับอาการ) · POST /api/patients/{id}/caregiver-invites + POST /api/caregivers/redeem-invite (ผู้ดูแลคนที่สอง, 28 ส.ค.) (26–28 ส.ค.)
     │   ├── gps.py                   — POST /api/gps + /api/gps/batch บันทึก GPS ผ่าน gps_processor แล้วสั่งคิด risk เอง (throttle 60 วิ)
-    │   ├── prediction.py            — GET /api/predict-destination/{id} — **ไม่ได้ mount** (ตัด TensorFlow) โค้ดยังอยู่
+    │   ├── destination.py           — **GET /api/predict-destination/{id} — mount อยู่จริง** (`main.py:84`, 1 ก.ย.) อ่าน transition matrix ของ Markov ที่ `RoutePredictor` fit ไว้ทุกครั้งที่คิดคะแนนเสี่ยง คืน 3 อันดับแรก + `scorer`/`history_status`/`transitions_observed` ไว้ให้แยกออกว่าเลขมาจากข้อมูลจริงหรือจากเมทริกซ์ที่ยังแบนอยู่
+    │   ├── prediction.py            — path เดียวกันแต่เป็นฉบับ LSTM — **ไม่ได้ mount** (ตัด TensorFlow) โค้ดยังอยู่ ⚠️ import ไฟล์นี้เมื่อไม่มี TensorFlow = แอปทั้งตัวไม่ boot จึงแยกเป็นคนละไฟล์กับ `destination.py`
     │   ├── recommendation.py        — GET /api/recommendation/{id} สถานที่ที่น่าจะไป พร้อมชื่อและคะแนนความมั่นใจ
     │   ├── risk.py                  — GET /api/risk/{id} คำนวณ บันทึก และแจ้งเตือน ⚠️ GET ที่เขียนข้อมูลและยิง push
     │   ├── search_area.py           — GET /api/search-area/{id} ประเมินพื้นที่ค้นหา ⚠️ GET ที่เขียน alert และยิง push
@@ -136,7 +147,7 @@ backend/
     │   ├── risk_score.py            — RiskScoreCreate, RiskScoreResponse
     │   ├── alert.py                 — AlertCreate, AlertResponse, AlertResolve + **AlertType/ALERT_TYPES ซึ่งเป็นรายการชนิดการเตือนที่เดียวของระบบ**
     │   ├── search_area.py           — SearchAreaResponse, ProbabilityZone, FamiliarPath, TargetLocation, GridBounds
-    │   ├── prediction.py            — PredictionResponse, TopPrediction (คู่กับ router ที่ไม่ได้ mount)
+    │   ├── prediction.py            — PredictionResponse, TopPrediction (คู่กับ `api/prediction.py` ที่ไม่ได้ mount — `api/destination.py` ประกาศ schema ของตัวเองในไฟล์)
     │   └── recommendation.py        — RecommendationResponse, RecommendedPlace, RecommendationFlags
     │
     └── services/                    — บริการพื้นฐานที่โมดูลอื่นเรียกใช้

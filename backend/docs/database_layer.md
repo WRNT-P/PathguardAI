@@ -7,6 +7,9 @@
 > (รอบก่อน 27 ส.ค. เพิ่ม `risk_factor_weights` · `risk_thresholds` · `temporal_rules` ·
 > `rule_audit_log` · `danger_zones` · `pairing_codes` · `trip_requests` · `users.severity_level`
 > เดิมเอกสารเขียนไว้ 22 ส.ค. และมีแค่ 7 ตาราง ทั้งที่อ้างว่าดึงมาจาก `models.py`)
+> ♻️ **แก้ 2 ก.ย. 2026**: เพิ่ม **`users.phone`** (`migrate_add_phone` รันกับ Neon 30 ส.ค. —
+> `character varying(32)` nullable, จำนวนแถวทุกตารางเท่าเดิม) และ **`GET /api/me`** ในรายชื่อผู้อ่าน
+> `users` · **จำนวนตารางยังเป็น 16 เท่าเดิม** เพราะ `phone` เป็นคอลัมน์ ไม่ใช่ตาราง
 > **ยึด `app/db/models.py` เป็นหลักเสมอ** ถ้าเอกสารนี้กับโค้ดไม่ตรงกัน โค้ดถูก
 
 อ้างอิงจาก `app/db/models.py` (ORM/ตาราง), `app/db/crud.py` (ฟังก์ชันอ่าน/เขียนข้อมูลผู้ป่วย)
@@ -51,8 +54,12 @@
 
 #### `users` (model: `User`)
 ข้อมูลผู้ใช้ทั้งผู้ป่วยและผู้ดูแล เป็น "แม่กุญแจ" ที่ทุกตารางอื่นอ้างถึงผ่าน FK `patient_id`
-- คอลัมน์หลัก: `id` (PK, int ภายใน), `firebase_uid` (string จาก Firebase, unique, **NOT NULL**), `name`, `role` (`patient`/`caregiver`), ~~`caregiver_id` (FK ชี้ผู้ดูแลในตารางเดียวกัน)~~ **ย้ายออกไปตาราง `patient_caregivers` แล้ว 2026-08-28** เพราะผู้ป่วย 1 คนต้องมีผู้ดูแลได้หลายคน (คอลัมน์เดิมยังอยู่ในฐานข้อมูล Neon แต่ ORM ไม่อ่านแล้ว), `severity_level`, `last_latitude`/`last_longitude`/`location_updated_at`, `created_at`
+- คอลัมน์หลัก: `id` (PK, int ภายใน), `firebase_uid` (string จาก Firebase, unique, **NOT NULL**), `name`, `role` (`patient`/`caregiver`), ~~`caregiver_id` (FK ชี้ผู้ดูแลในตารางเดียวกัน)~~ **ย้ายออกไปตาราง `patient_caregivers` แล้ว 2026-08-28** เพราะผู้ป่วย 1 คนต้องมีผู้ดูแลได้หลายคน (คอลัมน์เดิมยังอยู่ในฐานข้อมูล Neon แต่ ORM ไม่อ่านแล้ว), `severity_level`, **`phone`** (เพิ่ม 30 ส.ค.), `last_latitude`/`last_longitude`/`location_updated_at`, `created_at`
 - **`severity_level`** (เพิ่ม 26 ส.ค.) — `1` = ระยะต้น · `2` = ระยะกลาง · `NULL` = ผู้ดูแลไม่ได้ระบุ
+- **`phone`** (เพิ่ม 30 ส.ค., `String(32)` nullable) — เบอร์ของ**ผู้ดูแล** สำหรับปุ่มโทรบนจอ SOS ของผู้ป่วย
+  ก่อนหน้านี้ปุ่มนั้นไม่มีคอลัมน์ไหนให้อ่านเบอร์เลย · เก็บเป็น free text ไม่ใช่ชนิดเบอร์โทรที่ตรวจรูปแบบ
+  เพราะเป็นการทดลองในไทยและเลขนี้ถูกกดผ่าน `tel:` บนเครื่องที่เก็บมันเอง · เขียนตอน
+  `POST /api/register` และคืนใน `GET /api/patients/{id}/caregivers` กับ `GET /api/me`
   ผู้อ่านสามราย: `search_radius_adjustment.adjust_radius` (ระยะกลางหดรัศมี 20% ระยะต้นขยาย 20%) ·
   `api/recommendation.py` · `api/trip_requests.py`
   (เฉพาะ Level 2 ที่ต้องขออนุมัติเดินทาง) และคืนออกทาง `GET /api/patients/{id}` กับ `POST /api/pair`
@@ -255,7 +262,7 @@ FCM registration token ของเครื่องผู้ดูแลหน
 
 | ตาราง | เก็บอะไร | ใครเขียน | ใครอ่าน |
 |---|---|---|---|
-| `users` | ผู้ป่วย/ผู้ดูแล + ตำแหน่งล่าสุดของผู้ดูแล | `api/users.py` (`POST /api/register` ; **`PUT /api/caregivers/{id}/location` → `crud.update_user_location`**) ; **`api/pairing.py` (`POST /api/patients` — ผู้ดูแลสร้างผู้ป่วย)** ; `seed_module5.py` | `api/users.py` · `api/gps.py` (resolve `firebase_uid`→`id`) · **`services/auth.py` ทุก request** · **`api/pairing.py` (`GET /api/patients/{id}`)** · `api/recommendation.py` + `api/search_area.py` + `api/trip_requests.py` (อ่าน `severity_level`) |
+| `users` | ผู้ป่วย/ผู้ดูแล + ตำแหน่งล่าสุดของผู้ดูแล | `api/users.py` (`POST /api/register` ; **`PUT /api/caregivers/{id}/location` → `crud.update_user_location`**) ; **`api/pairing.py` (`POST /api/patients` — ผู้ดูแลสร้างผู้ป่วย)** ; `seed_module5.py` | `api/users.py` · `api/gps.py` (resolve `firebase_uid`→`id`) · **`services/auth.py` ทุก request** · **`api/pairing.py` (`GET /api/patients/{id}`)** · `api/recommendation.py` + `api/search_area.py` + `api/trip_requests.py` (อ่าน `severity_level`) · **`api/users.py` (`GET /api/me` — แลก token เป็น `id`/`role`/`phone`, 1 ก.ย.)** |
 | **`patient_caregivers`** | ใครดูแลใคร (หลายคนได้) | `crud.link_caregiver` ← `crud.create_user` (ตอนสร้างผู้ป่วย, `is_primary=True`) · `api/pairing.py` (`POST /api/caregivers/redeem-invite`) | **`services/auth.py` ทุก request** (`get_caregiver_ids` — เช็คสมาชิก set) · `services/notification.py` (`get_caregiver_tokens` กระจาย push ทุกเครื่องของผู้ดูแลทุกคน) · `api/pairing.py` · `api/trip_requests.py` |
 | **`caregiver_invites`** | รหัสเชิญผู้ดูแลคนถัดไป | `api/pairing.py` — `POST /api/patients/{id}/caregiver-invites` สร้าง · `POST /api/caregivers/redeem-invite` ตั้ง `used_at` | `api/pairing.py` (`get_caregiver_invite`) |
 | `gps_data` | ประวัติ GPS ดิบ+smooth | **Module 1** `services/gps_processor.py` ; `scripts/import_geolife.py` ; `scripts/inject_wandering.py` | **Module 1** `behavior_pipeline.py` · **Module 2** `destination_prediction.py` · **Module 3** `api/risk.py` · **Module 4** `api/search_area.py` (ผ่าน `get_gps_history`) ; `get_latest_gps` อ่านโดย Module 3/4/5 ; **`api/tracking.py`** (`GET /api/patients/{id}/track` — แผนที่ของผู้ดูแล) |
@@ -335,7 +342,12 @@ FCM registration token ของเครื่องผู้ดูแลหน
                           → SearchAreaResponse (ไม่เขียนผลลง DB) แต่เขียน alert ถ้า GPS หายจริง
    Module 5 (recommend): get_behavioral_profile + get_latest_gps + users.severity_level
                           → RecommendationResponse (ไม่เขียน DB)
-   Module 2 (predict)  : **ไม่ได้ mount** — ถูกตัดพร้อม TensorFlow
+   Module 2 (predict)  : GET /api/predict-destination/{id} → api/destination.py
+                          → RoutePredictor.fit(get_gps_history 30 วัน) → transition_matrix
+                          → 3 อันดับแรก + scorer/history_status (ไม่เขียน DB)
+                          ⚠️ ฉบับ LSTM (api/prediction.py) ยังไม่ mount — ถูกตัดพร้อม TensorFlow
+                          แต่ Isolation Forest / Markov / ตัวจำแนกความสับสน ของ Module 2
+                          ทำงานอยู่แล้วทุกจุด GPS ผ่าน Module 3 (risk_data_collection.py)
 
 [5] ขออนุมัติเดินทาง (เฉพาะ Level 2)
    เครื่องผู้ป่วย → POST /api/trip-requests → trip_confidence.py → trip_requests (แช่ confidence ไว้)
