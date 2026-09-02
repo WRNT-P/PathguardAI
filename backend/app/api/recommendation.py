@@ -47,7 +47,8 @@ router = APIRouter()
 #
 # Kept as a per-stage table rather than collapsed to one constant so that the
 # next person who reads "Top 5" in the report lands on this decision instead of
-# "fixing" the code back. See APP_SYNC_2026-08-28.md.
+# "fixing" the code back. The exchange it came from was APP_SYNC_2026-08-28.md,
+# deleted 2026-09-02 once superseded; recover it with `git log --diff-filter=D`.
 _TOP_N_BY_LEVEL = {1: 3, 2: 3}
 _DEFAULT_TOP_N = 3
 
