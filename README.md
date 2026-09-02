@@ -137,8 +137,8 @@ uvicorn app.main:app --reload
 ```
 Then open **http://127.0.0.1:8000/docs** for the interactive API docs.
 
-Endpoints live today — **35 operations over 32 paths, listed straight off
-`app.openapi()`** (33 operations are under `/api/*`) so this table cannot drift
+Endpoints live today — **36 operations over 33 paths, listed straight off
+`app.openapi()`** (34 operations are under `/api/*`) so this table cannot drift
 from what the process actually serves. Re-counted 2026-09-02:
 
 | Method | Path | What |
@@ -150,7 +150,8 @@ from what the process actually serves. Re-counted 2026-09-02:
 | GET | `/api/patients/{id}` | patient name + `severity_level` — the phone reading its own stage |
 | POST | `/api/gps`, `/api/gps/batch` | GPS ingestion — Kalman → Postgres → Firebase, then risk scoring |
 | POST | `/api/sos` | patient pressed the button — skips scoring entirely |
-| GET | `/api/risk/{id}` | Module 3 — risk score 0–100 ⚠️ **has side effects, never poll** |
+| GET | `/api/risk/{id}` | Module 3 — recompute the risk score 0–100 ⚠️ **writes a row and can push, so never poll it** — use the row below on a timer |
+| GET | `/api/patients/{id}/risk/latest` | the last stored risk score, read-only. Safe to poll; this is what a live caregiver map should call |
 | GET | `/api/search-area/{id}` | Module 4 — Monte Carlo + KDE ⚠️ **has side effects, never poll** |
 | GET | `/api/recommendation/{id}` | Module 5 — where the patient likely wants to go |
 | GET | `/api/predict-destination/{id}` | Module 2 — next place, from the Markov transition matrix. Read `scorer` and `history_status` before displaying a percentage |
