@@ -580,6 +580,33 @@ async def get_caregiver_ids(db: AsyncSession, patient_id: int) -> list[int]:
     return list(result.scalars().all())
 
 
+async def get_patients_for_caregiver(
+    db: AsyncSession, caregiver_id: int
+) -> list[tuple[User, bool]]:
+    """Every patient this caregiver is responsible for, with their is_primary flag.
+
+    The mirror of ``get_caregiver_ids``, and the direction nothing could ask
+    until now. ``patient_caregivers`` has carried
+    ``ix_patient_caregivers_caregiver`` since the table was created, so the
+    reverse lookup was expected at schema time — it just never got a reader,
+    and the caregiver app had no way to rebuild its own patient list after a
+    restart. It kept the list in memory instead, which is not a shortcut on
+    their side: it was the only thing available.
+
+    Oldest link first, so a caregiver's list does not reorder itself between
+    launches. ``is_primary`` rides along because the screen showing a profile
+    has to name one caregiver, and re-deriving it would mean a second query per
+    patient.
+    """
+    result = await db.execute(
+        select(User, PatientCaregiver.is_primary)
+        .join(PatientCaregiver, PatientCaregiver.patient_id == User.id)
+        .where(PatientCaregiver.caregiver_id == caregiver_id)
+        .order_by(PatientCaregiver.id)
+    )
+    return [(row[0], bool(row[1])) for row in result.all()]
+
+
 async def get_caregivers_with_location(
     db: AsyncSession, patient_id: int,
 ) -> list[tuple[User, bool]]:

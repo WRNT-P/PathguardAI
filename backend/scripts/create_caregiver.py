@@ -57,14 +57,36 @@ def _make_password() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(16))
 
 
-def _firebase_user(email: str, password: str) -> tuple[str, bool]:
-    """Return (uid, created). Reuses an existing account for this email."""
+def _firebase_user(email: str, password: str,
+                   uid: str | None = None) -> tuple[str, bool]:
+    """Return (uid, created). Reuses an existing account for this email.
+
+    ``uid`` pins the Firebase uid instead of letting Firebase mint one. It is
+    for one situation, and it happened: the Firebase account was deleted while
+    its ``users`` row stayed behind, leaving a caregiver row whose
+    ``firebase_uid`` points at nothing. Nobody can sign in as that caregiver
+    again, and every patient linked to them is stranded with it — but the row is
+    still referenced by ``patient_caregivers``, so deleting it is not a cheap
+    fix either.
+
+    Recreating the account under the *same* uid revives the existing row and
+    writes nothing to the database. Without this flag the only option is a
+    second caregiver account, which leaves the first row as permanent litter and
+    silently detaches its patients.
+    """
     try:
         existing = fb_auth.get_user_by_email(email)
         return existing.uid, False
     except fb_auth.UserNotFoundError:
-        user = fb_auth.create_user(email=email, password=password,
-                                   display_name=email.split("@")[0])
+        try:
+            user = fb_auth.create_user(email=email, password=password,
+                                       display_name=email.split("@")[0],
+                                       **({"uid": uid} if uid else {}))
+        except fb_auth.UidAlreadyExistsError:
+            print(f"FAIL  uid {uid} already belongs to a different account.")
+            print("      Drop --uid to let Firebase mint a new one, but note")
+            print("      that leaves the old users row orphaned.")
+            raise SystemExit(1) from None
         return user.uid, True
     except fb_auth.ConfigurationNotFoundError:
         # Firebase Authentication has never been switched on for this project.
@@ -121,13 +143,19 @@ async def main() -> int:
                     help="ตั้งเอง (ค่าเริ่มต้น: สุ่มให้ แล้วพิมพ์ออกจอ)")
     ap.add_argument("--api-key", default=None,
                     help="Firebase Web API key — ใส่เพื่อทดสอบ sign-in จริง")
+    ap.add_argument("--uid", default=None,
+                    help="กู้บัญชีที่ถูกลบไป: สร้างด้วย uid เดิม เพื่อให้แถว users "
+                         "ที่ชี้มาที่ uid นี้กลับมาใช้ได้ โดยไม่ต้องแตะฐานข้อมูล")
     args = ap.parse_args()
 
     password = args.password or _make_password()
 
     init_firebase()
-    uid, created = _firebase_user(args.email, password)
+    uid, created = _firebase_user(args.email, password, args.uid)
     print(f"{'created' if created else 'reused '} Firebase user  uid={uid}")
+    if created and args.uid:
+        print(f"        recreated under the uid you asked for — any existing "
+              f"users row pointing at it is live again")
     if not created and args.password is None:
         # The account already existed, so the password we just generated is not
         # its password. Saying otherwise would send somebody a string that

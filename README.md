@@ -30,8 +30,11 @@ python -m venv backend/venv      # create once
 # activate — Windows: backend\venv\Scripts\activate  |  macOS/Linux: source backend/venv/bin/activate
 pip install -r backend/requirements.txt
 ```
-`tensorflow` (Module 1 LSTM only) is heavy; if you're not on that module you can
-install everything else and skip it — the rest of the backend runs without it.
+`tensorflow` is **commented out in `requirements.txt` and not installed** — the
+4-week plan cut the Module 2 LSTM (section 08) and `app/main.py` does not mount
+the router that needs it. Everything else, including the Isolation Forest and
+Markov parts of Module 2, runs without it. Do not uncomment it unless you are
+deliberately bringing the LSTM back; see the docstring at the top of `app/main.py`.
 
 To also run the test suite, install the dev deps too:
 ```bash
@@ -43,10 +46,23 @@ pip install -r backend/requirements-dev.txt
 FIREBASE_CREDENTIALS_PATH=./serviceAccountKey.json
 FIREBASE_DATABASE_URL=https://<your-project>.firebaseio.com
 DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/pathguard
-APP_HOST=0.0.0.0
-APP_PORT=8000
+AUTH_ENABLED=false
 DEBUG=True
 ```
+
+> `backend/.env.example` is the authoritative list and carries the reasoning for
+> each key — copy that rather than this block if you are setting up fresh.
+>
+> **`AUTH_ENABLED` is the one that matters and it used to be missing here.**
+> Default `false` means **every endpoint is open, and patient ids are sequential
+> integers** — anyone holding the URL can read a patient's live position by
+> guessing `1`. That is a deliberate choice for a watched pilot behind an
+> unshared URL (plan D5), and the server logs a warning at startup saying so.
+> Turn it on before any real-patient data leaves the laptop.
+>
+> This block also used to list `APP_HOST` and `APP_PORT`. **No code reads
+> either** — the host and port come from the `uvicorn` command line. They are
+> dropped rather than documented, so nobody sets them and expects an effect.
 
 **Database options for `DATABASE_URL`:**
 - **Cloud (recommended for the team):** a free [Neon](https://neon.tech) Postgres project — everyone shares one DB. Paste Neon's connection string directly; `database.py` auto-adapts it (handles the `+asyncpg` driver and the `sslmode`/`channel_binding` SSL params), so the raw `postgresql://…?sslmode=require` string works as-is.
@@ -61,12 +77,18 @@ Firebase service-account key. **Not in git** (it's a secret) — ask a teammate 
 
 ## Database + GPS Ingestion Layer — Status: ✅ Done & verified
 
-Implemented and **verified end-to-end against cloud Postgres (Neon)**: connect → `init_db()` creates all 5 tables → write through every `crud.py` helper → read back → all correct.
+Implemented and **verified end-to-end against cloud Postgres (Neon)**: connect → `init_db()` creates the tables → write through every `crud.py` helper → read back → all correct.
+
+> ⚠️ **`init_db()` creates missing *tables*, never missing *columns*.** A schema
+> change that adds a column needs a hand-written migration in `backend/scripts/`
+> — that is why `migrate_add_severity_level.py`, `migrate_add_phone.py` and
+> `migrate_add_patient_caregivers.py` exist. Deploying against a database that
+> has not had them run gives you tables that exist and columns that do not.
 
 | File | What it does |
 |------|--------------|
 | `backend/app/db/database.py` | Firebase Admin SDK init + PostgreSQL async engine. Exposes `get_db` (FastAPI dependency), `init_db()`, `init_firebase()`, `get_firebase_ref()`. Auto-adapts a raw Neon/libpq URL for the asyncpg driver. |
-| `backend/app/db/models.py` | SQLAlchemy ORM tables: **User, GPSData, RiskScore, Alert, BehavioralProfile** |
+| `backend/app/db/models.py` | SQLAlchemy ORM — **16 tables.** Patient data: `users`, `patient_caregivers`, `gps_data`, `behavioral_profiles` · AI output: `risk_scores`, `alerts` · Module 3 knowledge base: `risk_factor_weights`, `risk_thresholds`, `temporal_rules`, `danger_zones`, `rule_audit_log` · delivery + access: `device_tokens`, `push_notifications`, `pairing_codes`, `caregiver_invites`, `trip_requests`. Full reference: `backend/docs/database_layer.md` |
 | `backend/app/models/*.py` | Pydantic request/response schemas for GPS, user, alert, risk score |
 | `backend/app/db/crud.py` | **Data-access API the AI modules build on** — async repository helpers (see below) |
 | `backend/app/services/kalman_filter.py` | 2D constant-velocity Kalman filter, one per patient, smooths jittery GPS |
@@ -74,8 +96,12 @@ Implemented and **verified end-to-end against cloud Postgres (Neon)**: connect �
 | `backend/app/services/firebase.py` | Writes live position to Firebase Realtime DB |
 
 **Data split:**
-- **Firebase Realtime DB** → live GPS position, alerts, chat
-- **PostgreSQL** → GPS history (30 days), behavioral profiles, risk scores, AI data
+- **Firebase Realtime DB** → the live position, and nothing else. The only
+  writer in the codebase is `firebase.py:13`, to `live_positions/{patient_id}`.
+  (This line used to say "alerts, chat" — **alerts live in PostgreSQL and reach a
+  phone through FCM**, and chat was cut by the 4-week plan and never built.)
+- **PostgreSQL** → GPS history (30 days), behavioral profiles, risk scores,
+  alerts, the Module 3 knowledge base, pairing/invite codes, trip requests
 
 ### How the AI modules read/write data (use `crud.py`, don't write raw SQL)
 ```python
@@ -94,11 +120,11 @@ await crud.upsert_behavioral_profile(db, patient_id, known_places=..., routine_p
 ```
 **Transaction rule:** `crud` helpers `flush` but never `commit` — the request owns the transaction (`get_db` commits at the end). GPS history is written **only** through `gps_processor.process_gps_point()`, never `crud.save_gps_point` directly.
 
-**Startup is wired in `app/main.py`** (now implemented). Its lifespan calls
-`await init_db()` to create tables. `init_firebase()` is **not** called yet — it
-needs `serviceAccountKey.json`, and the live GPS push is best-effort, so the API
-runs without it during development. Add `init_firebase()` to the lifespan once
-everyone has the key.
+**Startup is wired in `app/main.py`.** Its lifespan calls `await init_db()` to
+create tables, then `init_firebase()` (`main.py:58`) **inside a `try`** — a
+missing or bad `serviceAccountKey.json` logs a warning and degrades to "no live
+map", it never fails the boot. Running without the key is a supported dev mode.
+PostgreSQL is the source of truth; Firebase carries only the live position.
 
 **Note for whoever does deletes/retention:** FK cascade is ORM-level (`cascade="all, delete-orphan"`). Deleting a `User` via SQLAlchemy cascades to their rows; a *raw SQL* delete is blocked by the FK. Add `ondelete="CASCADE"` to the FK columns if you need DB-level cascade.
 
@@ -111,26 +137,53 @@ uvicorn app.main:app --reload
 ```
 Then open **http://127.0.0.1:8000/docs** for the interactive API docs.
 
-Endpoints live today:
-| Method | Path | Module |
+Endpoints live today — **37 operations over 33 paths, listed straight off
+`app.openapi()`** (35 operations are under `/api/*`) so this table cannot drift
+from what the process actually serves. Re-counted 2026-09-02:
+
+| Method | Path | What |
 |---|---|---|
-| POST | `/api/register` | user registration |
-| POST | `/api/gps` | GPS ingestion (see TODO below) |
-| GET | `/api/predict-destination/{patient_id}` | Module 2 — Destination Prediction |
-| GET | `/api/risk/{patient_id}` | Module 3 — Risk Scoring |
-| GET | `/api/search-area/{patient_id}` | Module 4 — Search Area Prediction |
-| GET | `/api/recommendation/{patient_id}` | Module 5 — Smart Recommendation |
-| GET | `/api/admin/rules`, `/api/admin/rules/history` | rule knowledge-base admin |
-| POST/GET | `/api/patients/{id}/places` | caregiver-pinned places |
-| POST/GET/DELETE | `/api/danger-zones` | danger zone admin |
-| POST | `/api/devices/token` | caregiver FCM token — see `backend/API_CONTRACT_APP.md` |
+| POST | `/api/register` | create the `users` row for a signed-in Firebase account |
+| GET | `/api/me` | who this bearer token belongs to — `users.id`, `role`, `phone` |
+| POST | `/api/patients` | caregiver creates a patient, gets an 8-char pairing code |
+| GET | `/api/patients` | the patients this caregiver looks after — call on every launch instead of caching ids |
+| POST | `/api/pair` | the patient's phone trades that code for a Firebase custom token |
+| GET | `/api/patients/{id}` | patient name + `severity_level` — the phone reading its own stage |
+| POST | `/api/gps`, `/api/gps/batch` | GPS ingestion — Kalman → Postgres → Firebase, then risk scoring |
+| POST | `/api/sos` | patient pressed the button — skips scoring entirely |
+| GET | `/api/risk/{id}` | Module 3 — recompute the risk score 0–100 ⚠️ **writes a row and can push, so never poll it** — use the row below on a timer |
+| GET | `/api/patients/{id}/risk/latest` | the last stored risk score, read-only. Safe to poll; this is what a live caregiver map should call |
+| GET | `/api/search-area/{id}` | Module 4 — Monte Carlo + KDE ⚠️ **has side effects, never poll** |
+| GET | `/api/recommendation/{id}` | Module 5 — where the patient likely wants to go |
+| GET | `/api/predict-destination/{id}` | Module 2 — next place, from the Markov transition matrix. Read `scorer` and `history_status` before displaying a percentage |
+| POST/GET | `/api/patients/{id}/places` | caregiver-pinned places (whole set) |
+| PUT | `/api/patients/{id}/places/home` | upsert just the home pin, without wiping the rest |
 | GET | `/api/patients/{id}/track` | recent GPS track for the map |
-| GET/PATCH | `/api/patients/{id}/alerts`, `/api/alerts/{id}` | alert feed + mark resolved |
-| GET | `/api/patients/{patient_id}` | patient name + `severity_level` — the phone reading its own stage |
+| GET | `/api/patients/{id}/alerts` · PATCH `/api/alerts/{id}` | alert feed + mark resolved |
+| POST/DELETE | `/api/alerts/{id}/claim` | "I'll go and get them", and releasing it again |
+| GET | `/api/patients/{id}/caregivers` | caregivers ranked by distance to the patient |
 | POST | `/api/patients/{id}/caregiver-invites` | invite a second caregiver to this patient |
 | POST | `/api/caregivers/redeem-invite` | the second caregiver redeems that code |
-| PUT | `/api/caregivers/{id}/location` | the caregiver app reports where it is (for distance ranking) |
-| GET | `/` | service info |
+| PUT | `/api/caregivers/{id}/location` | the caregiver app reports where it is (latest only) |
+| POST | `/api/devices/token` | FCM device token — see `backend/API_CONTRACT_APP.md` |
+| POST | `/api/trip-requests` · GET `/api/patients/{id}/trip-requests` · PATCH `/api/trip-requests/{id}` | C-3 trip approval |
+| POST/GET | `/api/danger-zones` · DELETE `/api/danger-zones/{zone_id}` | danger zone admin. **DELETE is a soft deactivate** — it sets `active=False` through `rule_repository` with an audit row, so the zone is recoverable and traceable, never removed |
+| GET | `/api/admin/rules`, `/api/admin/rules/history` | rule knowledge-base — **read-only, both are GETs** |
+| GET | `/`, `/health` | service info, liveness probe |
+
+> **`/api/predict-destination` is served by `app/api/destination.py`, NOT by the
+> LSTM.** The LSTM destination model was cut by the 4-week plan (section 08);
+> `app/api/prediction.py` is still in the repo, is not mounted, and **must not be**
+> — its import chain reaches `lstm_utils.py:6 import tensorflow` at module scope,
+> so mounting it without installing TensorFlow first stops the **whole application**
+> from booting, and its path is now taken. Read the docstrings at the top of
+> `app/main.py` and `app/api/prediction.py` before touching either.
+>
+> The cut was the LSTM alone, not Module 2. `wandering_detection` (Isolation
+> Forest), `route_prediction` (Markov + Viterbi) and `stop_confusion_classification`
+> run on every GPS point through `app/ai/module3_risk/risk_data_collection.py` and
+> carry 0.25 + 0.30 + 0.20 of the risk weights between them.
+
 
 ---
 
@@ -138,7 +191,7 @@ Endpoints live today:
 
 All 5 AI modules described in the architecture doc are implemented under
 `backend/app/ai/` and wired into the API above. Verified with the full test
-suite (`python -m pytest -q` from `backend/`, 367 tests passing) plus an
+suite (`python -m pytest -q` from `backend/`, 419 tests passing) plus an
 end-to-end integration test (`tests/test_phase4_integration.py`) that drives
 Module 1 → 2 → 3 → 4 → 5 back to back and asserts a high-risk emergency is
 correctly triggered and traced back to an injected wandering episode.
@@ -149,8 +202,11 @@ data (`python -m scripts.demo_run --patient <id>`).
 ### Running the tests
 ```bash
 cd backend
-python -m pytest -q
+venv/Scripts/python.exe -m pytest -q     # Windows; or activate the venv first
 ```
+**Use the venv's Python, not the system one** — a system `python` without
+`requirements-dev.txt` installed answers `No module named pytest`, which reads
+like a broken repo rather than a missing install.
 No PostgreSQL or Firebase needed — the suite runs against an in-memory SQLite
 DB (see `tests/conftest.py`). Requires `requirements-dev.txt` installed (step 1
 above).
@@ -171,6 +227,10 @@ above).
   1.5 กม. จากจุดศูนย์กลางตัวเอง และ `cluster_places` ไม่ใส่ชื่อสถานที่มาให้เลย — สถานที่ที่
   ระบบเรียนรู้เองจึงบอกครอบครัวเป็นคำพูดไม่ได้ **production ใช้หมุดที่ผู้ดูแลปักเท่านั้น**
   (`POST /api/patients/{id}/places`) โค้ดยังอยู่ในรีโปเพื่อใช้เป็นผลการทดลองในรายงาน
+- **Flutter dev** — on every *later* sign-in call `GET /api/me` to get that same
+  `users.id` back, plus `role` and `phone`. Do not cache the id in a config file:
+  it is per-account, and a hardcoded one silently files every caregiver's patients
+  under somebody else's row. Contract §14.
 - **Flutter dev** — after Firebase sign-in, call `POST /api/register` once so the
   `users` row exists before any GPS is sent. Send timestamps as **UTC ISO**
   strings ending in `Z`. Then `POST /api/devices/token` with the caregiver's FCM
@@ -201,5 +261,10 @@ above).
   gated behind `AUTH_ENABLED` (default `false`); see `.env.example`. Send the
   `Authorization: Bearer <id token>` header from the start so turning it on is a
   one-line change on the server and none in the app.
-- **แอป Flutter ไม่ได้อยู่ในรีโปนี้** — `git ls-files` ไม่มีไฟล์ Flutter สักไฟล์ งานฝั่งแอป
-  อยู่ที่อื่น ซึ่งเป็นเหตุผลที่เอกสารสองฝั่งหลุดจากกันได้ง่าย ถ้าจะย้ายเข้ามารวมกัน คุยกันก่อน
+- **แอปฝั่ง Flutter อยู่คนละที่กับรีโปนี้** ซึ่งเป็นเหตุผลที่เอกสารสองฝั่งหลุดจากกันได้ง่าย
+  ถ้าจะย้ายเข้ามารวมกัน คุยกันก่อน
+  ⚠️ **แก้ 2026-09-02: เดิมบรรทัดนี้เขียนว่า "`git ls-files` ไม่มีไฟล์ Flutter สักไฟล์" ซึ่งไม่จริง**
+  — มีอยู่ 1 ไฟล์คือ `flutter_app/lib/services/location_service.dart` ตกค้างอยู่บน `main`
+  โค้ดแอปตัวจริงอยู่บน branch `frontend1` (ยังไม่ merge และไม่ใช่ของเราที่จะ merge)
+  **ไฟล์เดียวบน `main` นี้จึงเป็นสำเนาที่ไม่มีใครดูแลและจะเก่าเงียบ ๆ** ตัดสินใจร่วมกันว่าจะลบ
+  หรือจะย้ายทั้ง `frontend1` เข้ามา แต่อย่าปล่อยไว้แบบนี้

@@ -14,10 +14,11 @@ route-deviation and danger-zone checks; when omitted the latest stored GPS
 reading is used.
 """
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +37,8 @@ from app.ai.module3_risk import (
     apply_temporal_rules,
 )
 from app.services.notification import notify_alert
+
+logger = logging.getLogger(__name__)
 
 # Module 2's mild-wandering threshold (wandering_detection._MILD_THRESHOLD):
 # raw wandering_score >= 0.55 counts as "wandering detected".
@@ -314,3 +317,88 @@ async def get_risk(
     _: Caller = Depends(verify_patient_access),
 ) -> RiskResponse:
     return await evaluate_risk(db, patient_id, lat, lng)
+
+
+class LatestRiskResponse(BaseModel):
+    """The last score this patient was *given*, not a fresh one.
+
+    Deliberately a different shape from ``RiskResponse``: that one reports a
+    computation that just happened, this one reports a row that was written
+    earlier, so it carries ``calculated_at`` and cannot carry ``emergency`` or
+    ``reason`` — those were decided at write time and acted on then. Re-showing
+    them on a poll would let a caregiver read a resolved emergency as a live one.
+    """
+    patient_id: int
+    status: Literal["ok", "no_data"]
+    risk_score: float | None = None
+    risk_level: str | None = None
+    wandering_detected: bool | None = None
+    gps_available: bool | None = None
+    contributions: dict[str, float] | None = None
+    # UTC ISO ending in Z. The caller needs this to say "as of 2 minutes ago";
+    # a score with no age on a live map reads as current no matter how old.
+    calculated_at: str | None = None
+
+
+@router.get(
+    "/api/patients/{patient_id}/risk/latest",
+    response_model=LatestRiskResponse,
+    summary="อ่านคะแนนเสี่ยงล่าสุดที่บันทึกไว้ — ไม่คำนวณใหม่ ไม่เขียน ไม่แจ้งเตือน",
+)
+async def get_latest_risk(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Caller = Depends(verify_patient_access),
+) -> LatestRiskResponse:
+    """A read the caregiver's map can poll, which ``GET /api/risk`` is not.
+
+    ``GET /api/risk/{id}`` recomputes, **writes a ``risk_scores`` row**, and can
+    fire an alert and a push. That makes it unsafe to put behind a timer, and a
+    live map screen is exactly where a timer goes. The failure is not wasted
+    work — it is a corrupted alerting rule: ``risk.py`` reads the last five
+    stored rows to decide ``sustained_high_risk``, so polling every 5 s fills
+    that window in 25 s and fires an emergency designed to take ~5 minutes of
+    genuinely sustained risk.
+
+    So this endpoint exists to give the screen something safe to call. It reads
+    the newest ``risk_scores`` row and returns it unchanged.
+
+    An unknown patient is a 404; a known patient with no score yet is
+    ``status: "no_data"`` and a 200, because "we have not scored them yet" is an
+    answer and an error code is not — the same choice ``/api/risk`` already makes.
+    """
+    if not await crud.user_exists(db, patient_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"unknown patient_id {patient_id} — call /api/register first",
+        )
+
+    row = await crud.get_latest_risk_score(db, patient_id)
+    if row is None:
+        return LatestRiskResponse(patient_id=patient_id, status="no_data")
+
+    # factors is a JSON string column; a malformed one must not take the screen
+    # down, so it degrades to "no breakdown" rather than raising.
+    contributions: dict[str, float] | None = None
+    if row.factors:
+        try:
+            parsed = json.loads(row.factors)
+            if isinstance(parsed, dict):
+                contributions = parsed
+        except (ValueError, TypeError):
+            logger.warning(
+                "risk_scores.factors for patient %s is not valid JSON", patient_id
+            )
+
+    return LatestRiskResponse(
+        patient_id=patient_id,
+        status="ok",
+        risk_score=row.score,
+        risk_level=row.level,
+        wandering_detected=row.wandering_detected,
+        gps_available=row.gps_available,
+        contributions=contributions,
+        calculated_at=row.calculated_at.astimezone(timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
+    )
