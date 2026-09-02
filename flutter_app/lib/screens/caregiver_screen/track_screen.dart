@@ -23,43 +23,70 @@ class _TrackScreenState extends State<TrackScreen>{
   DateTime? _lastUpdated;
   String _status = 'stationary';
   double? _riskScore;
+  String? _riskLevel;
+  DateTime? _riskCalculatedAt;
 
-  Future<LatLng?> _fetchLatestLocation() async {
+  Future<Map<String, dynamic>?> _fetchLatestTrackPoint() async {
     final res = await apiGet('/api/patients/${widget.patient['id']}/track', queryParams: {'hours': '6'});
+    if (res.statusCode != 200) return null;
     final data = jsonDecode(res.body);
     final points = data['points'] as List;
     if (points.isEmpty) return null;
-    final last = points.last;
-    return LatLng(last['latitude'], last['longitude']);
+    return points.last as Map<String, dynamic>;
   }
 
   Future<List<dynamic>> _fetchAlerts() async {
     final res = await apiGet('/api/patients/${widget.patient['id']}/alerts');
+    if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body);
-    return data ['alerts'] as List;
+    return data['alerts'] as List;
+  }
+
+  /// GET .../risk/latest — read-only, safe to poll. Never GET /api/risk/{id}
+  /// here: that one recomputes and can write an alert + push on every call.
+  Future<Map<String, dynamic>?> _fetchLatestRisk() async {
+    final res = await apiGet('/api/patients/${widget.patient['id']}/risk/latest');
+    if (res.statusCode != 200) return null;
+    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   @override
   void initState() {
     super.initState();
     _timer = Timer.periodic(const Duration(seconds: 15), (timer) async {
-      final location = await _fetchLatestLocation();
+      final point = await _fetchLatestTrackPoint();
       final alerts = await _fetchAlerts();
+      final risk = await _fetchLatestRisk();
+      if (!mounted) return;
+
       final activeAlert = alerts
           .cast<Map<String, dynamic>>()
           .where((a) => a['resolved'] == false)
           .firstOrNull;
+
       setState(() {
-        _currentLocation = location ?? _currentLocation;
-        _lastUpdated = DateTime.now();
+        if (point != null) {
+          _currentLocation = LatLng(
+            (point['latitude'] as num).toDouble(),
+            (point['longitude'] as num).toDouble(),
+          );
+          final recordedAt = point['recorded_at'] as String?;
+          if (recordedAt != null) {
+            _lastUpdated = DateTime.parse(recordedAt).toLocal();
+          }
+        }
         _status = activeAlert != null ? 'traveling' : 'stationary';
-        _riskScore = activeAlert == null
-            ? null
-            : activeAlert['severity'] == 'critical'
-                ? 90.0
-                : activeAlert['severity'] == 'warning'
-                    ? 60.0
-                    : 20.0;
+
+        if (risk != null && risk['status'] == 'ok') {
+          _riskScore = (risk['risk_score'] as num?)?.toDouble();
+          _riskLevel = risk['risk_level'] as String?;
+          final calculatedAt = risk['calculated_at'] as String?;
+          _riskCalculatedAt = calculatedAt != null ? DateTime.parse(calculatedAt).toLocal() : null;
+        } else {
+          _riskScore = null;
+          _riskLevel = null;
+          _riskCalculatedAt = null;
+        }
       });
     });
   }
@@ -68,6 +95,15 @@ class _TrackScreenState extends State<TrackScreen>{
   void dispose() {
     _timer?.cancel();
     super.dispose();
+  }
+
+  String _riskAgeLabel() {
+    if (_riskCalculatedAt == null) return '';
+    final ageMinutes = DateTime.now().difference(_riskCalculatedAt!).inMinutes;
+    if (ageMinutes < 1) return ' (เมื่อครู่นี้)';
+    if (ageMinutes < 60) return ' (เมื่อ $ageMinutes นาทีที่แล้ว)';
+    final ageHours = ageMinutes ~/ 60;
+    return ' (เมื่อ $ageHours ชม.ที่แล้ว)';
   }
 
   @override
@@ -79,16 +115,9 @@ class _TrackScreenState extends State<TrackScreen>{
     final statusLabel = isTraveling ? 'Traveling' : 'Stationary';
     final homePlace = widget.patient['home'] as ParsedLocation?;
     double? distanceInMeters;
-    final riskLevel = _riskScore == null
-    ? null
-    : _riskScore! > 80
-      ? 'High'
-      : _riskScore! >= 50
-        ? 'Medium'
-        : 'Low';
-    final riskColor = riskLevel == 'High'
+    final riskColor = _riskLevel == 'high'
       ? Colors.red
-      : riskLevel == 'Medium'
+      : _riskLevel == 'medium'
         ? Colors.orange
         : Colors.green;
 
@@ -96,7 +125,7 @@ class _TrackScreenState extends State<TrackScreen>{
       final homeLatLng = LatLng(homePlace.latitude, homePlace.longitude);
       distanceInMeters = const Distance().as(LengthUnit.Meter, homeLatLng, _currentLocation!);
     }
-    
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.grey[300],
@@ -147,7 +176,7 @@ class _TrackScreenState extends State<TrackScreen>{
               children:[
                 Text(
                   _riskScore != null
-                    ? 'Risk Score: ${_riskScore!.toStringAsFixed(0)}/100 ($riskLevel)'
+                    ? 'Risk Score: ${_riskScore!.toStringAsFixed(1)}/100 (${_riskLevel ?? "-"})${_riskAgeLabel()}'
                     : 'Risk score not available',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: riskColor),
                 ),
