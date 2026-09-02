@@ -1,8 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'caregiver_homepage_screen.dart';
 import 'caregiver_register_screen.dart';
+import '../../services/api_client.dart';
+import '../../services/device_token_service.dart';
 import '../../services/caregiver_session.dart';
 class PasswordTextField extends StatelessWidget {
   final TextEditingController controller;
@@ -102,21 +105,39 @@ class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
       return;
     }
 
-    // No "who am I" endpoint exists yet for returning caregivers, so this
-    // falls back to the known test account's id from .env — real accounts
-    // created via CaregiverRegistrationScreen get their id from
-    // POST /api/register instead. See project memory for the reasoning.
+    final res = await apiGet('/api/me');
+
+    if (res.statusCode == 403) {
+      if (!mounted) return;
+      setState(() => _errorMessage = 'บัญชีนี้ยังไม่ได้ลงทะเบียนในระบบ');
+      return;
+    }
+    if (res.statusCode != 200) {
+      if (!mounted) return;
+      setState(() => _errorMessage = 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
+      return;
+    }
+
+    final me = jsonDecode(res.body) as Map<String, dynamic>;
+
+    if (me['role'] != 'caregiver') {
+      if (!mounted) return;
+      setState(() => _errorMessage = 'บัญชีนี้เป็นของผู้ป่วย ไม่ใช่ผู้ดูแล');
+      return;
+    }
+
     await CaregiverSession.instance.save(
-      caregiverId: int.parse(dotenv.env['CAREGIVER_TEST_ID']!),
-      caregiverName: FirebaseAuth.instance.currentUser?.email ?? 'Caregiver',
+      caregiverId: me['id'] as int,
+      caregiverName: me['name'] as String,
     );
+    await registerDeviceToken();
 
     if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => CaregiverHomePageScreen(
-          caregiverName: FirebaseAuth.instance.currentUser?.email,
+          caregiverName: me['name'] as String,
         ),
       ),
     );

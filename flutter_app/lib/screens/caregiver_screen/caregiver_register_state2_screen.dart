@@ -1,5 +1,5 @@
 import 'dart:convert';
-
+import '../../services/device_token_service.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/api_client.dart';
@@ -101,6 +101,7 @@ class _CaregiverRegistrationState2ScreenState extends State<CaregiverRegistratio
         caregiverId: data['id'] as int,
         caregiverName: _nameController.text.trim(),
       );
+      await registerDeviceToken();
 
       if (!mounted) return;
 

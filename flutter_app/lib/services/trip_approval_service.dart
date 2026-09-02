@@ -10,10 +10,14 @@ Future<bool> requestTripApproval({
   required String patientName,
   required Map<String, dynamic> place,
 }) async {
+  final patientId = Session.instance.patientId;
+  if (patientId == null) return false;
+
   double? confidence;
+  int? backendId;
 
   final response = await apiPost('/api/trip-requests', body: {
-    'patient_id': Session.instance.patientId,
+    'patient_id': patientId,
     'destination_name': place['name'],
     'latitude': place['lat'],
     'longitude': place['lng'],
@@ -22,12 +26,14 @@ Future<bool> requestTripApproval({
   if (response.statusCode == 200 || response.statusCode == 201) {
     final trip = jsonDecode(response.body);
     confidence = (trip['confidence'] as num?)?.toDouble();
+    backendId = (trip['id'] as num?)?.toInt();
   }
 
   final request = await TripRequestDirectory.instance.create(
     patientName: patientName,
     place: place,
     confidence: confidence,
+    backendId: backendId,
   );
   return request.decision;
 }

@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'package:collection/collection.dart';
+import '../../services/api_client.dart';
+
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
@@ -20,26 +24,42 @@ class _TrackScreenState extends State<TrackScreen>{
   String _status = 'stationary';
   double? _riskScore;
 
-  Future<LatLng> _fetchLatestLocation() async {
-    await Future.delayed(const Duration(seconds: 1));
-    return LatLng(13.7563, 100.5018); // placeholder — swap for real API call later
+  Future<LatLng?> _fetchLatestLocation() async {
+    final res = await apiGet('/api/patients/${widget.patient['id']}/track', queryParams: {'hours': '6'});
+    final data = jsonDecode(res.body);
+    final points = data['points'] as List;
+    if (points.isEmpty) return null;
+    final last = points.last;
+    return LatLng(last['latitude'], last['longitude']);
   }
 
-  Future<double> _fetchRiskScore() async{
-    await Future.delayed(const Duration(seconds: 1));
-    return 42.0;
+  Future<List<dynamic>> _fetchAlerts() async {
+    final res = await apiGet('/api/patients/${widget.patient['id']}/alerts');
+    final data = jsonDecode(res.body);
+    return data ['alerts'] as List;
   }
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+    _timer = Timer.periodic(const Duration(seconds: 15), (timer) async {
       final location = await _fetchLatestLocation();
-      final riskScore = await _fetchRiskScore();
+      final alerts = await _fetchAlerts();
+      final activeAlert = alerts
+          .cast<Map<String, dynamic>>()
+          .where((a) => a['resolved'] == false)
+          .firstOrNull;
       setState(() {
-        _currentLocation = location;
+        _currentLocation = location ?? _currentLocation;
         _lastUpdated = DateTime.now();
-        _riskScore = riskScore;
+        _status = activeAlert != null ? 'traveling' : 'stationary';
+        _riskScore = activeAlert == null
+            ? null
+            : activeAlert['severity'] == 'critical'
+                ? 90.0
+                : activeAlert['severity'] == 'warning'
+                    ? 60.0
+                    : 20.0;
       });
     });
   }

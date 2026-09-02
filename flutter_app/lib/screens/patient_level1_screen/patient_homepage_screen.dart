@@ -47,7 +47,6 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   void dispose() {
     _debounce?.cancel();
     _searchController.dispose();
-    stopGpsReporting();
     super.dispose();
   }
 

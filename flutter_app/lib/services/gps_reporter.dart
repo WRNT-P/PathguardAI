@@ -1,10 +1,32 @@
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'api_client.dart';
 import 'session.dart';
+import 'gps_task_handler.dart';
 
 StreamSubscription<Position>? _sub;
 DateTime? _lastSent;
+bool _foregroundTaskInitialized = false;
+
+void _initForegroundTask() {
+  if (_foregroundTaskInitialized) return;
+  _foregroundTaskInitialized = true;
+  FlutterForegroundTask.init(
+    androidNotificationOptions: AndroidNotificationOptions(
+      channelId: 'pathguard_gps_channel',
+      channelName: 'PathGuard location tracking',
+      channelDescription: 'Keeps sending your location to your caregiver.',
+    ),
+    iosNotificationOptions: const IOSNotificationOptions(),
+    foregroundTaskOptions: ForegroundTaskOptions(
+      eventAction: ForegroundTaskEventAction.repeat(60000),
+      autoRunOnBoot: false,
+      allowWakeLock: true,
+    ),
+  );
+}
 
 Future<void> startGpsReporting() async {
   if (_sub != null) return;
@@ -19,17 +41,31 @@ Future<void> startGpsReporting() async {
     return;
   }
 
+  // Foreground location grant only gets us "while in use"; background
+  // tracking needs "allow all the time", which Android 10+ requires asking
+  // for separately (and routes to a Settings screen, not an in-app dialog).
+  await Permission.locationAlways.request();
+
   _sub = Geolocator.getPositionStream(
     locationSettings: const LocationSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 10,
     )
   ).listen(_send);
+
+  _initForegroundTask();
+  await FlutterForegroundTask.startService(
+    serviceId: 256,
+    notificationTitle: 'PathGuard is tracking your location',
+    notificationText: 'This keeps your caregiver updated even when the screen is off.',
+    callback: startGpsCallback,
+  );
 }
 
 Future<void> stopGpsReporting() async {
   await _sub?.cancel();
   _sub = null;
+  await FlutterForegroundTask.stopService();
 }
 
 Future<void> _send(Position p) async {

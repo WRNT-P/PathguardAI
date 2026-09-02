@@ -64,7 +64,6 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
 
   @override
   void dispose() {
-    stopGpsReporting();
     super.dispose();
   }
 

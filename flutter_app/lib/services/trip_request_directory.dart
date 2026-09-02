@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'api_client.dart';
 
 enum TripRequestStatus { pending, approved, rejected }
 
@@ -20,6 +21,7 @@ class TripRequest {
   final String patientName;
   final Map<String, dynamic> place;
   final double? confidence;
+  final int? backendId;
   TripRequestStatus status;
   final Completer<bool> _decision = Completer<bool>();
 
@@ -28,6 +30,7 @@ class TripRequest {
     required this.patientName,
     required this.place,
     this.confidence,
+    this.backendId,
     this.status = TripRequestStatus.pending,
   });
 
@@ -78,7 +81,8 @@ class TripRequestDirectory extends ChangeNotifier {
             id: id,
             patientName: map['patientName'] as String,
             place: Map<String, dynamic>.from(map['place'] as Map),
-            confidence: (map['confidence'] as num?)?.toDouble()
+            confidence: (map['confidence'] as num?)?.toDouble(),
+            backendId: (map['backendId'] as num?)?.toInt(),
           );
       request.status = status;
       if (status != TripRequestStatus.pending) {
@@ -90,10 +94,21 @@ class TripRequestDirectory extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<TripRequest> create({required String patientName, required Map<String, dynamic> place, double? confidence}) async {
+  Future<TripRequest> create({
+    required String patientName,
+    required Map<String, dynamic> place,
+    double? confidence,
+    int? backendId,
+  }) async {
     final ref = _ref.push();
     final id = ref.key!;
-    final request = TripRequest(id: id, patientName: patientName, place: place, confidence: confidence);
+    final request = TripRequest(
+      id: id,
+      patientName: patientName,
+      place: place,
+      confidence: confidence,
+      backendId: backendId,
+    );
     _liveRequests[id] = request;
 
     await ref.set({
@@ -101,13 +116,24 @@ class TripRequestDirectory extends ChangeNotifier {
       'place': place,
       'status': 'pending',
       if (confidence != null) 'confidence': confidence,
+      if (backendId != null) 'backendId': backendId,
     });
 
     return request;
   }
 
-  Future<void> decide(String id, bool approved) {
-    return _ref.child(id).update({'status': approved ? 'approved' : 'rejected'});
+  Future<void> decide(String id, bool approved) async {
+    await _ref.child(id).update({'status': approved ? 'approved' : 'rejected'});
+
+    final backendId = _liveRequests[id]?.backendId;
+    if (backendId == null) return;
+
+    try {
+      await apiPatch('/api/trip-requests/$backendId', body: {
+        'decision': approved ? 'approve' : 'reject',
+      });
+    } catch (_) {
+    }
   }
 
   List<TripRequest> get pending =>
