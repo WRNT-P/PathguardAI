@@ -25,6 +25,18 @@
 > (prototyped behind `--stops` in `scripts/measure_learning_days.py`: 6–8 places
 > instead of 156) — **deliberately not applied.**
 >
+> **UPDATED 2026-09-02: the precision half of this is fixed.**
+> `place_clustering.py` now runs the stay-point extraction described above
+> (100 m / 15 min) before DBSCAN, in production, not just in the prototype —
+> tests updated (`test_module1_clustering.py`, `test_known_places_merge.py`,
+> `test_phase4_integration.py`), full suite green (438 passed). A 30-day track
+> now yields the measured 6–8 real places, not 156. **The naming half is not
+> fixed** — `place_clustering.py` still emits no `place_name`, so this changes
+> "worse than pins" to "as precise as pins, still unnamed," not "ready to
+> replace pins." `analyze_behavior()` is still not scheduled anywhere in
+> production (no cron/endpoint calls it) — this fix makes calling it safe, not
+> automatic.
+>
 > **DECIDED 2026-08-26: this is WONTFIX, and the decision is a reported finding,
 > not a hidden gap.** Two further measurements sealed it. Replaying
 > `/api/search-area`'s own steps 5–8 over the same track with three different

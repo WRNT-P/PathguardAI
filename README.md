@@ -222,11 +222,19 @@ above).
   to `users.id` (not the Firebase UID string — that lives in `users.firebase_uid`),
   the time field is `recorded_at` (UTC ISO ending in `Z`), and `speed`/`direction`
   default to `null`. Full contract in `backend/API_CONTRACT_APP.md`.
-- **Module 1 (behavior) — ⛔ ห้ามเรียก `analyze_behavior()` (ตัดสิน 2026-08-26).**
-  วัดแล้วว่า DBSCAN บนจุด GPS ดิบให้ "สถานที่" 142–156 แห่งต่อ 30 วัน ก้อนใหญ่สุดกินพื้นที่
-  1.5 กม. จากจุดศูนย์กลางตัวเอง และ `cluster_places` ไม่ใส่ชื่อสถานที่มาให้เลย — สถานที่ที่
-  ระบบเรียนรู้เองจึงบอกครอบครัวเป็นคำพูดไม่ได้ **production ใช้หมุดที่ผู้ดูแลปักเท่านั้น**
-  (`POST /api/patients/{id}/places`) โค้ดยังอยู่ในรีโปเพื่อใช้เป็นผลการทดลองในรายงาน
+- **Module 1 (behavior) — ✅ `analyze_behavior()` fixed 2026-09-02, safe to call.**
+  The 2026-08-26 WONTFIX was against feeding *raw GPS fixes* straight into DBSCAN,
+  which measured 142–156 junk "places" per 30 days (mostly traffic lights — a
+  cluster forms wherever enough fixes land nearby, regardless of how long the
+  patient actually stood there). `place_clustering.py` now runs **stay-point
+  extraction** first (Li et al.: collapse the track to runs of consecutive fixes
+  that stayed within 100 m for ≥15 minutes, then DBSCAN over those stops instead
+  of raw fixes) — the fix that `scripts/measure_learning_days.py --stops` had
+  already prototyped and measured (156 → 6-8 real places on the same GeoLife
+  data), just never applied to production before. `cluster_places` still emits
+  no `place_name` (an algorithm can't name a place — that's still a human's job),
+  so caregiver pins remain the only *named* places; learned places merge in
+  underneath them via `known_places.merge_learned` same as before.
 - **Flutter dev** — on every *later* sign-in call `GET /api/me` to get that same
   `users.id` back, plus `role` and `phone`. Do not cache the id in a config file:
   it is per-account, and a hardcoded one silently files every caregiver's patients
