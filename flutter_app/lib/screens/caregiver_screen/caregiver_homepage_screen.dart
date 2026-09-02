@@ -3,6 +3,8 @@ import 'dart:io';
 import 'add_patient_screen.dart';
 import 'track_screen.dart';
 import 'notification_screen.dart';
+import 'destination_prediction_screen.dart';
+import 'find_patient_screen.dart';
 import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/location_service.dart';
@@ -202,6 +204,32 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 );
               },
               child: const Text('Track'),
+            ),
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                if (value == 'predict') {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => DestinationPredictionScreen(
+                        patientId: patient['id'] as int,
+                        patientName: patient['name'] as String,
+                      ),
+                    ),
+                  );
+                } else if (value == 'find') {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => FindPatientScreen(patient: patient),
+                    ),
+                  );
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: 'predict', child: Text('คาดการณ์ปลายทาง')),
+                PopupMenuItem(value: 'find', child: Text('ค้นหา (หาไม่เจอ)')),
+              ],
             ),
           ]
         ),
