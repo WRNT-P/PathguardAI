@@ -60,6 +60,7 @@ async def register_user(
         name=payload.name,
         role=payload.role,
         caregiver_id=payload.caregiver_id,
+        phone=payload.phone,
     )
     # Built by hand rather than straight off the ORM row: ``caregiver_id`` stopped
     # being a column on ``users`` on 2026-08-28 and is now a patient_caregivers
@@ -71,6 +72,7 @@ async def register_user(
         name=user.name,
         role=user.role,
         caregiver_id=payload.caregiver_id,
+        phone=user.phone,
         created_at=user.created_at,
     )
 
@@ -149,6 +151,8 @@ class RankedCaregiver(BaseModel):
     caregiver_id: int
     name: str
     is_primary: bool
+    phone: str | None = Field(
+        None, description="เบอร์โทรของผู้ดูแล · null = ยังไม่เคยกรอก ให้ซ่อนปุ่มโทร")
     distance_m: float | None = Field(
         None, description="ระยะทางถึงตำแหน่งล่าสุดของผู้ป่วย · null = ไม่รู้ตำแหน่งผู้ดูแล")
     location_age_s: float | None = Field(
@@ -218,6 +222,7 @@ async def rank_caregivers(
             caregiver_id=user.id,
             name=user.name,
             is_primary=is_primary,
+            phone=user.phone,
             distance_m=distance_m,
             location_age_s=age_s,
             usable=(distance_m is not None and age_s is not None

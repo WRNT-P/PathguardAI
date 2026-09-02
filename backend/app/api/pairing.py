@@ -186,6 +186,22 @@ async def create_patient(
     if caregiver is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail=f"caregiver {caregiver_id} not found")
+    # Existing was not enough. Until 2026-08-30 any users.id passed here was
+    # accepted, so a patient's id worked and the new patient was linked to a
+    # person who has dementia rather than to a caregiver — a 201 and a pairing
+    # code, with nobody who can be alerted at the other end. Found because the
+    # app side had to hardcode an id while their caregiver login was unbuilt,
+    # and picked one that belongs to a seed patient.
+    #
+    # With AUTH_ENABLED on this is also an authorization check: caregiver_id is
+    # then the caller's own id, so it stops a paired patient device from
+    # creating patients under itself.
+    if caregiver.role != "caregiver":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"user {caregiver_id} has role '{caregiver.role}', "
+                   "not 'caregiver'",
+        )
 
     # The uid the patient's Firebase account will be created with when the phone
     # redeems the code. Random rather than derived from users.id so it carries no
