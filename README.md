@@ -137,8 +137,8 @@ uvicorn app.main:app --reload
 ```
 Then open **http://127.0.0.1:8000/docs** for the interactive API docs.
 
-Endpoints live today — **36 operations over 33 paths, listed straight off
-`app.openapi()`** (34 operations are under `/api/*`) so this table cannot drift
+Endpoints live today — **37 operations over 33 paths, listed straight off
+`app.openapi()`** (35 operations are under `/api/*`) so this table cannot drift
 from what the process actually serves. Re-counted 2026-09-02:
 
 | Method | Path | What |
@@ -146,6 +146,7 @@ from what the process actually serves. Re-counted 2026-09-02:
 | POST | `/api/register` | create the `users` row for a signed-in Firebase account |
 | GET | `/api/me` | who this bearer token belongs to — `users.id`, `role`, `phone` |
 | POST | `/api/patients` | caregiver creates a patient, gets an 8-char pairing code |
+| GET | `/api/patients` | the patients this caregiver looks after — call on every launch instead of caching ids |
 | POST | `/api/pair` | the patient's phone trades that code for a Firebase custom token |
 | GET | `/api/patients/{id}` | patient name + `severity_level` — the phone reading its own stage |
 | POST | `/api/gps`, `/api/gps/batch` | GPS ingestion — Kalman → Postgres → Firebase, then risk scoring |
