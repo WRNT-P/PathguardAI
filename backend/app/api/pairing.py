@@ -230,6 +230,54 @@ async def create_patient(
     )
 
 
+class PairingCodeOut(BaseModel):
+    patient_id: int
+    pairing_code: str = Field(..., description="รูปแบบที่ผู้ดูแลอ่าน เช่น 7K2M-P9QX")
+    expires_at: datetime
+
+
+@router.post(
+    "/api/patients/{patient_id}/pairing-code",
+    response_model=PairingCodeOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="ออกรหัสจับคู่ใหม่ให้ผู้ป่วยที่มีอยู่แล้ว (เช่น เปลี่ยนเครื่อง หรือ sign out ไปแล้วกลับเข้าไม่ได้)",
+)
+async def reissue_pairing_code(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    caller: Caller = Depends(verify_patient_access),
+) -> PairingCodeOut:
+    """A second way in for a patient who already exists.
+
+    ``POST /api/patients`` only ever issues a code at creation time — fine for
+    a phone that pairs once and never signs out again, which was the only case
+    that existed until the app grew a logout button. That button clears the
+    local session and (until this existed) also signed out of Firebase, and a
+    patient has no password to sign back in with — the pairing code was the
+    only door, and it locks itself within 24 hours.
+
+    Reuses ``_issue_code`` exactly as creation does: same TTL, same single-use
+    row, same ``/api/pair`` on the other end. ``/api/pair`` already resolves a
+    code to ``row.patient_id`` and mints a token for that patient's *existing*
+    ``firebase_uid`` — it was never told the code had to come from creation, so
+    nothing there needed to change for this to work.
+    """
+    patient = await crud.get_user(db, patient_id)
+    if patient is None or patient.role != "patient":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"unknown patient_id {patient_id}",
+        )
+    code, expires_at = await _issue_code(db, patient_id)
+    logger.info("pairing code reissued for patient %s by caller %s",
+                patient_id, caller.user_id)
+    return PairingCodeOut(
+        patient_id=patient_id,
+        pairing_code=format_code(code),
+        expires_at=expires_at,
+    )
+
+
 @router.post(
     "/api/pair",
     response_model=PairOut,

@@ -565,6 +565,25 @@ async def update_user_location(
     return user
 
 
+async def update_user_availability(
+    db: AsyncSession, user_id: int, is_available: bool,
+) -> User | None:
+    """Record whether this caregiver is free to respond. None if no such user.
+
+    No timestamp beside it, unlike ``update_user_location``: a position goes
+    stale on its own because the person moved, and a stated availability does
+    not — it stays true until the caregiver says otherwise. Stamping it would
+    invite a reader to expire it, and an expired flag reads as "ไม่ว่าง" next to
+    somebody who never said that.
+    """
+    user = await db.get(User, user_id)
+    if user is None:
+        return None
+    user.is_available = is_available
+    await db.flush()
+    return user
+
+
 async def get_caregiver_ids(db: AsyncSession, patient_id: int) -> list[int]:
     """Every caregiver responsible for this patient, primary first.
 

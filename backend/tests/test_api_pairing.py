@@ -347,3 +347,49 @@ async def test_stranger_cannot_read_a_patient_profile(client, caregiver, db_sess
 
     assert r.status_code == 403
     assert other.id  # the stranger is a real signed-in account, not an unknown one
+
+
+# ── reissuing a code for a patient who already exists ────────────────────────
+
+async def test_reissuing_a_code_lets_the_same_patient_pair_again(client, caregiver, mint):
+    """The logout case: the original code is long spent, and the phone has to
+    get back in as the *same* patient, not a new one."""
+    created = (await create_patient(client, caregiver)).json()
+    patient_id = created["patient_id"]
+
+    reissued = await client.post(f"/api/patients/{patient_id}/pairing-code")
+    assert reissued.status_code == 201, reissued.text
+    body = reissued.json()
+    assert body["patient_id"] == patient_id
+    assert body["pairing_code"] != created["pairing_code"]
+
+    paired = await client.post("/api/pair", json={"code": body["pairing_code"]})
+    assert paired.status_code == 200, paired.text
+    assert paired.json()["patient_id"] == patient_id
+    # Same firebase_uid minted both times — a re-pair, not a second patient.
+    assert len(mint) == 1
+    assert mint[0] == mint[-1]
+
+
+async def test_reissued_code_is_single_use_like_the_original(client, caregiver, mint):
+    created = (await create_patient(client, caregiver)).json()
+    reissued = (await client.post(
+        f"/api/patients/{created['patient_id']}/pairing-code")).json()
+
+    first = await client.post("/api/pair", json={"code": reissued["pairing_code"]})
+    assert first.status_code == 200
+
+    replayed = await client.post("/api/pair", json={"code": reissued["pairing_code"]})
+    assert replayed.status_code == 404
+
+
+async def test_cannot_reissue_a_code_for_a_nonexistent_patient(client, caregiver):
+    r = await client.post("/api/patients/9999/pairing-code")
+    assert r.status_code == 404
+
+
+async def test_cannot_reissue_a_code_for_a_caregiver_id(client, caregiver):
+    """The id has to belong to a patient row — a caregiver's own id must not
+    quietly hand back a 'pairing code' for signing in as themselves."""
+    r = await client.post(f"/api/patients/{caregiver}/pairing-code")
+    assert r.status_code == 404
