@@ -25,6 +25,12 @@ Future<bool> requestTripApproval({
 
   if (response.statusCode == 200 || response.statusCode == 201) {
     final trip = jsonDecode(response.body);
+    // Level 1 patients don't need approval — the backend says so explicitly
+    // via status: "not_required" and never writes a row (id stays null).
+    // Waiting on a caregiver decision here would mean a Level 1 patient is
+    // stuck until someone happens to approve a request that was never
+    // supposed to exist.
+    if (trip['status'] == 'not_required') return true;
     confidence = (trip['confidence'] as num?)?.toDouble();
     backendId = (trip['id'] as num?)?.toInt();
   }

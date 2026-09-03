@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
 import 'add_patient_screen.dart';
 import 'track_screen.dart';
@@ -9,6 +10,7 @@ import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/location_service.dart';
 import '../../services/caregiver_session.dart';
+import '../login_screen.dart';
 
 class CaregiverHomePageScreen extends StatefulWidget {
   final String? caregiverName;
@@ -21,6 +23,65 @@ class CaregiverHomePageScreen extends StatefulWidget {
 
 class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   List<Map<String, dynamic>> patients = [];
+  bool _loadingPatients = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPatients();
+  }
+
+  /// The patient list used to live only in this widget's in-memory state, so
+  /// it reset to empty on every app restart even though the patients still
+  /// existed on the backend. GET /api/patients rebuilds it from the server,
+  /// keyed off the caregiver's own token — no caregiver_id needed.
+  Future<void> _loadPatients() async {
+    try {
+      final res = await apiGet('/api/patients');
+      if (res.statusCode != 200) return;
+      final data = jsonDecode(res.body);
+      final basics = (data['patients'] as List)
+          .map((p) => {
+                'id': p['patient_id'] as int,
+                'name': p['name'] as String,
+              })
+          .toList();
+
+      // profileImage stays null — that was always local-only, never sent to
+      // the backend, so there's nothing to restore it from after a restart.
+      final loaded = await Future.wait(basics.map((p) async {
+        return {...p, 'home': await _fetchHomePlace(p['id'] as int)};
+      }));
+
+      if (!mounted) return;
+      setState(() => patients = loaded);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loadingPatients = false);
+    }
+  }
+
+  /// Best-effort — a patient with no home pin yet, or a request that fails,
+  /// just means the track screen shows "Safe place not set" like it already
+  /// does for a brand-new patient.
+  Future<ParsedLocation?> _fetchHomePlace(int patientId) async {
+    try {
+      final res = await apiGet('/api/patients/$patientId/places');
+      if (res.statusCode != 200) return null;
+      final places = jsonDecode(res.body)['places'] as List;
+      final home = places.cast<Map<String, dynamic>>().firstWhere(
+            (p) => p['is_home'] == true,
+            orElse: () => {},
+          );
+      if (home.isEmpty) return null;
+      return ParsedLocation(
+        (home['latitude'] as num).toDouble(),
+        (home['longitude'] as num).toDouble(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 
   Widget _buildEmptyState() {
     return Center(
@@ -277,8 +338,14 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                         ),
                       ),
                       IconButton(
-                        onPressed: () {
-                          Navigator.of(context).popUntil((route) => route.isFirst);
+                        onPressed: () async {
+                          await FirebaseAuth.instance.signOut();
+                          await CaregiverSession.instance.clear();
+                          if (!context.mounted) return;
+                          Navigator.of(context).pushAndRemoveUntil(
+                            MaterialPageRoute(builder: (context) => const LoginScreen()),
+                            (route) => false,
+                          );
                         },
                         icon: const Icon(Icons.logout),
                       ),
@@ -290,7 +357,9 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
 
             // 2. Main content area (scrollable)
             Expanded(
-              child: patients.isEmpty
+              child: _loadingPatients
+                  ? const Center(child: CircularProgressIndicator())
+                  : patients.isEmpty
                   ? _buildEmptyState()
                   : SingleChildScrollView(
                       child: Column(

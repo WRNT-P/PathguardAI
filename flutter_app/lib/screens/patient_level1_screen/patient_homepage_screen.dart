@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'navigation_screen.dart';
 import 'sos_contact_screen.dart';
 import 'dart:async';
@@ -12,6 +13,7 @@ import '../../services/api_client.dart';
 import '../../services/session.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../services/safe_zone_service.dart';
+import '../login_screen.dart';
 
 enum _ScreenState { browsing, waitingApproval, rejected }
 
@@ -50,13 +52,26 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     super.dispose();
   }
 
+  Future<void> _handleLogout() async {
+    await stopGpsReporting();
+    await FirebaseAuth.instance.signOut();
+    await Session.instance.clear();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      (route) => false,
+    );
+  }
+
   bool _sosSending = false;
   Future<void> _handleSOS() async {
     setState(() {
       _sosSending = true;
     });
 
-    await triggerSOS();
+    try {
+      await triggerSOS();
+    } catch (_) {}
 
     Map<String, dynamic>? safePlace;
     try {
@@ -112,9 +127,11 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   }
 
   Future<void> _requestTrip(Map<String, dynamic> place) async {
+    // Level 1 patients never need caregiver approval (backend returns
+    // status: "not_required" immediately) — this screen is Level 1 only, so
+    // there is nothing to wait on and no reason to flash a "waiting" screen.
     setState(() {
       _selectedPlace = place;
-      _state = _ScreenState.waitingApproval;
     });
 
     final approved = await requestTripApproval(
@@ -345,6 +362,12 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Patient Home'),
+        actions: [
+          IconButton(
+            onPressed: _handleLogout,
+            icon: const Icon(Icons.logout),
+          ),
+        ],
       ),
       body: content,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,

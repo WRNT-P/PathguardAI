@@ -113,10 +113,16 @@ class _CaregiverRegistrationState2ScreenState extends State<CaregiverRegistratio
           ),
         ),
       );
-    } on FirebaseAuthException catch (_) {
+    } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Could not create account — check your email and password.';
+        _errorMessage = switch (e.code) {
+          'email-already-in-use' => 'This email is already registered — try logging in instead.',
+          'invalid-email' => 'That email address is not valid.',
+          'weak-password' => 'Password is too weak — use at least 6 characters.',
+          'network-request-failed' => 'Network error — check your connection and try again.',
+          _ => 'Could not create account (${e.code}).',
+        };
       });
     } catch (_) {
       await credential?.user?.delete();
