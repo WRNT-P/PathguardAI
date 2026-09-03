@@ -6,6 +6,8 @@ import 'track_screen.dart';
 import 'notification_screen.dart';
 import 'destination_prediction_screen.dart';
 import 'find_patient_screen.dart';
+import 'invite_caregiver_screen.dart';
+import 'join_patient_screen.dart';
 import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/location_service.dart';
@@ -200,6 +202,21 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
               style: TextStyle(color: Colors.white, fontSize: 16,),
             ),
           ),
+          const SizedBox(height: 8),
+          // The second caregiver's way in. Sits beside Add Patient rather than
+          // behind a menu because the person who needs it has an empty list —
+          // there is no patient row to open a menu on.
+          OutlinedButton(
+            onPressed: () async {
+              final joined = await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const JoinPatientScreen()),
+              );
+              if (joined == true && mounted) _loadPatients();
+            },
+            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+            child: const Text('Join a patient', style: TextStyle(fontSize: 16)),
+          ),
         ],
       ),
     );
@@ -285,11 +302,22 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                       builder: (context) => FindPatientScreen(patient: patient),
                     ),
                   );
+                } else if (value == 'invite') {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => InviteCaregiverScreen(
+                        patientId: patient['id'] as int,
+                        patientName: patient['name'] as String,
+                      ),
+                    ),
+                  );
                 }
               },
               itemBuilder: (context) => const [
                 PopupMenuItem(value: 'predict', child: Text('คาดการณ์ปลายทาง')),
                 PopupMenuItem(value: 'find', child: Text('ค้นหา (หาไม่เจอ)')),
+                PopupMenuItem(value: 'invite', child: Text('เชิญผู้ดูแลอีกคน')),
               ],
             ),
           ]
