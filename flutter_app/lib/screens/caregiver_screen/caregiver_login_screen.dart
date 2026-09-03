@@ -109,12 +109,12 @@ class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
 
     if (res.statusCode == 403) {
       if (!mounted) return;
-      setState(() => _errorMessage = 'บัญชีนี้ยังไม่ได้ลงทะเบียนในระบบ');
+      setState(() => _errorMessage = 'This account is not registered in the system');
       return;
     }
     if (res.statusCode != 200) {
       if (!mounted) return;
-      setState(() => _errorMessage = 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
+      setState(() => _errorMessage = 'Could not connect to the server');
       return;
     }
 
@@ -122,7 +122,7 @@ class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
 
     if (me['role'] != 'caregiver') {
       if (!mounted) return;
-      setState(() => _errorMessage = 'บัญชีนี้เป็นของผู้ป่วย ไม่ใช่ผู้ดูแล');
+      setState(() => _errorMessage = 'This account belongs to a patient, not a caregiver');
       return;
     }
 

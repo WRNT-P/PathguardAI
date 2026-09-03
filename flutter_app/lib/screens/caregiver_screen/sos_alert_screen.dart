@@ -30,6 +30,7 @@ class SosAlertScreen extends StatefulWidget {
 class _SosAlertScreenState extends State<SosAlertScreen> {
   late Map<String, dynamic> _alert = widget.alert;
   List<Map<String, dynamic>> _rankedCaregivers = [];
+  Map<String, dynamic>? _prediction;
   bool _acting = false;
   Timer? _refreshTimer;
 
@@ -37,7 +38,24 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
   void initState() {
     super.initState();
     _refresh();
+    _loadPrediction();
     _refreshTimer = Timer.periodic(const Duration(seconds: 8), (_) => _refresh());
+  }
+
+  /// Module 2 — only meaningful once there's enough travel history to trust
+  /// (history_status "ok"). "none"/"sparse" means the patient is still in the
+  /// behavior-learning phase, where a guessed destination would be a coin
+  /// flip dressed up as a prediction — say nothing rather than mislead.
+  Future<void> _loadPrediction() async {
+    try {
+      final res = await apiGet('/api/predict-destination/${widget.patientId}');
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (body['status'] == 'ok' && body['history_status'] == 'ok') {
+        if (mounted) setState(() => _prediction = body);
+      }
+    } catch (_) {
+    }
   }
 
   @override
@@ -79,7 +97,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
         setState(() => _alert = jsonDecode(res.body)['alert'] as Map<String, dynamic>);
       } else if (res.statusCode == 409 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('มีคนรับเรื่องนี้ไปแล้ว')),
+          const SnackBar(content: Text('Someone already claimed this')),
         );
         await _refresh();
       }
@@ -129,10 +147,28 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              _alert['message'] as String? ?? 'ผู้ป่วยต้องการความช่วยเหลือ',
+              _alert['message'] as String? ?? 'The patient needs help',
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
+          if (_prediction != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange[200]!),
+                ),
+                child: Text(
+                  'Predicted destination: ${(_prediction!['predictions'] as List).isNotEmpty ? (_prediction!['predictions'][0]['place_name'] ?? 'Unknown place') : 'Unknown'} '
+                  '(based on past travel statistics)',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
           if (lat != null && lng != null)
             SizedBox(
               height: 220,
@@ -154,7 +190,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
             padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text('ผู้ดูแลใกล้ที่สุด', style: TextStyle(fontWeight: FontWeight.w600)),
+              child: Text('Nearest caregivers', style: TextStyle(fontWeight: FontWeight.w600)),
             ),
           ),
           Expanded(
@@ -164,11 +200,11 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
                 final phone = c['phone'] as String?;
                 return ListTile(
                   leading: const Icon(Icons.person),
-                  title: Text(c['name'] as String? ?? 'ไม่มีชื่อ'),
+                  title: Text(c['name'] as String? ?? 'Unnamed'),
                   subtitle: Text(
                     distance != null
-                        ? '${(distance / 1000).toStringAsFixed(1)} กม.'
-                        : 'ไม่ทราบตำแหน่ง',
+                        ? '${(distance / 1000).toStringAsFixed(1)} km'
+                        : 'Unknown location',
                   ),
                   trailing: phone != null
                       ? IconButton(
@@ -192,13 +228,13 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
                           backgroundColor: Colors.red,
                           minimumSize: const Size(0, 48),
                         ),
-                        child: const Text('ฉันจะไปรับ', style: TextStyle(color: Colors.white)),
+                        child: const Text("I'll go get them", style: TextStyle(color: Colors.white)),
                       )
                     : claimedBy == myId
                         ? ElevatedButton(
                             onPressed: _acting ? null : _cancelClaim,
                             style: ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
-                            child: const Text('ยกเลิกการรับเรื่อง'),
+                            child: const Text('Cancel claim'),
                           )
                         : Container(
                             padding: const EdgeInsets.all(12),
@@ -207,7 +243,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              '${claimedByName ?? "ผู้ดูแลคนอื่น"} กำลังไปรับแล้ว',
+                              '${claimedByName ?? "Another caregiver"} is on their way',
                               textAlign: TextAlign.center,
                               style: const TextStyle(fontWeight: FontWeight.w600),
                             ),

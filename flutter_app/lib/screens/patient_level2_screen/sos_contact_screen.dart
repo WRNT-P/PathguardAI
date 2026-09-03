@@ -18,8 +18,14 @@ Future<void> _callNumber(BuildContext context, String phone) async {
 class CaregiverTile extends StatelessWidget {
   final String name;
   final String? phone;
+  final bool? isAvailable;
 
-  const CaregiverTile({super.key, required this.name, required this.phone});
+  const CaregiverTile({
+    super.key,
+    required this.name,
+    required this.phone,
+    required this.isAvailable,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -41,10 +47,27 @@ class CaregiverTile extends StatelessWidget {
           ),
           const SizedBox(width: 16),
           Expanded(
-            child: Text(
-              name,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            )
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name,
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                ),
+                // null = never toggled a status — must not read as "Unavailable".
+                Text(
+                  isAvailable == null ? 'Unknown status' : (isAvailable! ? 'Available' : 'Unavailable'),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: isAvailable == null
+                        ? Colors.black45
+                        : (isAvailable! ? Colors.green : Colors.red),
+                  ),
+                ),
+              ],
+            ),
           ),
           ElevatedButton.icon(
             onPressed: phone == null ? null : () => _callNumber(context, phone!),
@@ -184,7 +207,11 @@ class SosContactScreen extends StatefulWidget {
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
-                  ...caregivers.map((c) => CaregiverTile(name: c['name'] as String, phone: c['phone'] as String?)),
+                  ...caregivers.map((c) => CaregiverTile(
+                        name: c['name'] as String,
+                        phone: c['phone'] as String?,
+                        isAvailable: c['is_available'] as bool?,
+                      )),
                 ],
               ),
             ),

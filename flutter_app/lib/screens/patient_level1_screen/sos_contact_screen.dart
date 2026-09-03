@@ -19,12 +19,14 @@ class CaregiverCard extends StatelessWidget {
   final String name;
   final double? distanceM;
   final String? phone;
+  final bool? isAvailable;
 
   const CaregiverCard({
     super.key,
     required this.name,
     required this.distanceM,
     required this.phone,
+    required this.isAvailable,
   });
 
   @override
@@ -38,15 +40,27 @@ class CaregiverCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // No "ว่าง/ไม่ว่าง" badge — backend has no availability field yet
-          // (that's a separate piece of work), so a hardcoded badge here
-          // would just be a different fake value than before.
-          Align(
-            alignment: Alignment.topRight,
-            child: Text(
-              distanceM != null ? '${(distanceM! / 1000).toStringAsFixed(1)} กม.' : 'ไม่ทราบตำแหน่ง',
-              style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600),
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // null = never toggled it — not the same as "not available", so
+              // it must not render as "Unavailable". A caregiver who hasn't set a
+              // status yet is still someone worth calling.
+              Text(
+                isAvailable == null ? 'Unknown status' : (isAvailable! ? 'Available' : 'Unavailable'),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isAvailable == null
+                      ? Colors.black45
+                      : (isAvailable! ? Colors.green : Colors.red),
+                ),
+              ),
+              Text(
+                distanceM != null ? '${(distanceM! / 1000).toStringAsFixed(1)} km' : 'Unknown location',
+                style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
 
@@ -233,6 +247,7 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
                           name: caregiver['name'] as String,
                           distanceM: (caregiver['distance_m'] as num?)?.toDouble(),
                           phone: caregiver['phone'] as String?,
+                          isAvailable: caregiver['is_available'] as bool?,
                         );
                       }).toList(),
                     ),

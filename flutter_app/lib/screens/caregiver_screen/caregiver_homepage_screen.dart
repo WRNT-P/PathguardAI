@@ -5,13 +5,13 @@ import 'dart:io';
 import 'add_patient_screen.dart';
 import 'track_screen.dart';
 import 'notification_screen.dart';
-import 'destination_prediction_screen.dart';
-import 'find_patient_screen.dart';
+import 'missing_patient_screen.dart';
 import 'sos_alert_screen.dart';
 import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/location_service.dart';
 import '../../services/caregiver_session.dart';
+import '../../services/trip_request_directory.dart';
 import '../login_screen.dart';
 
 class CaregiverHomePageScreen extends StatefulWidget {
@@ -27,22 +27,48 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   List<Map<String, dynamic>> patients = [];
   bool _loadingPatients = true;
   Timer? _countdownTicker;
+  bool _isAvailable = true;
+
+  Future<void> _updateAvailability(bool value) async {
+    final previous = _isAvailable;
+    setState(() => _isAvailable = value);
+    try {
+      final id = CaregiverSession.instance.caregiverId;
+      if (id == null) return;
+      final res = await apiPut('/api/caregivers/$id/availability', body: {'is_available': value});
+      if (res.statusCode != 200 && mounted) {
+        setState(() => _isAvailable = previous);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isAvailable = previous);
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _loadPatients();
-    // Only needed to keep the "expires in Xh Ym" label live — cheap enough
-    // to just always tick, since it's a no-op setState when nothing's shown.
+    // Keeps the "expires in Xh Ym" label live and refreshes each patient's
+    // risk badge — cheap enough to just always tick.
     _countdownTicker = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      setState(() {});
+      _refreshRiskLevels();
     });
+    // Redraws the notification bell's badge the instant a trip request
+    // appears/gets resolved, instead of only reflecting it on next rebuild.
+    TripRequestDirectory.instance.addListener(_onTripRequestsChanged);
   }
 
   @override
   void dispose() {
     _countdownTicker?.cancel();
+    TripRequestDirectory.instance.removeListener(_onTripRequestsChanged);
     super.dispose();
+  }
+
+  void _onTripRequestsChanged() {
+    if (mounted) setState(() {});
   }
 
   /// A pairing code is single-use and expires in 24h — the backend doesn't
@@ -63,13 +89,13 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       return '';
     }
     if (_pairingCodeIsExpired(patient)) {
-      return 'รหัส $code หมดอายุแล้ว';
+      return 'Code: $code\nExpired';
     }
     final remaining = expiresAt.difference(DateTime.now());
     final hours = remaining.inHours;
     final minutes = remaining.inMinutes % 60;
-    final remainingLabel = hours > 0 ? '$hoursชม. $minutesนาที' : '$minutesนาที';
-    return 'รหัส $code (หมดอายุใน $remainingLabel)';
+    final remainingLabel = hours > 0 ? '${hours}h ${minutes}m' : '${minutes}m';
+    return 'Code: $code\nExpires in $remainingLabel';
   }
 
   /// The patient list used to live only in this widget's in-memory state, so
@@ -91,7 +117,9 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       // profileImage stays null — that was always local-only, never sent to
       // the backend, so there's nothing to restore it from after a restart.
       final loaded = await Future.wait(basics.map((p) async {
-        return {...p, 'home': await _fetchHomePlace(p['id'] as int)};
+        final id = p['id'] as int;
+        final results = await Future.wait([_fetchHomePlace(id), _fetchRiskLevel(id)]);
+        return {...p, 'home': results[0], 'riskLevel': results[1]};
       }));
 
       if (!mounted) return;
@@ -112,7 +140,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       if (res.statusCode != 201) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('สร้างรหัสใหม่ไม่สำเร็จ ลองอีกครั้ง')),
+          const SnackBar(content: Text('Could not generate a new code, try again')),
         );
         return;
       }
@@ -126,9 +154,9 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('รหัสใหม่พร้อมแล้ว'),
+          title: const Text('New code ready'),
           content: Text(
-            'ให้รหัสนี้กับผู้ป่วยเพื่อล็อกอินใหม่:\n\n${data['pairing_code']}',
+            'Give this code to the patient to log in again:\n\n${data['pairing_code']}',
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           actions: [
@@ -142,7 +170,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')),
+        const SnackBar(content: Text('Could not connect to the server')),
       );
     }
   }
@@ -152,16 +180,30 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   /// Shown once when the app is opened, not a true full-screen-intent
   /// notification (would need a native foreground service to interrupt a
   /// closed app) — the user decided that's out of scope for now. Queues one
-  /// SosAlertScreen per patient with an active unresolved urgent alert, most
-  /// recent first per patient, shown one after another.
+  /// full-screen alert per patient with an active unresolved alert, shown one
+  /// after another. gps_lost routes to MissingPatientScreen (Module 4, no
+  /// manual form — auto-activates and summarizes); the rest go to
+  /// SosAlertScreen (distance ranking + claim).
   Future<void> _checkForActiveAlerts() async {
     for (final patient in patients) {
       try {
         final res = await apiGet('/api/patients/${patient['id']}/alerts');
         if (res.statusCode != 200) continue;
         final alerts = (jsonDecode(res.body)['alerts'] as List).cast<Map<String, dynamic>>();
-        final active = alerts.where((a) =>
-            a['resolved'] == false && _urgentAlertTypes.contains(a['alert_type']));
+        final unresolved = alerts.where((a) => a['resolved'] == false);
+
+        final missing = unresolved.where((a) => a['alert_type'] == 'gps_lost');
+        if (missing.isNotEmpty) {
+          if (!mounted) return;
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => MissingPatientScreen(patient: patient, alert: missing.first),
+            ),
+          );
+        }
+
+        final active = unresolved.where((a) => _urgentAlertTypes.contains(a['alert_type']));
         if (active.isEmpty) continue;
 
         if (!mounted) return;
@@ -202,27 +244,72 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
     }
   }
 
+  /// GET .../risk/latest — read-only, safe to poll (never GET /api/risk/{id}
+  /// here: that one recomputes and can write an alert on every call). Null
+  /// means "no risk score yet" (brand-new patient) — the badge is simply
+  /// omitted rather than shown as a false "low risk".
+  Future<String?> _fetchRiskLevel(int patientId) async {
+    try {
+      final res = await apiGet('/api/patients/$patientId/risk/latest');
+      if (res.statusCode != 200) return null;
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (body['status'] != 'ok') return null;
+      return body['risk_level'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _refreshRiskLevels() async {
+    for (final patient in patients) {
+      final level = await _fetchRiskLevel(patient['id'] as int);
+      if (mounted) setState(() => patient['riskLevel'] = level);
+    }
+  }
+
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.person_add_outlined, size: 56, color: Colors.grey[700]),
-          const SizedBox(height: 12),
-          FractionallySizedBox(
-            widthFactor: 0.7,
-            child: Text(
-              'No patient added yet.',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Icon(Icons.person_add_alt_1_rounded, size: 48, color: Colors.blue[700]),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'No patients yet',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w400,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
                 color: Colors.black87,
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          ElevatedButton(
+            const SizedBox(height: 8),
+            Text(
+              'Add a patient to start tracking their location and safety status.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w400,
+                color: Colors.grey[600],
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton.icon(
             onPressed: () async {
               final result = await Navigator.push(
                 context,
@@ -257,7 +344,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
 
                 if (home != null) {
                   places.add({
-                    'place_name': 'บ้าน',
+                    'place_name': 'Home',
                     'latitude': home.latitude,
                     'longitude': home.longitude,
                     'visit_rank': 'daily_live',
@@ -315,13 +402,55 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 );
               }
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              minimumSize: const Size(0, 48),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                icon: const Icon(Icons.add_rounded, size: 24),
+                label: const Text(
+                  'Add Patient',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                ),
+              ),
             ),
-            child: const Text(
-              'Add Patient',
-              style: TextStyle(color: Colors.white, fontSize: 16,),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A small pill showing the pairing code + expiry state. Color signals
+  /// urgency at a glance: red means the code needs regenerating before the
+  /// patient can log in, blue means it's still usable.
+  Widget _buildPairingCodeChip(Map<String, dynamic> patient) {
+    final label = _pairingCodeLabel(patient);
+    if (label.isEmpty) return const SizedBox.shrink();
+    final expired = _pairingCodeIsExpired(patient);
+    final color = expired ? Colors.red[700]! : Colors.blue[700]!;
+    final background = expired ? Colors.red[50]! : Colors.blue[50]!;
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            expired ? Icons.error_outline_rounded : Icons.vpn_key_rounded,
+            size: 15,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label.replaceAll('\n', ' • '),
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: color),
             ),
           ),
         ],
@@ -329,173 +458,266 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
     );
   }
 
-  Widget _buildPatientRow(Map<String, dynamic> patient) {
-    final profileImage = patient['profileImage'] as File?;
-    return InkWell(
-      onTap: () {
-
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 30, // Adjust size
-                    backgroundColor: Colors.grey[300],
-                    backgroundImage: profileImage != null ? FileImage(profileImage) : null,
-                    child: profileImage == null ? Icon(Icons.person,size: 35, color: Colors.grey[800]): null,
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(patient['name'],
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black87,
-                      ),
-                      ),
-                      if (_pairingCodeLabel(patient).isNotEmpty)
-                        Text(_pairingCodeLabel(patient),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: _pairingCodeIsExpired(patient) ? Colors.red : Colors.black87,
-                        ),
-                        ),
-                    ],
-                  ),
-                ],
+  /// One patient's card: identity + pairing status up top, a large full-width
+  /// "Track" button as the dominant action (this is the one caregivers reach
+  /// for constantly), and the pairing-code refresh tucked in as a smaller
+  /// secondary action so it doesn't compete for attention.
+  /// Color-coded at-a-glance risk state — lets a caregiver scan the whole
+  /// list and see who needs attention right now without opening Track for
+  /// each patient individually.
+  Widget _buildRiskBadge(Map<String, dynamic> patient) {
+    final level = patient['riskLevel'] as String?;
+    if (level == null) return const SizedBox.shrink();
+    final color = level == 'high'
+        ? Colors.red[700]!
+        : level == 'medium'
+            ? Colors.orange[800]!
+            : Colors.green[700]!;
+    final bg = level == 'high'
+        ? Colors.red[50]!
+        : level == 'medium'
+            ? Colors.orange[50]!
+            : Colors.green[50]!;
+    final label = level == 'high'
+        ? 'High risk'
+        : level == 'medium'
+            ? 'Medium risk'
+            : 'Low risk';
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      child: Semantics(
+        label: '$label for ${patient['name']}',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
               ),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
-                elevation: 3,
-                shadowColor: Colors.black,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color),
               ),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => TrackScreen(patient: patient)
-                  )
-                );
-              },
-              child: const Text('Track'),
-            ),
-            IconButton(
-              tooltip: 'สร้างรหัสจับคู่ใหม่',
-              icon: const Icon(Icons.autorenew),
-              onPressed: () => _regeneratePairingCode(patient),
-            ),
-            PopupMenuButton<String>(
-              onSelected: (value) {
-                if (value == 'predict') {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => DestinationPredictionScreen(
-                        patientId: patient['id'] as int,
-                        patientName: patient['name'] as String,
-                      ),
-                    ),
-                  );
-                } else if (value == 'find') {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => FindPatientScreen(patient: patient),
-                    ),
-                  );
-                }
-              },
-              itemBuilder: (context) => const [
-                PopupMenuItem(value: 'predict', child: Text('คาดการณ์ปลายทาง')),
-                PopupMenuItem(value: 'find', child: Text('ค้นหา (หาไม่เจอ)')),
-              ],
-            ),
-          ]
+            ],
+          ),
         ),
       ),
     );
   }
 
-  
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
+  Widget _buildPatientCard(Map<String, dynamic> patient) {
+    final profileImage = patient['profileImage'] as File?;
+    final name = patient['name'] as String? ?? 'Patient';
+    return Card(
+      margin: const EdgeInsets.only(bottom: 14),
+      elevation: 1.5,
+      shadowColor: Colors.black26,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              color: Colors.grey[300],
-              padding: const EdgeInsets.only(left: 20.0, right: 20.0, top: 12.0, bottom: 12.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: Colors.grey[300],
+                  backgroundImage: profileImage != null ? FileImage(profileImage) : null,
+                  child: profileImage == null ? Icon(Icons.person, size: 34, color: Colors.grey[800]) : null,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children:
-                    [
-                      Text(
-                        'Welcome Back,',
-                        style: TextStyle(fontSize: 16, color: Colors.black87),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        widget.caregiverName ?? 'Caregiver',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
-                      ),
-                    ],
-                  ),
-                  Row(
                     children: [
-                      IconButton(
-                        onPressed: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationScreen()));
-                        },
-                        icon: const Badge(
-                          smallSize: 10,
-                          backgroundColor: Colors.red,
-                          child: Icon(Icons.notifications_none_outlined, size: 28),
+                      Text(
+                        name,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black87,
                         ),
                       ),
-                      IconButton(
-                        onPressed: () async {
-                          await FirebaseAuth.instance.signOut();
-                          await CaregiverSession.instance.clear();
-                          if (!context.mounted) return;
-                          Navigator.of(context).pushAndRemoveUntil(
-                            MaterialPageRoute(builder: (context) => const LoginScreen()),
-                            (route) => false,
-                          );
-                        },
-                        icon: const Icon(Icons.logout),
-                      ),
+                      _buildRiskBadge(patient),
+                      _buildPairingCodeChip(patient),
                     ],
+                  ),
+                ),
+                Semantics(
+                  label: 'Generate a new pairing code for $name',
+                  button: true,
+                  child: IconButton(
+                    tooltip: 'Generate new pairing code',
+                    icon: const Icon(Icons.autorenew_rounded),
+                    color: Colors.grey[700],
+                    onPressed: () => _regeneratePairingCode(patient),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Semantics(
+              label: 'Track $name\'s live location',
+              button: true,
+              child: SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => TrackScreen(patient: patient),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.my_location_rounded, size: 22),
+                  label: const Text(
+                    'Track',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Top bar: identity, availability, and quick access to notifications and
+  /// sign-out. Kept visually calm (no bright colors) since nothing here is an
+  /// emergency action — those live one tap away on Track/Notifications.
+  Widget _buildHeader(BuildContext context) {
+    final pendingCount = TripRequestDirectory.instance.pending.length;
+    return Container(
+      width: double.infinity,
+      color: Colors.grey[200],
+      padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Welcome back,',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  widget.caregiverName ?? 'Caregiver',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
+                ),
+              ],
+            ),
+          ),
+          // No endpoint reads a caregiver's own current availability back —
+          // only PUT sets it, and GET .../caregivers only exposes it
+          // per-patient. Defaults to "available" each app launch since
+          // there's nothing to restore it from.
+          Semantics(
+            label: _isAvailable
+                ? 'Available to caregiving requests, tap to go unavailable'
+                : 'Unavailable to caregiving requests, tap to go available',
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _isAvailable ? 'Available' : 'Unavailable',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: _isAvailable ? Colors.green[700] : Colors.grey[600],
+                    ),
+                  ),
+                  Switch(
+                    value: _isAvailable,
+                    activeThumbColor: Colors.green[700],
+                    onChanged: _updateAvailability,
                   ),
                 ],
               ),
             ),
+          ),
+          Semantics(
+            label: pendingCount > 0
+                ? 'Notifications, $pendingCount pending trip request${pendingCount == 1 ? '' : 's'}'
+                : 'Notifications',
+            button: true,
+            child: IconButton(
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationScreen()));
+              },
+              icon: Badge(
+                smallSize: 10,
+                backgroundColor: Colors.red,
+                isLabelVisible: pendingCount > 0,
+                child: const Icon(Icons.notifications_none_rounded, size: 28),
+              ),
+            ),
+          ),
+          Semantics(
+            label: 'Sign out',
+            button: true,
+            child: IconButton(
+              tooltip: 'Sign out',
+              onPressed: () async {
+                await FirebaseAuth.instance.signOut();
+                await CaregiverSession.instance.clear();
+                if (!context.mounted) return;
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                  (route) => false,
+                );
+              },
+              icon: const Icon(Icons.logout_rounded),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-            // 2. Main content area (scrollable)
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(context),
             Expanded(
               child: _loadingPatients
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const Center(child: CircularProgressIndicator(color: Colors.blue))
                   : patients.isEmpty
-                  ? _buildEmptyState()
-                  : SingleChildScrollView(
-                      child: Column(
-                        children: patients.map((p) => _buildPatientRow(p)).toList(),
-                      ),
-                    ),
+                      ? _buildEmptyState()
+                      : ListView(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                          children: patients.map((p) => _buildPatientCard(p)).toList(),
+                        ),
             ),
           ],
         ),

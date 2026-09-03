@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import 'patient_homepage_screen.dart';
 import '../patient_level2_screen/patient_homepage_screen.dart' as level2;
 import '../../services/api_client.dart';
@@ -15,15 +16,47 @@ class PatientLoginScreen extends StatefulWidget {
 class _PatientLoginScreenState extends State<PatientLoginScreen> {
   final TextEditingController _idController = TextEditingController();
   String? _errorMessage;
+  bool _loggingIn = false;
 
-  Future<void> _handleLogin() async{
+  /// A cold Cloudflare tunnel/backend can 502 or time out on the very first
+  /// request after being idle, then succeed a moment later — retrying a
+  /// couple times before surfacing "not found" avoids telling the patient
+  /// their correct code is wrong just because the server was still waking up.
+  Future<http.Response?> _postWithRetry(String path, {Map<String, dynamic>? body, int attempts = 3}) async {
+    for (var i = 0; i < attempts; i++) {
+      try {
+        final res = await apiPost(path, body: body);
+        if (res.statusCode == 200 || res.statusCode == 201) return res;
+        if (i == attempts - 1) return res;
+      } catch (_) {
+        if (i == attempts - 1) return null;
+      }
+      await Future.delayed(Duration(seconds: 1 + i));
+    }
+    return null;
+  }
+
+  Future<void> _handleLogin() async {
+    if (_loggingIn) return;
+    setState(() {
+      _loggingIn = true;
+      _errorMessage = null;
+    });
+    try {
+      await _attemptLogin();
+    } finally {
+      if (mounted) setState(() => _loggingIn = false);
+    }
+  }
+
+  Future<void> _attemptLogin() async{
     final code = _idController.text.trim();
-    
-    final pairResponse = await apiPost('/api/pair', body: {'code': code});
+
+    final pairResponse = await _postWithRetry('/api/pair', body: {'code': code});
 
     if (!mounted) return;
 
-    if (pairResponse.statusCode != 200){
+    if (pairResponse == null || pairResponse.statusCode != 200){
       setState(() {
         _errorMessage = 'Patient ID not found. Please check and try again';
       });
@@ -127,15 +160,21 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
                       child: SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: _handleLogin,
+                          onPressed: _loggingIn ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blue,
                             minimumSize: const Size(0, 48),
                           ),
-                          child: const Text(
-                            'Login',
-                            style: TextStyle(color: Colors.white),
-                          ),
+                          child: _loggingIn
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                                )
+                              : const Text(
+                                  'Login',
+                                  style: TextStyle(color: Colors.white),
+                                ),
                         ),
                       ),
                     ),
