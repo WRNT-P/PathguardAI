@@ -205,6 +205,81 @@ async def update_caregiver_location(
     )
 
 
+class CaregiverAvailabilityIn(BaseModel):
+    is_available: bool
+
+
+class CaregiverAvailabilityOut(BaseModel):
+    caregiver_id: int
+    is_available: bool
+
+
+@router.put(
+    "/api/caregivers/{caregiver_id}/availability",
+    response_model=CaregiverAvailabilityOut,
+    summary="ผู้ดูแลตั้งสถานะว่าง/ไม่ว่างของตัวเอง",
+)
+async def update_caregiver_availability(
+    caregiver_id: int,
+    payload: CaregiverAvailabilityIn,
+    db: AsyncSession = Depends(get_db),
+    caller: Caller = Depends(current_caller),
+) -> CaregiverAvailabilityOut:
+    """Whether this caregiver is free to respond, for the patient's SOS screen.
+
+    The screen already existed and already showed ว่าง/ไม่ว่าง per caregiver —
+    off a constant in the Dart source, because nothing in the schema held the
+    answer. This is the column behind it.
+
+    A plain boolean flag and nothing else. It writes one column on ``users``,
+    touches no GPS row, no risk score and no AI module, and cannot raise an
+    alert: a caregiver going out for the evening is not an event about the
+    patient. It is also **not** an emergency channel — a caregiver marking
+    themselves busy does not summon anybody, it only reorders who the patient is
+    shown first.
+
+    Lives beside ``update_caregiver_location`` for the same reason that one is
+    here rather than in a ``caregivers.py``: a new router has to be mounted in
+    three separate lists, and those drifting apart is what 404'd a caregiver's
+    pin at the dashboard's port in August.
+
+    ``None`` is a third state and reaching it through this route is impossible
+    on purpose — the body requires a bool. "Never answered" is only ever the
+    absence of a call, never something the app can assert on someone's behalf.
+    """
+    # Same check as update_caregiver_location, for a nearer reason: marking
+    # somebody else busy takes them off the top of the SOS screen of a patient
+    # who may be about to need them, and they would never know it happened.
+    if caller.authenticated and caller.user_id != caregiver_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="availability may only be set for your own account",
+        )
+
+    user = await crud.get_user(db, caregiver_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"user {caregiver_id} not found — call /api/register first",
+        )
+    # A patient has no availability to state — nothing reads one for them, and
+    # accepting it here would write a column no screen will ever show while
+    # looking to the caller like it worked.
+    if user.role != "caregiver":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"user {caregiver_id} is a {user.role}, not a caregiver — "
+                   "only a caregiver has an availability status",
+        )
+
+    updated = await crud.update_user_availability(
+        db, caregiver_id, payload.is_available)
+    return CaregiverAvailabilityOut(
+        caregiver_id=caregiver_id,
+        is_available=updated.is_available,
+    )
+
+
 # ── Who is nearest (report: "alert every caregiver, ranked by distance") ──────
 
 class RankedCaregiver(BaseModel):
@@ -213,6 +288,9 @@ class RankedCaregiver(BaseModel):
     is_primary: bool
     phone: str | None = Field(
         None, description="เบอร์โทรของผู้ดูแล · null = ยังไม่เคยกรอก ให้ซ่อนปุ่มโทร")
+    is_available: bool | None = Field(
+        None,
+        description="ผู้ดูแลว่างไหม · null = ยังไม่เคยตั้งค่า ให้แสดงว่าไม่ทราบ ห้ามแสดงว่าไม่ว่าง")
     distance_m: float | None = Field(
         None, description="ระยะทางถึงตำแหน่งล่าสุดของผู้ป่วย · null = ไม่รู้ตำแหน่งผู้ดูแล")
     location_age_s: float | None = Field(
@@ -283,6 +361,7 @@ async def rank_caregivers(
             name=user.name,
             is_primary=is_primary,
             phone=user.phone,
+            is_available=user.is_available,
             distance_m=distance_m,
             location_age_s=age_s,
             usable=(distance_m is not None and age_s is not None
