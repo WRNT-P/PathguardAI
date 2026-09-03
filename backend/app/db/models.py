@@ -52,6 +52,24 @@ class User(Base):
     # format that matters is the one the caregiver typed. Null for every patient
     # and for any caregiver who registered before this column existed.
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Is this CAREGIVER free to respond right now? Added 2026-09-03 because the
+    # patient's SOS contact screen (``sos_contact_screen.dart``) was already
+    # showing "ว่าง"/"ไม่ว่าง" per caregiver off a value hardcoded in the app —
+    # a dementia patient in trouble was being told who to call by a constant.
+    #
+    # Three states, not two, and the third is the reason this is nullable:
+    # ``None`` means the caregiver has never answered the question, which is not
+    # the same claim as "not available" and must not be shown as one. The app is
+    # told to render null as unknown rather than as busy, because a caregiver who
+    # simply has not tapped the toggle is still someone worth phoning. Same
+    # reasoning as ``severity_level`` — never invent a default for a field only a
+    # human can assert.
+    #
+    # Deliberately a bare flag with no expiry: unlike ``location_updated_at``,
+    # nothing here ages out. A caregiver's own statement about themselves stays
+    # true until they change it, and guessing that it went stale would put "ไม่
+    # ว่าง" next to someone who never said it. Null for every patient.
+    is_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     last_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     location_updated_at: Mapped[datetime | None] = mapped_column(
