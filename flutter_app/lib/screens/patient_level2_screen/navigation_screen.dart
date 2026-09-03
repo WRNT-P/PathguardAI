@@ -24,6 +24,18 @@ class _NavigationScreenState extends State<NavigationScreen>{
   LatLng? _currentLocation;
   List<LatLng>? _routePoints;
   bool _sosSending = false;
+  /// True once the magnetometer has actually produced a reading. Not every
+  /// device has one — an emulator never does, and some budget handsets don't
+  /// either — and until this flips we steer by the direction of travel
+  /// instead. Without it the screen sat on a spinner forever, because
+  /// ``_heading`` had exactly one writer and that writer never fired.
+  bool _compassHasReported = false;
+  /// Location was refused (or the service is off). Kept so the screen can say
+  /// so: the old code just returned out of ``_startLocationUpdates`` and left
+  /// the same spinner up, which is indistinguishable from "still loading" and
+  /// tells a patient nothing they can act on.
+  bool _locationUnavailable = false;
+
   Future<bool> _ensureLocationPermission() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     
@@ -45,7 +57,10 @@ class _NavigationScreenState extends State<NavigationScreen>{
 
   Future<void> _startLocationUpdates() async {
     final hasPermission = await _ensureLocationPermission();
-    if (!hasPermission) return;
+    if (!hasPermission) {
+      if (mounted) setState(() => _locationUnavailable = true);
+      return;
+    }
 
     _positionSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
@@ -55,15 +70,45 @@ class _NavigationScreenState extends State<NavigationScreen>{
     ).listen((Position position) {
       final updated = LatLng(position.latitude, position.longitude);
       final isFirstFix = _currentLocation == null;
+      final previous = _currentLocation;
 
       setState(() {
         _currentLocation = updated;
+        // Only when there is no compass: the magnetometer knows which way the
+        // patient is FACING, which is the right question here, while this only
+        // knows which way they last MOVED. They agree while walking forward
+        // and disagree when someone stops and turns on the spot — so the
+        // compass wins whenever it exists, and this keeps the screen usable
+        // when it doesn't.
+        if (!_compassHasReported && previous != null) {
+          _updateHeading(calculateBearing(
+            previous.latitude, previous.longitude,
+            updated.latitude, updated.longitude,
+          ));
+        }
       });
 
       if (isFirstFix) {
         _fetchRoute();
       }
     });
+  }
+
+  /// Ease [rawHeading] into ``_heading`` instead of snapping to it.
+  ///
+  /// Shared by both sources on purpose. A GPS-derived bearing off 5 m steps is
+  /// noisy enough that an unsmoothed arrow visibly jitters, and a moderate-stage
+  /// patient reading a twitching arrow is being given a worse instruction than
+  /// no arrow at all. Call inside a ``setState``.
+  void _updateHeading(double rawHeading) {
+    if (_heading == null) {
+      _heading = rawHeading; // first reading — nothing to smooth against yet
+      return;
+    }
+    const smoothingFactor = 0.15; // lower = smoother but slower to respond
+    final delta = shortestAngleDelta(_heading!, rawHeading);
+    _heading = (_heading! + delta * smoothingFactor) % 360;
+    if (_heading! < 0) _heading = _heading! + 360;
   }
 
   Future<void> _fetchRoute() async {
@@ -103,19 +148,17 @@ class _NavigationScreenState extends State<NavigationScreen>{
   }
 
   void _startCompassUpdates() {
+    // ``FlutterCompass.events`` is null on a device with no magnetometer, and
+    // on some that have one it is non-null but never emits. Neither case is an
+    // error and neither used to be handled — the stream simply stayed quiet
+    // and the screen waited on it forever.
     _compassSubscription = FlutterCompass.events?.listen((CompassEvent event) {
       final rawHeading = event.heading;
       if (rawHeading == null) return;
 
       setState(() {
-        if (_heading == null) {
-          _heading = rawHeading; // first reading — nothing to smooth against yet
-        } else {
-          const smoothingFactor = 0.15; // lower = smoother but slower to respond
-          final delta = shortestAngleDelta(_heading!, rawHeading);
-          _heading = (_heading! + delta * smoothingFactor) % 360;
-          if (_heading! < 0) _heading = _heading! + 360;
-        }
+        _compassHasReported = true;
+        _updateHeading(rawHeading);
       });
     });
   }
@@ -168,6 +211,40 @@ class _NavigationScreenState extends State<NavigationScreen>{
     return relativeAngle > 0 ? 'Turn right' : 'Turn left';
   }
 
+  /// The big centre graphic. Four states, and the spinner is now only one of
+  /// them — it used to be the catch-all, which is why every failure looked
+  /// like "still loading" and none of them ever stopped.
+  Widget _indicator(bool arrived, double? rotationAngle) {
+    if (arrived) {
+      return const Icon(Icons.check_circle, color: Colors.green, size: 120);
+    }
+    if (_locationUnavailable) {
+      return const Icon(Icons.location_off, color: Colors.orange, size: 120);
+    }
+    if (rotationAngle != null) {
+      return Transform.rotate(
+        angle: rotationAngle,
+        child: const Icon(Icons.navigation, color: Colors.blue, size: 180),
+      );
+    }
+    if (_currentLocation != null) {
+      // Located, but no direction yet: no compass and not enough movement to
+      // derive one. Show the arrow greyed and straight rather than a spinner —
+      // the patient is not waiting on the app, the app is waiting on them, and
+      // the caption below says so.
+      return const Icon(Icons.navigation, color: Colors.grey, size: 180);
+    }
+    return const CircularProgressIndicator();
+  }
+
+  String _statusText(bool arrived, String? directionText) {
+    if (arrived) return "You've arrived!";
+    if (_locationUnavailable) return 'Turn on location to start';
+    if (directionText != null) return directionText;
+    if (_currentLocation != null) return 'Start walking to find your direction';
+    return 'Finding your location…';
+  }
+
   @override
   Widget build(BuildContext context) {
     final destination = LatLng(widget.place['lat'], widget.place['lng']);
@@ -211,21 +288,13 @@ class _NavigationScreenState extends State<NavigationScreen>{
             ),
           ),
           Expanded(
-            child: Center(
-              child: arrived
-                  ? const Icon(Icons.check_circle, color: Colors.green, size: 120)
-                  : (rotationAngle != null
-                      ? Transform.rotate(
-                          angle: rotationAngle,
-                          child: const Icon(Icons.navigation, color: Colors.blue, size: 180),
-                        )
-                      : const CircularProgressIndicator()),
-            ),
+            child: Center(child: _indicator(arrived, rotationAngle)),
           ),
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: Text(
-              arrived ? "You've arrived!" : (directionText ?? "Keep going"),
+              _statusText(arrived, directionText),
+              textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w600),
             ),
           ),

@@ -7,6 +7,8 @@ import 'track_screen.dart';
 import 'notification_screen.dart';
 import 'missing_patient_screen.dart';
 import 'sos_alert_screen.dart';
+import 'invite_caregiver_screen.dart';
+import 'join_patient_screen.dart';
 import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/location_service.dart';
@@ -415,6 +417,31 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            // The second caregiver's way in. Sits beside Add Patient rather
+            // than behind a per-patient menu, since the person who needs it
+            // has an empty list — there is no patient card to open a menu on.
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  final joined = await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const JoinPatientScreen()),
+                  );
+                  if (joined == true && mounted) _loadPatients();
+                },
+                style: OutlinedButton.styleFrom(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                icon: const Icon(Icons.group_add_rounded, size: 22),
+                label: const Text(
+                  'Join a patient',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -549,6 +576,26 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                       _buildRiskBadge(patient),
                       _buildPairingCodeChip(patient),
                     ],
+                  ),
+                ),
+                Semantics(
+                  label: 'Invite another caregiver for $name',
+                  button: true,
+                  child: IconButton(
+                    tooltip: 'Invite another caregiver',
+                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                    color: Colors.grey[700],
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => InviteCaregiverScreen(
+                            patientId: patient['id'] as int,
+                            patientName: name,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 Semantics(
