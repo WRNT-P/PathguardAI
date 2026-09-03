@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/sos_service.dart';
+import '../../services/api_client.dart';
+import '../../services/session.dart';
 
 Future<void> _callNumber(BuildContext context, String phone) async {
   final uri = Uri(scheme: 'tel', path: phone);
@@ -14,13 +17,13 @@ Future<void> _callNumber(BuildContext context, String phone) async {
 
 class CaregiverCard extends StatelessWidget {
   final String name;
-  final bool busy;
-  final String phone;
+  final double? distanceM;
+  final String? phone;
 
   const CaregiverCard({
     super.key,
     required this.name,
-    required this.busy,
+    required this.distanceM,
     required this.phone,
   });
 
@@ -35,15 +38,14 @@ class CaregiverCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // No "ว่าง/ไม่ว่าง" badge — backend has no availability field yet
+          // (that's a separate piece of work), so a hardcoded badge here
+          // would just be a different fake value than before.
           Align(
             alignment: Alignment.topRight,
             child: Text(
-              busy ? 'ไม่ว่าง' : 'ว่าง',
-              style: TextStyle(
-                fontSize: 12,
-                color: busy ? Colors.red : Colors.green,
-                fontWeight: FontWeight.w600,
-              ),
+              distanceM != null ? '${(distanceM! / 1000).toStringAsFixed(1)} กม.' : 'ไม่ทราบตำแหน่ง',
+              style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600),
             ),
           ),
           const SizedBox(height: 8),
@@ -60,7 +62,7 @@ class CaregiverCard extends StatelessWidget {
 
           Center(
             child: ElevatedButton.icon(
-              onPressed: () => _callNumber(context, phone),
+              onPressed: phone == null ? null : () => _callNumber(context, phone!),
               icon: const Icon(Icons.phone, size: 16),
               label: const Text('Phone'),
               style: ElevatedButton.styleFrom(
@@ -85,12 +87,31 @@ class SosContactsScreen extends StatefulWidget{
 }
 
 class _SosContactsScreenState extends State<SosContactsScreen> {
-  final List<Map<String, dynamic>> caregivers = const [
-    {'name': 'คุณป้ามานี', 'busy': false, 'phone': '0812345678'},
-    {'name': 'คุณลุงแดง', 'busy': false, 'phone': '0898765432'},
-    {'name': 'พี่เขียว', 'busy': true, 'phone': '0865551234'},
-    {'name': 'น้องส้ม', 'busy': true, 'phone': '0623334455'},
-  ];
+  List<Map<String, dynamic>> caregivers = [];
+  bool _loadingCaregivers = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCaregivers();
+  }
+
+  /// Backend already ranks by distance (usable-location first, then nearest,
+  /// then whoever created the patient) — see GET .../caregivers's own sort.
+  /// No client-side sorting needed.
+  Future<void> _loadCaregivers() async {
+    final patientId = Session.instance.patientId;
+    if (patientId == null) return;
+    try {
+      final res = await apiGet('/api/patients/$patientId/caregivers');
+      if (res.statusCode != 200) return;
+      final loaded = (jsonDecode(res.body)['caregivers'] as List).cast<Map<String, dynamic>>();
+      if (mounted) setState(() => caregivers = loaded);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loadingCaregivers = false);
+    }
+  }
 
   bool _sosSending = false;
 
@@ -189,21 +210,32 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  GridView.count(
-                    crossAxisCount: 2,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.85,
-                    children: caregivers.map((caregiver) {
-                      return CaregiverCard(
-                        name: caregiver['name'],
-                        busy: caregiver['busy'],
-                        phone: caregiver['phone'],
-                      );
-                    }).toList(),
-                  ),
+                  if (_loadingCaregivers)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: CircularProgressIndicator(),
+                    )
+                  else if (caregivers.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('No caregivers found'),
+                    )
+                  else
+                    GridView.count(
+                      crossAxisCount: 2,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 0.85,
+                      children: caregivers.map((caregiver) {
+                        return CaregiverCard(
+                          name: caregiver['name'] as String,
+                          distanceM: (caregiver['distance_m'] as num?)?.toDouble(),
+                          phone: caregiver['phone'] as String?,
+                        );
+                      }).toList(),
+                    ),
                 ],
               ),
             ),

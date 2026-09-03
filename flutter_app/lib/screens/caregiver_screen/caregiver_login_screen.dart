@@ -41,8 +41,8 @@ class EmailTextField extends StatelessWidget {
         keyboardType: TextInputType.emailAddress,
         decoration: InputDecoration(
           border: OutlineInputBorder(),
-          labelText: 'Username',
-          hintText: 'Enter your Username',
+          labelText: 'Email',
+          hintText: 'Enter your Email',
         ),
       ),
     );

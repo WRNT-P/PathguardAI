@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
 import 'dart:io';
 import 'add_patient_screen.dart';
 import 'track_screen.dart';
 import 'notification_screen.dart';
 import 'destination_prediction_screen.dart';
 import 'find_patient_screen.dart';
+import 'sos_alert_screen.dart';
 import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/location_service.dart';
@@ -24,11 +26,50 @@ class CaregiverHomePageScreen extends StatefulWidget {
 class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   List<Map<String, dynamic>> patients = [];
   bool _loadingPatients = true;
+  Timer? _countdownTicker;
 
   @override
   void initState() {
     super.initState();
     _loadPatients();
+    // Only needed to keep the "expires in Xh Ym" label live — cheap enough
+    // to just always tick, since it's a no-op setState when nothing's shown.
+    _countdownTicker = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _countdownTicker?.cancel();
+    super.dispose();
+  }
+
+  /// A pairing code is single-use and expires in 24h — the backend doesn't
+  /// keep it around for us to re-fetch once it's been shown, so this only
+  /// works for a patient added in this same app session. After a restart
+  /// (patients reloaded via GET /api/patients) there's nothing to show.
+  bool _pairingCodeIsExpired(Map<String, dynamic> patient) {
+    final expiresAt = patient['pairingExpiresAt'] as DateTime?;
+    return expiresAt == null || DateTime.now().isAfter(expiresAt);
+  }
+
+  String _pairingCodeLabel(Map<String, dynamic> patient) {
+    final code = patient['pairingCode'] as String?;
+    final expiresAt = patient['pairingExpiresAt'] as DateTime?;
+    if (code == null || expiresAt == null) {
+      // No code to show (e.g. after an app restart) — the internal id isn't
+      // meaningful to a caregiver, so there's nothing useful to display here.
+      return '';
+    }
+    if (_pairingCodeIsExpired(patient)) {
+      return 'รหัส $code หมดอายุแล้ว';
+    }
+    final remaining = expiresAt.difference(DateTime.now());
+    final hours = remaining.inHours;
+    final minutes = remaining.inMinutes % 60;
+    final remainingLabel = hours > 0 ? '$hoursชม. $minutesนาที' : '$minutesนาที';
+    return 'รหัส $code (หมดอายุใน $remainingLabel)';
   }
 
   /// The patient list used to live only in this widget's in-memory state, so
@@ -55,9 +96,87 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
 
       if (!mounted) return;
       setState(() => patients = loaded);
+      await _checkForActiveAlerts();
     } catch (_) {
     } finally {
       if (mounted) setState(() => _loadingPatients = false);
+    }
+  }
+
+  /// Lets a patient get back in after the original code is long spent — the
+  /// only other door was signing out of Firebase entirely, which a patient
+  /// (no email/password) can never sign back in from on their own.
+  Future<void> _regeneratePairingCode(Map<String, dynamic> patient) async {
+    try {
+      final res = await apiPost('/api/patients/${patient['id']}/pairing-code');
+      if (res.statusCode != 201) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('สร้างรหัสใหม่ไม่สำเร็จ ลองอีกครั้ง')),
+        );
+        return;
+      }
+      final data = jsonDecode(res.body);
+      setState(() {
+        patient['pairingCode'] = data['pairing_code'];
+        patient['pairingExpiresAt'] = DateTime.parse(data['expires_at'] as String);
+      });
+
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('รหัสใหม่พร้อมแล้ว'),
+          content: Text(
+            'ให้รหัสนี้กับผู้ป่วยเพื่อล็อกอินใหม่:\n\n${data['pairing_code']}',
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')),
+      );
+    }
+  }
+
+  static const _urgentAlertTypes = {'sos', 'emergency', 'geofence'};
+
+  /// Shown once when the app is opened, not a true full-screen-intent
+  /// notification (would need a native foreground service to interrupt a
+  /// closed app) — the user decided that's out of scope for now. Queues one
+  /// SosAlertScreen per patient with an active unresolved urgent alert, most
+  /// recent first per patient, shown one after another.
+  Future<void> _checkForActiveAlerts() async {
+    for (final patient in patients) {
+      try {
+        final res = await apiGet('/api/patients/${patient['id']}/alerts');
+        if (res.statusCode != 200) continue;
+        final alerts = (jsonDecode(res.body)['alerts'] as List).cast<Map<String, dynamic>>();
+        final active = alerts.where((a) =>
+            a['resolved'] == false && _urgentAlertTypes.contains(a['alert_type']));
+        if (active.isEmpty) continue;
+
+        if (!mounted) return;
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SosAlertScreen(
+              patientId: patient['id'] as int,
+              patientName: patient['name'] as String,
+              alert: active.first,
+            ),
+          ),
+        );
+      } catch (_) {
+      }
     }
   }
 
@@ -170,7 +289,12 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 if (!mounted) return;
 
                 setState(() {
-                  patients.add({...result, 'id': data['patient_id']});
+                  patients.add({
+                    ...result,
+                    'id': data['patient_id'],
+                    'pairingCode': data['pairing_code'],
+                    'pairingExpiresAt': DateTime.parse(data['expires_at'] as String),
+                  });
                 });
 
                 showDialog(
@@ -236,13 +360,14 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                         color: Colors.black87,
                       ),
                       ),
-                      Text('ID: ${patient['id']}',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black87,
-                      ),
-                      ),
+                      if (_pairingCodeLabel(patient).isNotEmpty)
+                        Text(_pairingCodeLabel(patient),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: _pairingCodeIsExpired(patient) ? Colors.red : Colors.black87,
+                        ),
+                        ),
                     ],
                   ),
                 ],
@@ -265,6 +390,11 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 );
               },
               child: const Text('Track'),
+            ),
+            IconButton(
+              tooltip: 'สร้างรหัสจับคู่ใหม่',
+              icon: const Icon(Icons.autorenew),
+              onPressed: () => _regeneratePairingCode(patient),
             ),
             PopupMenuButton<String>(
               onSelected: (value) {

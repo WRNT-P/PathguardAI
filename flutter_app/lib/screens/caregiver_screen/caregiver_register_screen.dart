@@ -26,7 +26,8 @@ class PasswordTextField extends StatelessWidget {
 
 class EmailTextField extends StatelessWidget {
   final TextEditingController controller;
-  const EmailTextField({super.key, required this.controller});
+  final String? errorText;
+  const EmailTextField({super.key, required this.controller, this.errorText});
 
   @override
   Widget build(BuildContext context) {
@@ -39,6 +40,7 @@ class EmailTextField extends StatelessWidget {
           border: OutlineInputBorder(),
           labelText: 'Email',
           hintText: 'Enter your Email',
+          errorText: errorText,
         ),
       ),
     );
@@ -56,8 +58,11 @@ class _CaregiverRegistrationScreenState extends State<CaregiverRegistrationScree
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
+  String? _emailError;
   String? _passwordError;
   String? _errorMessage;
+
+  static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   @override
   void dispose() {
@@ -65,14 +70,17 @@ class _CaregiverRegistrationScreenState extends State<CaregiverRegistrationScree
     _passwordController.dispose();
     super.dispose();
   }
-  
+
   void _handleNext() {
     setState(() {
+      _emailError = _emailPattern.hasMatch(_emailController.text.trim())
+        ? null
+        : 'Enter a valid email address';
       _passwordError = _passwordController.text.length < 6
         ? 'Password must be at least 6 characters'
         : null;
     });
-    if (_passwordError != null) return;
+    if (_emailError != null || _passwordError != null) return;
 
     Navigator.push(
       context,
@@ -105,7 +113,7 @@ class _CaregiverRegistrationScreenState extends State<CaregiverRegistrationScree
                       ),
                     ),
                     const SizedBox(height: 16),
-                    EmailTextField(controller: _emailController),
+                    EmailTextField(controller: _emailController, errorText: _emailError),
                     const SizedBox(height: 16),
                     PasswordTextField(controller: _passwordController, errorText: _passwordError),
                     const SizedBox(height: 16),

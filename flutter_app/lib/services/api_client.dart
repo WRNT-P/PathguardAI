@@ -63,3 +63,13 @@ Future<http.Response> apiPut(String path, {Map<String, dynamic>? body}) async {
       )
       .timeout(_requestTimeout);
 }
+
+Future<http.Response> apiDelete(String path, {Map<String, dynamic>? body}) async {
+  return http
+      .delete(
+        _buildUri(path),
+        headers: await _buildHeaders(),
+        body: body != null ? jsonEncode(body) : null,
+      )
+      .timeout(_requestTimeout);
+}

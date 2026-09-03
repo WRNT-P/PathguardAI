@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/sos_service.dart';
+import '../../services/api_client.dart';
+import '../../services/session.dart';
 
 Future<void> _callNumber(BuildContext context, String phone) async {
   final uri = Uri(scheme: 'tel', path: phone);
@@ -14,7 +17,7 @@ Future<void> _callNumber(BuildContext context, String phone) async {
 
 class CaregiverTile extends StatelessWidget {
   final String name;
-  final String phone;
+  final String? phone;
 
   const CaregiverTile({super.key, required this.name, required this.phone});
 
@@ -44,7 +47,7 @@ class CaregiverTile extends StatelessWidget {
             )
           ),
           ElevatedButton.icon(
-            onPressed: () => _callNumber(context, phone),
+            onPressed: phone == null ? null : () => _callNumber(context, phone!),
             icon: const Icon(Icons.phone, size: 24),
             label: const Text('Call', style: TextStyle(fontSize: 18)),
             style: ElevatedButton.styleFrom(
@@ -67,10 +70,26 @@ class SosContactScreen extends StatefulWidget {
  }
 
  class _SosContactScreenState extends State<SosContactScreen>{
-  final List<Map<String, dynamic>> caregivers = [
-    {'name': 'คุณป้ามานี', 'reachable': false, 'phone': '0812345678'},
-    {'name': 'คุณลุงแดง', 'reachable': true, 'phone': '0898765432'},
-  ];
+  List<Map<String, dynamic>> caregivers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCaregivers();
+  }
+
+  /// Backend already ranks by distance — see GET .../caregivers's own sort.
+  Future<void> _loadCaregivers() async {
+    final patientId = Session.instance.patientId;
+    if (patientId == null) return;
+    try {
+      final res = await apiGet('/api/patients/$patientId/caregivers');
+      if (res.statusCode != 200) return;
+      final loaded = (jsonDecode(res.body)['caregivers'] as List).cast<Map<String, dynamic>>();
+      if (mounted) setState(() => caregivers = loaded);
+    } catch (_) {
+    }
+  }
 
   bool _sosSending = false;
 
@@ -147,16 +166,6 @@ class SosContactScreen extends StatefulWidget {
   }
   
   @override
-  initState(){
-    super.initState();
-    caregivers.sort((a, b) {
-      final aReachable = a['reachable'] as bool;
-      final bReachable = b['reachable'] as bool;
-      return aReachable == bReachable ? 0 : (aReachable ? -1 : 1);
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
@@ -175,7 +184,7 @@ class SosContactScreen extends StatefulWidget {
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
-                  ...caregivers.map((c) => CaregiverTile(name: c['name'], phone: c['phone'])),
+                  ...caregivers.map((c) => CaregiverTile(name: c['name'] as String, phone: c['phone'] as String?)),
                 ],
               ),
             ),
