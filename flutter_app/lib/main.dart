@@ -11,6 +11,7 @@ import 'screens/patient_level1_screen/patient_homepage_screen.dart';
 import 'screens/patient_level2_screen/patient_homepage_screen.dart' as level2;
 import 'screens/caregiver_screen/caregiver_homepage_screen.dart';
 import 'services/device_token_service.dart';
+import 'services/alert_navigation.dart';
 
 // Lets the FCM foreground listener show something even though it isn't
 // inside any screen's widget tree — there was previously no code at all
@@ -43,9 +44,21 @@ void main() async {
 /// push's system-tray notification while the app is backgrounded/killed, so
 /// an alert arriving while a caregiver has the app open needs its own
 /// visible signal here.
+///
+/// That signal used to be a SnackBar for *every* push, whatever it said. The
+/// payload was never read: an SOS from a patient with dementia and a routine
+/// notice were given the same eight seconds of grey bar at the bottom of the
+/// screen, and the full-screen alert that already existed was only reachable
+/// by closing the app and opening it again — the one thing nobody does while
+/// holding a phone that has just buzzed. Urgent types now open their screen
+/// directly and the SnackBar keeps everything else.
 Future<void> _initPushNotifications() async {
   await FirebaseMessaging.instance.requestPermission();
-  FirebaseMessaging.onMessage.listen((message) {
+  FirebaseMessaging.onMessage.listen((message) async {
+    // Try the full-screen route first — it decides for itself whether this
+    // payload is one it handles, so the two lists cannot disagree.
+    if (await openAlertFromPush(navigatorKey, message.data)) return;
+
     final context = navigatorKey.currentContext;
     if (context == null || !context.mounted) return;
     final title = message.notification?.title ?? 'PathGuard alert';
