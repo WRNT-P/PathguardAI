@@ -4,10 +4,13 @@ import 'package:latlong2/latlong.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'sos_contact_screen.dart';
 import '../../services/sos_service.dart';
+import '../../services/api_client.dart';
+import '../../services/session.dart';
 import '../../utils/bearing.dart';
 import '../../services/directions_service.dart';
 
 import 'dart:async';
+import 'dart:convert';
 
 class NavigationScreen extends StatefulWidget {
   final Map<String, dynamic> place;
@@ -61,6 +64,23 @@ class _NavigationScreenState extends State<NavigationScreen> {
 
     await triggerSOS();
 
+    // Backend already ranks by distance (usable-location first, then
+    // nearest) — see GET .../caregivers's own sort. Naming who is coming
+    // reassures the patient far more than a generic "notified" ever could.
+    String? nearestName;
+    try {
+      final patientId = Session.instance.patientId;
+      if (patientId != null) {
+        final res = await apiGet('/api/patients/$patientId/caregivers');
+        if (res.statusCode == 200) {
+          final caregivers = (jsonDecode(res.body)['caregivers'] as List).cast<Map<String, dynamic>>();
+          if (caregivers.isNotEmpty) {
+            nearestName = caregivers.first['name'] as String?;
+          }
+        }
+      }
+    } catch (_) {}
+
     if (!mounted) return;
     setState((){
       _sosSending = false;
@@ -71,7 +91,12 @@ class _NavigationScreenState extends State<NavigationScreen> {
       builder: (context) => AlertDialog(
         icon: const Icon(Icons.check_circle, color: Colors.green, size: 64),
         title: const Text('Alert Sent', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        content: const Text('Your caregiver has been notified.', style: TextStyle(fontSize: 18)),
+        content: Text(
+          nearestName != null
+              ? '$nearestName is your nearest caregiver and has been notified.'
+              : 'Your caregiver has been notified.',
+          style: const TextStyle(fontSize: 18),
+        ),
         actions: [
           TextButton(
             onPressed: () {
@@ -123,77 +148,94 @@ class _NavigationScreenState extends State<NavigationScreen> {
       return;
     }
 
+    // Seed an immediate fix instead of waiting on the stream's first event.
+    // With distanceFilter set below, Android can suppress a stream's very
+    // first delivery as "too close" to a location it already has cached for
+    // that provider — normal on a real device that's been sitting still, and
+    // the default case on an emulator with a static (non-moving) mock
+    // location, which otherwise never puts a marker or route on screen at
+    // all. getCurrentPosition() is a direct request and isn't subject to
+    // that dedup.
+    try {
+      final seed = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      ).timeout(const Duration(seconds: 5));
+      _handlePosition(seed);
+    } catch (_) {}
+
     _positionSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.best,
         distanceFilter: 10,
       ),
-    ).listen((position) {
-      final updated = LatLng(position.latitude, position.longitude);
-      final isFirstFix = _currentLocation == null;
-      final previous = _currentLocation;
-      const distance = Distance();
+    ).listen(_handlePosition);
+  }
 
-      setState(() {
-        if (previous != null) {
-          final moved = distance.as(LengthUnit.Meter, previous, updated);
-          // A bearing computed across a few metres is mostly GPS noise, and
-          // feeding it to the camera is what made the map swing while the
-          // patient walked in a straight line. Below the floor the map simply
-          // keeps the heading it had, which is the honest answer.
-          if (moved >= _bearingMinMoveMeters) {
-            _updateTravelBearing(calculateBearing(
-              previous.latitude, previous.longitude,
-              updated.latitude, updated.longitude,
-            ));
-          }
+  void _handlePosition(Position position) {
+    final updated = LatLng(position.latitude, position.longitude);
+    final isFirstFix = _currentLocation == null;
+    final previous = _currentLocation;
+    const distance = Distance();
+
+    setState(() {
+      if (previous != null) {
+        final moved = distance.as(LengthUnit.Meter, previous, updated);
+        // A bearing computed across a few metres is mostly GPS noise, and
+        // feeding it to the camera is what made the map swing while the
+        // patient walked in a straight line. Below the floor the map simply
+        // keeps the heading it had, which is the honest answer.
+        if (moved >= _bearingMinMoveMeters) {
+          _updateTravelBearing(calculateBearing(
+            previous.latitude, previous.longitude,
+            updated.latitude, updated.longitude,
+          ));
         }
-
-        // Not while retracing. The trail is the record of the way *out*;
-        // appending the way back would mean a second press of "Take me back"
-        // retraces the retrace and walks the patient out again.
-        if (!_backtracking &&
-            (_trail.isEmpty ||
-                distance.as(LengthUnit.Meter, _trail.last, updated) >= _trailSpacingMeters)) {
-          _trail.add(updated);
-        }
-
-        if (_backtracking) {
-          // Walk the recorded points off the end of the list. Arriving at one
-          // means the next target is the one before it, and index 0 is where
-          // the walk began.
-          while (_backtrackIndex > 0 &&
-              distance.as(LengthUnit.Meter, updated, _trail[_backtrackIndex]) <
-                  _stepAdvanceThresholdMeters) {
-            _backtrackIndex--;
-          }
-        } else if (_routeSteps != null && _currentStepIndex < _routeSteps!.length - 1) {
-          final stepEnd = _routeSteps![_currentStepIndex].endLocation;
-          final stepEndLatLng = LatLng(stepEnd.latitude, stepEnd.longitude);
-          if (distance.as(LengthUnit.Meter, updated, stepEndLatLng) <
-              _stepAdvanceThresholdMeters) {
-            _currentStepIndex++;
-          }
-        }
-
-        _currentLocation = updated;
-      });
-
-      _mapController?.animateCamera(
-        gmaps.CameraUpdate.newCameraPosition(
-          gmaps.CameraPosition(
-            target: gmaps.LatLng(updated.latitude, updated.longitude),
-            zoom: 17.5,
-            bearing: _travelBearing ?? 0,
-            tilt: 0,
-          ),
-        ),
-      );
-
-      if (isFirstFix) {
-        _fetchRoute();
       }
+
+      // Not while retracing. The trail is the record of the way *out*;
+      // appending the way back would mean a second press of "Take me back"
+      // retraces the retrace and walks the patient out again.
+      if (!_backtracking &&
+          (_trail.isEmpty ||
+              distance.as(LengthUnit.Meter, _trail.last, updated) >= _trailSpacingMeters)) {
+        _trail.add(updated);
+      }
+
+      if (_backtracking) {
+        // Walk the recorded points off the end of the list. Arriving at one
+        // means the next target is the one before it, and index 0 is where
+        // the walk began.
+        while (_backtrackIndex > 0 &&
+            distance.as(LengthUnit.Meter, updated, _trail[_backtrackIndex]) <
+                _stepAdvanceThresholdMeters) {
+          _backtrackIndex--;
+        }
+      } else if (_routeSteps != null && _currentStepIndex < _routeSteps!.length - 1) {
+        final stepEnd = _routeSteps![_currentStepIndex].endLocation;
+        final stepEndLatLng = LatLng(stepEnd.latitude, stepEnd.longitude);
+        if (distance.as(LengthUnit.Meter, updated, stepEndLatLng) <
+            _stepAdvanceThresholdMeters) {
+          _currentStepIndex++;
+        }
+      }
+
+      _currentLocation = updated;
     });
+
+    _mapController?.animateCamera(
+      gmaps.CameraUpdate.newCameraPosition(
+        gmaps.CameraPosition(
+          target: gmaps.LatLng(updated.latitude, updated.longitude),
+          zoom: 17.5,
+          bearing: _travelBearing ?? 0,
+          tilt: 0,
+        ),
+      ),
+    );
+
+    if (isFirstFix) {
+      _fetchRoute();
+    }
   }
 
   /// Ease [rawBearing] into [_travelBearing] instead of snapping to it.
@@ -215,10 +257,17 @@ class _NavigationScreenState extends State<NavigationScreen> {
 
   /// Start retracing, or stop and go back to heading for the destination.
   void _toggleBacktrack() {
+    final wasBacktracking = _backtracking;
     setState(() {
       _backtracking = !_backtracking;
       if (_backtracking) _backtrackIndex = _nearestTrailIndex();
     });
+    // Stopping mid-retrace leaves the patient somewhere the old forward
+    // route's turn-by-turn was never built for — _currentStepIndex only ever
+    // advances, so resuming without a fresh route would show whatever turn
+    // instruction was current before the walk backward, not the one that
+    // matches where the patient is actually standing now.
+    if (wasBacktracking) _fetchRoute();
   }
 
   /// Where on the recorded trail the patient is standing right now.
@@ -258,7 +307,19 @@ class _NavigationScreenState extends State<NavigationScreen> {
   Future<void> _fetchRoute() async {
     final origin = gmaps.LatLng(_currentLocation!.latitude, _currentLocation!.longitude);
     final route = await fetchRoute(origin, _destination);
-    if (!mounted || route == null) return;
+    if (!mounted) return;
+    if (route == null) {
+      // Directions can fail (quota, no walking route found, dropped
+      // connection) — this used to leave the map with no line at all, which
+      // for a patient trying to find their way is worse than an imperfect
+      // one. A straight line at least says which direction to head.
+      setState(() {
+        _routePoints = [origin, _destination];
+        _routeSteps = [];
+        _currentStepIndex = 0;
+      });
+      return;
+    }
     setState(() {
       _routePoints = route.points;
       _routeSteps = route.steps;

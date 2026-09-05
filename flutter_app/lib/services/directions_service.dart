@@ -38,7 +38,15 @@ Future<RouteResult?> fetchRoute(LatLng origin, LatLng destination) async {
     '&key=$apiKey',
   );
 
-  final response = await http.get(url);
+  http.Response response;
+  try {
+    // Was unbounded — a slow/dropped connection here left the navigation
+    // screen with no route and no error, since the caller's own timeout
+    // has nothing to catch if this call never returns at all.
+    response = await http.get(url).timeout(const Duration(seconds: 8));
+  } catch (_) {
+    return null;
+  }
   if (response.statusCode != 200) return null;
 
   final data = jsonDecode(response.body);

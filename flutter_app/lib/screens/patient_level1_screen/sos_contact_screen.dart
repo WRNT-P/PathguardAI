@@ -41,24 +41,31 @@ class CaregiverCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               // null = never toggled it — not the same as "not available", so
               // it must not render as "Unavailable". A caregiver who hasn't set a
               // status yet is still someone worth calling.
-              Text(
-                isAvailable == null ? 'Unknown status' : (isAvailable! ? 'Available' : 'Unavailable'),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: isAvailable == null
-                      ? Colors.black45
-                      : (isAvailable! ? Colors.green : Colors.red),
+              Expanded(
+                child: Text(
+                  isAvailable == null ? 'Unknown status' : (isAvailable! ? 'Available' : 'Unavailable'),
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isAvailable == null
+                        ? Colors.black45
+                        : (isAvailable! ? Colors.green : Colors.red),
+                  ),
                 ),
               ),
-              Text(
-                distanceM != null ? '${(distanceM! / 1000).toStringAsFixed(1)} km' : 'Unknown location',
-                style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  distanceM != null ? '${(distanceM! / 1000).toStringAsFixed(1)} km' : 'Unknown location',
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600),
+                ),
               ),
             ],
           ),

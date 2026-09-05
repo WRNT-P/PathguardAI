@@ -10,6 +10,9 @@ Future<Map<String, dynamic>?> findNearestSafePlace(double lat, double lng) async
 
     final url = Uri.parse('https://places.googleapis.com/v1/places:searchNearby');
 
+    // Was unbounded — a slow or dropped connection here could hang the SOS
+    // flow indefinitely with no way for the caller's own timeout to help,
+    // since this request had none of its own.
     final response = await http.post(
       url,
       headers: {
@@ -28,7 +31,7 @@ Future<Map<String, dynamic>?> findNearestSafePlace(double lat, double lng) async
         },
       },
     })
-  );
+  ).timeout(const Duration(seconds: 8));
 
   if (response.statusCode != 200) return null;
 

@@ -69,15 +69,27 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       _sosSending = true;
     });
 
-    try {
-      await triggerSOS();
-    } catch (_) {}
-
+    // Notifying the caregiver and finding a nearby safe place don't depend on
+    // each other — running them one after another (as this used to) stacked
+    // a 15s backend timeout, a fresh 5s high-accuracy GPS fetch, and an
+    // unbounded Places API call end to end, which is what made the button
+    // feel like it hung. In parallel, the whole thing is bounded by whichever
+    // side is slowest, not both added together.
     Map<String, dynamic>? safePlace;
-    try {
-      final position = await Geolocator.getCurrentPosition().timeout(const Duration(seconds: 5));
-      safePlace = await findNearestSafePlace(position.latitude, position.longitude);
-    } catch (_) {}
+    await Future.wait([
+      triggerSOS().catchError((_) => false),
+      () async {
+        try {
+          // A cached fix is near-instant; only wait on a fresh one if there's
+          // truly nothing recent to work with.
+          var position = await Geolocator.getLastKnownPosition();
+          position ??= await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+          ).timeout(const Duration(seconds: 3));
+          safePlace = await findNearestSafePlace(position.latitude, position.longitude);
+        } catch (_) {}
+      }(),
+    ]);
 
     if (!mounted) return;
     setState(() {
