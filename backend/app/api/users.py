@@ -85,6 +85,13 @@ class MeOut(BaseModel):
     name: str
     role: str
     phone: str | None
+    is_available: bool | None = Field(
+        None,
+        description=(
+            "สถานะว่าง/ไม่ว่างที่ผู้ดูแลคนนี้ตั้งไว้ล่าสุด · null = ยังไม่เคยตั้ง "
+            "ให้แสดงว่ายังไม่ได้ตั้ง ห้ามแสดงว่าว่างหรือไม่ว่าง · null เสมอสำหรับผู้ป่วย"
+        ),
+    )
     created_at: datetime
 
 
@@ -115,6 +122,16 @@ async def read_me(
     too, and a route under ``caregivers`` that answers ``role: "patient"`` is a
     URL that lies. One route, both roles, the role in the body.
 
+    ``is_available`` was added 2026-09-06 to close a one-way street. Only
+    ``PUT /api/caregivers/{id}/availability`` touched the column and nothing
+    read it back for its owner, so the app had no choice but to guess: it
+    showed "Available" on every launch off a local default, while the row said
+    ``NULL`` and the patient's SOS screen — correctly — showed "unknown". The
+    caregiver's own screen and the patient's screen disagreed about the same
+    fact, and the caregiver's was the one that was wrong. Reading is the fix;
+    writing a default on launch would have been the app asserting on somebody's
+    behalf exactly what the column is nullable to avoid.
+
     Note this needs a real token even while ``AUTH_ENABLED`` is off — see
     ``auth.signed_in_caller`` for why that is the point rather than an oversight.
     """
@@ -133,6 +150,7 @@ async def read_me(
         name=user.name,
         role=user.role,
         phone=user.phone,
+        is_available=user.is_available,
         created_at=user.created_at,
     )
 

@@ -133,3 +133,50 @@ async def test_signed_in_but_never_registered_is_told_what_to_do(
 
     assert resp.status_code == 403
     assert "/api/register" in resp.json()["detail"]
+
+
+# ── is_available: the field that closed a one-way street ─────────────────────
+#
+# ``PUT /api/caregivers/{id}/availability`` could write the column and nothing
+# could read it back for its owner, so the caregiver's own screen showed
+# "Available" off a local default while the row said NULL and the patient's SOS
+# screen — correctly — showed "unknown". Two screens, one fact, and the
+# caregiver's was the wrong one.
+
+async def test_a_caregiver_who_never_answered_reads_back_null(
+        client, people, firebase_stub):
+    """Not ``False``, and not ``True`` either. The app must be able to tell
+    "has not said" apart from "said no", or it will render one as the other."""
+    resp = await client.get("/api/me", headers=bearer("tok-caregiver"))
+
+    assert resp.status_code == 200
+    assert resp.json()["is_available"] is None
+
+
+async def test_it_reads_back_what_the_availability_route_wrote(
+        client, people, firebase_stub):
+    await client.put(f"/api/caregivers/{people['caregiver']}/availability",
+                     json={"is_available": False})
+
+    resp = await client.get("/api/me", headers=bearer("tok-caregiver"))
+
+    assert resp.json()["is_available"] is False
+
+
+async def test_true_survives_the_round_trip_as_true(
+        client, people, firebase_stub):
+    await client.put(f"/api/caregivers/{people['caregiver']}/availability",
+                     json={"is_available": True})
+
+    resp = await client.get("/api/me", headers=bearer("tok-caregiver"))
+
+    assert resp.json()["is_available"] is True
+
+
+async def test_a_patient_reads_back_null(client, people, firebase_stub):
+    """A patient has no availability — the write route 422s them — so the read
+    route must not imply they have one."""
+    resp = await client.get("/api/me", headers=bearer("tok-patient"))
+
+    assert resp.status_code == 200
+    assert resp.json()["is_available"] is None
