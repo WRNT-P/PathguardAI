@@ -12,6 +12,8 @@ import 'join_patient_screen.dart';
 import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/location_service.dart';
+import '../../services/alert_navigation.dart';
+import '../../services/caregiver_location_service.dart';
 import '../../services/caregiver_session.dart';
 import '../../services/trip_request_directory.dart';
 import '../login_screen.dart';
@@ -29,7 +31,35 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   List<Map<String, dynamic>> patients = [];
   bool _loadingPatients = true;
   Timer? _countdownTicker;
-  bool _isAvailable = true;
+  Timer? _locationTicker;
+  /// Three states, and the third is why this is nullable: null means this
+  /// caregiver has never answered the question, which is not the same claim as
+  /// "unavailable" and must not be drawn as one. Matches the column behind it.
+  bool? _isAvailable;
+
+  /// Reads the caregiver's own availability back on launch.
+  ///
+  /// This used to be a bare `= true` with nothing behind it, so the pill said
+  /// "Available" while the row said NULL and the patient's SOS screen — reading
+  /// the same field from the other end — said "Unknown status". Two screens,
+  /// one fact, and this was the screen that was wrong.
+  ///
+  /// Writing a default on launch instead would have been worse, not simpler:
+  /// it asserts on the caregiver's behalf exactly what the column is nullable
+  /// to avoid, and it would overwrite an explicit "unavailable" every time they
+  /// reopened the app.
+  Future<void> _loadOwnAvailability() async {
+    try {
+      final res = await apiGet('/api/me');
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (mounted) setState(() => _isAvailable = body['is_available'] as bool?);
+    } catch (_) {
+      // Left unset on purpose. "We could not ask" and "they have not answered"
+      // both render honestly as "Not set"; guessing either way is the bug this
+      // method exists to remove.
+    }
+  }
 
   Future<void> _updateAvailability(bool value) async {
     final previous = _isAvailable;
@@ -50,6 +80,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   void initState() {
     super.initState();
     _loadPatients();
+    _loadOwnAvailability();
     // Keeps the "expires in Xh Ym" label live and refreshes each patient's
     // risk badge — cheap enough to just always tick.
     _countdownTicker = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -57,6 +88,14 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       setState(() {});
       _refreshRiskLevels();
     });
+    // Where this caregiver is, for the patient's SOS ranking. Its own timer
+    // rather than a share of the one above: the ranking sorts on freshness
+    // before distance and expires a position at 1800 s, so five minutes keeps
+    // it comfortably inside that at a twelfth of the GPS fixes a minute-tick
+    // would take. Foreground only — this screen is on, or nothing is sent.
+    reportCaregiverLocation();
+    _locationTicker = Timer.periodic(
+      const Duration(minutes: 5), (_) => reportCaregiverLocation());
     // Redraws the notification bell's badge the instant a trip request
     // appears/gets resolved, instead of only reflecting it on next rebuild.
     TripRequestDirectory.instance.addListener(_onTripRequestsChanged);
@@ -65,6 +104,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   @override
   void dispose() {
     _countdownTicker?.cancel();
+    _locationTicker?.cancel();
     TripRequestDirectory.instance.removeListener(_onTripRequestsChanged);
     super.dispose();
   }
@@ -177,15 +217,21 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
     }
   }
 
-  static const _urgentAlertTypes = {'sos', 'emergency', 'geofence'};
-
-  /// Shown once when the app is opened, not a true full-screen-intent
-  /// notification (would need a native foreground service to interrupt a
-  /// closed app) — the user decided that's out of scope for now. Queues one
-  /// full-screen alert per patient with an active unresolved alert, shown one
-  /// after another. gps_lost routes to MissingPatientScreen (Module 4, no
-  /// manual form — auto-activates and summarizes); the rest go to
-  /// SosAlertScreen (distance ranking + claim).
+  /// Shown once when the app is opened. Since 2026-09-06 it is no longer the
+  /// only way in — `main.dart`'s push listener opens the same screens the
+  /// moment an alert arrives — so this is the catch-up pass for anything that
+  /// fired while the app was closed, not the primary path it used to be.
+  ///
+  /// Queues one full-screen alert per patient with an active unresolved alert,
+  /// shown one after another. `gps_loss` routes to MissingPatientScreen
+  /// (Module 4, no manual form — auto-activates and summarizes); the rest go
+  /// to SosAlertScreen (distance ranking + claim).
+  ///
+  /// The type strings come from `alert_navigation.dart` rather than living
+  /// here, because the push listener has to make the same decision and the two
+  /// must not drift. They drifted once already: this method matched
+  /// `gps_lost`, which the backend has not written since `3fe7896`, so the
+  /// Module 4 screen could never open at all.
   Future<void> _checkForActiveAlerts() async {
     for (final patient in patients) {
       try {
@@ -194,7 +240,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
         final alerts = (jsonDecode(res.body)['alerts'] as List).cast<Map<String, dynamic>>();
         final unresolved = alerts.where((a) => a['resolved'] == false);
 
-        final missing = unresolved.where((a) => a['alert_type'] == 'gps_lost');
+        final missing = unresolved.where((a) => a['alert_type'] == missingAlertType);
         if (missing.isNotEmpty) {
           if (!mounted) return;
           await Navigator.push(
@@ -205,7 +251,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
           );
         }
 
-        final active = unresolved.where((a) => _urgentAlertTypes.contains(a['alert_type']));
+        final active = unresolved.where((a) => urgentAlertTypes.contains(a['alert_type']));
         if (active.isEmpty) continue;
 
         if (!mounted) return;
@@ -675,14 +721,16 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
               ],
             ),
           ),
-          // No endpoint reads a caregiver's own current availability back —
-          // only PUT sets it, and GET .../caregivers only exposes it
-          // per-patient. Defaults to "available" each app launch since
-          // there's nothing to restore it from.
+          // Restored from GET /api/me on launch — see _loadOwnAvailability.
+          // The three labels and colours are the same ones the patient's SOS
+          // screen uses for this caregiver, so what a caregiver sees on their
+          // own row is what the person in trouble sees on theirs.
           Semantics(
-            label: _isAvailable
-                ? 'Available to caregiving requests, tap to go unavailable'
-                : 'Unavailable to caregiving requests, tap to go available',
+            label: switch (_isAvailable) {
+              null => 'Availability not set, tap to say you are available',
+              true => 'Available to caregiving requests, tap to go unavailable',
+              false => 'Unavailable to caregiving requests, tap to go available',
+            },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
@@ -693,15 +741,26 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    _isAvailable ? 'Available' : 'Unavailable',
+                    switch (_isAvailable) {
+                      null => 'Not set',
+                      true => 'Available',
+                      false => 'Unavailable',
+                    },
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
-                      color: _isAvailable ? Colors.green[700] : Colors.grey[600],
+                      color: switch (_isAvailable) {
+                        null => Colors.black45,
+                        true => Colors.green[700],
+                        false => Colors.red,
+                      },
                     ),
                   ),
+                  // A Switch has two positions and this has three states, so
+                  // the label above carries the truth and the switch shows
+                  // "off" until the question has actually been answered.
                   Switch(
-                    value: _isAvailable,
+                    value: _isAvailable ?? false,
                     activeThumbColor: Colors.green[700],
                     onChanged: _updateAvailability,
                   ),
