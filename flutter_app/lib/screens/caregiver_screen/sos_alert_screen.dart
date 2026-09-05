@@ -42,20 +42,121 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
     _refreshTimer = Timer.periodic(const Duration(seconds: 8), (_) => _refresh());
   }
 
-  /// Module 2 — only meaningful once there's enough travel history to trust
-  /// (history_status "ok"). "none"/"sparse" means the patient is still in the
-  /// behavior-learning phase, where a guessed destination would be a coin
-  /// flip dressed up as a prediction — say nothing rather than mislead.
+  /// Module 2 — where this patient usually goes next, off the Markov
+  /// transition matrix the risk scorer already fits.
+  ///
+  /// This used to store the answer only when `history_status == 'ok'`, which
+  /// needs 20 recorded moves in 30 days (`destination.py:61`). No patient in
+  /// testing has ever had close to that — the live rows hold three to ten GPS
+  /// points each — so the card was written, wired, and invisible to everybody,
+  /// and read from outside as "the prediction was never built".
+  ///
+  /// Silence was the right instinct and the wrong execution. A thin history
+  /// must not be dressed up as a confident answer, but "we cannot say yet, and
+  /// here is why" is information a caregiver can act on and an empty box is
+  /// not. So all three states are kept and the card says which one it is —
+  /// with one hard rule carried over from the endpoint's own docstring: at
+  /// `none` the numbers are an equal division rather than a prediction, so
+  /// **no percentage is ever shown for it**.
   Future<void> _loadPrediction() async {
     try {
       final res = await apiGet('/api/predict-destination/${widget.patientId}');
       if (res.statusCode != 200) return;
       final body = jsonDecode(res.body) as Map<String, dynamic>;
-      if (body['status'] == 'ok' && body['history_status'] == 'ok') {
+      if (body['status'] == 'ok') {
         if (mounted) setState(() => _prediction = body);
       }
     } catch (_) {
     }
+  }
+
+  /// The first prediction the caregiver can actually be told about.
+  ///
+  /// A learned cluster has no `place_name` — `place_clustering.py` emits
+  /// coordinates and a visit count and nothing a human named — and the API
+  /// contract's instruction for that case is to hide the tile rather than
+  /// print "unknown". "They are heading to Unknown place" is worse than
+  /// saying nothing.
+  Map<String, dynamic>? get _topNamedPrediction {
+    final list = _prediction?['predictions'] as List?;
+    if (list == null) return null;
+    for (final p in list.cast<Map<String, dynamic>>()) {
+      if (p['place_name'] != null) return p;
+    }
+    return null;
+  }
+
+  /// Module 2's answer, stated at the confidence it actually has.
+  ///
+  /// Three presentations for the endpoint's three history states, because the
+  /// difference between them is the whole point: a caregiver deciding where to
+  /// drive needs to know whether "the temple" is a pattern or a guess, and one
+  /// orange box saying "Predicted destination" for both teaches them to
+  /// distrust it within a week.
+  Widget _predictionCard() {
+    final historyStatus = _prediction!['history_status'] as String?;
+    final observed = _prediction!['transitions_observed'] as int? ?? 0;
+    final top = _topNamedPrediction;
+
+    final String headline;
+    final String caveat;
+    final Color background;
+    final Color borderColour;
+
+    if (top == null || historyStatus == 'none') {
+      // No percentage here, deliberately. At "none" the numbers the endpoint
+      // returns are an equal division across the known places — arithmetic,
+      // not a prediction — and its own docstring says not to render them as
+      // confidence. Saying so plainly is more use than an empty box.
+      headline = 'No destination prediction yet';
+      caveat = top == null && historyStatus != 'none'
+          ? 'The places on file have no names, so there is nothing to name here.'
+          : 'This patient has not been recorded travelling between their saved '
+              'places yet, so there is nothing to predict from.';
+      background = Colors.grey[100]!;
+      borderColour = Colors.grey[300]!;
+    } else if (historyStatus == 'ok') {
+      headline = 'Likely heading to ${top['place_name']} '
+          '(${top['probability_pct']}%)';
+      caveat = 'Based on $observed recorded moves in the last 30 days.';
+      background = Colors.orange[50]!;
+      borderColour = Colors.orange[200]!;
+    } else {
+      // sparse — a real number off a history too thin to lean on. Shown,
+      // because it is the only signal there is, and captioned so nobody
+      // mistakes it for the case above.
+      headline = 'Possibly heading to ${top['place_name']} '
+          '(${top['probability_pct']}%)';
+      caveat = 'Low confidence — only $observed recorded moves in the last '
+          '30 days. Treat this as a hint, not a destination.';
+      background = Colors.amber[50]!;
+      borderColour = Colors.amber[300]!;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: borderColour),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(headline,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text(
+              caveat,
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -151,31 +252,18 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
-          if (_prediction != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange[200]!),
-                ),
-                child: Text(
-                  'Predicted destination: ${(_prediction!['predictions'] as List).isNotEmpty ? (_prediction!['predictions'][0]['place_name'] ?? 'Unknown place') : 'Unknown'} '
-                  '(based on past travel statistics)',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
+          if (_prediction != null) _predictionCard(),
           if (lat != null && lng != null)
             SizedBox(
               height: 220,
               child: gmaps.GoogleMap(
                 initialCameraPosition: gmaps.CameraPosition(
                   target: gmaps.LatLng(lat, lng),
-                  zoom: 16,
+                  // Google Maps only draws buildings from roughly zoom 17, and
+                  // this map is 220 px tall on an alert somebody has to act on:
+                  // the question is "which building are they outside", not
+                  // "which district". Anything wider is a map of nothing.
+                  zoom: 17.5,
                 ),
                 markers: {
                   gmaps.Marker(
