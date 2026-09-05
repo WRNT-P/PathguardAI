@@ -443,7 +443,11 @@ class _NavigationScreenState extends State<NavigationScreen> {
           gmaps.GoogleMap(
             initialCameraPosition: gmaps.CameraPosition(
               target: _destination,
-              zoom: 15.0,
+              // Only ever seen before the first GPS fix — every update after it
+              // animates to 17.5 on the patient. Matched to that so the opening
+              // frame is the same scale as everything that follows, and shows
+              // the destination's actual street rather than its district.
+              zoom: 17.5,
             ),
             markers: markers,
             polylines: polylines,

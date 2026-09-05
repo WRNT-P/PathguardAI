@@ -217,24 +217,64 @@ class _TrackScreenState extends State<TrackScreen>{
     return nearest;
   }
 
+  /// Zoom used whenever the camera focuses on the patient alone. Google Maps
+  /// only draws building footprints from roughly zoom 17, and street-level
+  /// detail is the whole point of looking at a patient who is somewhere
+  /// unexpected — below this the screen shows a dot on an empty road grid.
+  static const double _patientFocusZoom = 17.0;
+
+  /// Past this far apart, the safe place stops being useful context and the
+  /// fit below is dropped in favour of the patient alone.
+  ///
+  /// ⚠️ A judgement call, not a measurement. It is here because the fit had no
+  /// ceiling at all: the camera pulled back far enough to hold both points
+  /// however far apart they were, so **the further a patient wandered the less
+  /// the caregiver could see** — the map was at its least useful in exactly the
+  /// situation it exists for. Live data made that concrete: a patient 25 km
+  /// from their home pin put the camera near zoom 10, where the patient is a
+  /// dot and no street is readable.
+  static const double _maxFitDistanceM = 2000;
+
   /// Zooms/pans so both the patient and their nearest safe place are on
   /// screen together — a caregiver checking this screen wants "how far from
   /// safety are they", not just a dot with no reference point.
+  ///
+  /// Unless they are too far apart to hold both usefully, in which case
+  /// "where are they, exactly" wins over "how far from home" — the distance is
+  /// already stated in words in the panel below the map, and a caregiver
+  /// reading it does not need the second marker on screen to learn it.
   void _fitCameraToPatientAndNearestPlace() {
     final controller = _mapController;
     final current = _currentLocation;
     final nearest = _nearestPlace;
     if (controller == null || current == null) return;
 
-    if (nearest == null) {
+    void focusOnPatient() {
       controller.animateCamera(
-        gmaps.CameraUpdate.newLatLngZoom(gmaps.LatLng(current.latitude, current.longitude), 16),
+        gmaps.CameraUpdate.newLatLngZoom(
+          gmaps.LatLng(current.latitude, current.longitude),
+          _patientFocusZoom,
+        ),
       );
+    }
+
+    if (nearest == null) {
+      focusOnPatient();
       return;
     }
 
     final nearestLat = (nearest['latitude'] as num).toDouble();
     final nearestLng = (nearest['longitude'] as num).toDouble();
+
+    // Same Distance() the nearest-place search above uses, so the two cannot
+    // disagree about how far apart these points are.
+    final metresApart = const Distance().as(
+      LengthUnit.Meter, current, LatLng(nearestLat, nearestLng));
+    if (metresApart > _maxFitDistanceM) {
+      focusOnPatient();
+      return;
+    }
+
     final bounds = gmaps.LatLngBounds(
       southwest: gmaps.LatLng(
         current.latitude < nearestLat ? current.latitude : nearestLat,
