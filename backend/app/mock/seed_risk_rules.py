@@ -191,10 +191,22 @@ async def seed_rules(session) -> dict:
                                       created_by=SEED_CREATED_BY))
             counts["thresholds"] += 1
 
+    # Deliberately NOT filtered on ``active``, unlike the three blocks above.
+    #
+    # For a threshold or a weight, ``active`` marks a version: the repository
+    # supersedes a row by deactivating it and writing version+1, and a name with
+    # no live row at all is a hole that took risk scoring down once, so
+    # re-seeding it is a repair.
+    #
+    # A danger zone has no versions. ``DELETE /api/danger-zones/{id}`` is a soft
+    # delete meaning a human decided this place is not a hazard — which is
+    # exactly what happened to the two Bangkok demo zones on 2026-09-06. Asking
+    # only about active rows made that decision invisible here, so the next run
+    # of this seed would have re-inserted both as new active rows and silently
+    # re-armed a critical-emergency trigger in central Bangkok. Match on the
+    # name whatever its state: a deactivated zone counts as present.
     existing = set(
-        (await session.execute(
-            select(DangerZone.name).where(DangerZone.active))
-         ).scalars())
+        (await session.execute(select(DangerZone.name))).scalars())
     for z in SEED_DANGER_ZONES:
         if z["name"] not in existing:
             session.add(DangerZone(**z, active=True, created_by=SEED_CREATED_BY))
