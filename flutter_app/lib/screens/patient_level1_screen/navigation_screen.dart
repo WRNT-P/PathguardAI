@@ -8,6 +8,7 @@ import '../../services/api_client.dart';
 import '../../services/session.dart';
 import '../../utils/bearing.dart';
 import '../../services/directions_service.dart';
+import 'dart:ui' as ui;
 
 import 'dart:async';
 import 'dart:convert';
@@ -30,31 +31,15 @@ class _NavigationScreenState extends State<NavigationScreen> {
   List<RouteStep>? _routeSteps;
   int _currentStepIndex = 0;
   gmaps.GoogleMapController? _mapController;
+  gmaps.BitmapDescriptor? _navigationIcon;
   double? _travelBearing;
   bool _sosSending = false;
 
-  /// Every place the patient has actually stood, oldest first, thinned to one
-  /// point per [_trailSpacingMeters].
-  ///
-  /// This is what "take me back the way I came" walks in reverse. It is
-  /// deliberately the *walked* track and not a Directions route: the point of
-  /// retracing is that the patient has already seen this ground once, and a
-  /// shortest-path route home would send someone with early-stage dementia
-  /// down a street they have never been on to save two minutes.
-  ///
-  /// Never trimmed from the front. The oldest entry is where they set out —
-  /// dropping it to cap the list would throw away the one point the whole
-  /// feature exists to reach.
   final List<LatLng> _trail = [];
   static const double _trailSpacingMeters = 15;
 
-  /// True while retracing. The forward route's turn-by-turn is hidden then:
-  /// those instructions describe a route we are no longer following, and a
-  /// confident wrong instruction is worse than none.
   bool _backtracking = false;
 
-  /// Index into [_trail] of the point currently being walked toward while
-  /// backtracking. Counts down; 0 is where the walk began.
   int _backtrackIndex = 0;
 
   Future<void> _handleSOS() async {
@@ -64,9 +49,6 @@ class _NavigationScreenState extends State<NavigationScreen> {
 
     await triggerSOS();
 
-    // Backend already ranks by distance (usable-location first, then
-    // nearest) — see GET .../caregivers's own sort. Naming who is coming
-    // reassures the patient far more than a generic "notified" ever could.
     String? nearestName;
     try {
       final patientId = Session.instance.patientId;
@@ -135,27 +117,16 @@ class _NavigationScreenState extends State<NavigationScreen> {
   void initState() {
     super.initState();
     _startLocationUpdates();
+    _loadNavigationIcon();
   }
 
   Future<void> _startLocationUpdates() async {
     final havePermission = await _ensureLocationPermission();
     if (!havePermission) {
-      // Was a bare `return`. Without a position the blue arrow never appears,
-      // the map never rotates and the trail never records — so both the
-      // heading-up view and "take me back" quietly do nothing, and the screen
-      // gives no hint why. Say it instead.
       if (mounted) setState(() => _locationUnavailable = true);
       return;
     }
 
-    // Seed an immediate fix instead of waiting on the stream's first event.
-    // With distanceFilter set below, Android can suppress a stream's very
-    // first delivery as "too close" to a location it already has cached for
-    // that provider — normal on a real device that's been sitting still, and
-    // the default case on an emulator with a static (non-moving) mock
-    // location, which otherwise never puts a marker or route on screen at
-    // all. getCurrentPosition() is a direct request and isn't subject to
-    // that dedup.
     try {
       final seed = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
@@ -169,6 +140,43 @@ class _NavigationScreenState extends State<NavigationScreen> {
         distanceFilter: 10,
       ),
     ).listen(_handlePosition);
+  }
+
+  Future<void> _loadNavigationIcon() async {
+    const double size = 96;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
+    const center = Offset(size / 2, size / 2);
+
+    final painter = TextPainter(textDirection: TextDirection.ltr)
+      ..text = TextSpan(
+        text: String.fromCharCode(Icons.navigation.codePoint),
+        style: TextStyle(
+          fontSize: size * 0.75,
+          fontFamily: Icons.navigation.fontFamily,
+          package: Icons.navigation.fontPackage,
+          color: Colors.blue,
+        ),
+      )
+      ..layout();
+
+    painter.paint(
+      canvas,
+      center - Offset(painter.width / 2, painter.height / 2),
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size.toInt(), size.toInt());
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+
+    final icon = gmaps.BitmapDescriptor.bytes(
+      byteData!.buffer.asUint8List(),
+      width: 48,
+      height: 48,
+    );
+
+    if (mounted) setState(() => _navigationIcon = icon);
   }
 
   void _handlePosition(Position position) {
@@ -384,11 +392,18 @@ class _NavigationScreenState extends State<NavigationScreen> {
         position: _destination,
         icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueRed),
       ),
-    };
 
-    // While retracing, the forward route is not the line being walked, so it
-    // comes off the map entirely rather than sitting there as a second
-    // suggestion competing with the one the patient is following.
+      if (_currentLocation != null && _navigationIcon != null)
+        gmaps.Marker(
+          markerId: const gmaps.MarkerId('patient'),
+          position: gmaps.LatLng(_currentLocation!.latitude, _currentLocation!.longitude),
+          icon: _navigationIcon!,
+          anchor: const Offset(0.5, 0.5), 
+          flat: true,                     
+          rotation: _travelBearing ?? 0,  
+          zIndex: 1,
+        )
+    };
     final polylines = <gmaps.Polyline>{
       if (_backtracking && _trail.length >= 2)
         gmaps.Polyline(
@@ -443,10 +458,6 @@ class _NavigationScreenState extends State<NavigationScreen> {
           gmaps.GoogleMap(
             initialCameraPosition: gmaps.CameraPosition(
               target: _destination,
-              // Only ever seen before the first GPS fix — every update after it
-              // animates to 17.5 on the patient. Matched to that so the opening
-              // frame is the same scale as everything that follows, and shows
-              // the destination's actual street rather than its district.
               zoom: 17.5,
             ),
             markers: markers,
@@ -455,17 +466,6 @@ class _NavigationScreenState extends State<NavigationScreen> {
               _mapController = controller;
             },
           ),
-          // Represents the patient. Fixed at screen-center rather than a
-          // real Marker, since the camera already re-centers on the patient
-          // and rotates to match travel direction on every GPS update — so
-          // an icon that always points "up" on screen automatically shows
-          // the direction they're currently heading.
-          if (_currentLocation != null)
-            const IgnorePointer(
-              child: Center(
-                child: Icon(Icons.navigation, color: Colors.blue, size: 48),
-              ),
-            ),
           if (_locationUnavailable)
             Positioned(
               top: 0,
