@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import 'dart:io';
 import 'add_patient_screen.dart';
+import 'chat_screen.dart';
 import 'track_screen.dart';
 import 'notification_screen.dart';
 import 'missing_patient_screen.dart';
@@ -622,6 +623,26 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                       _buildRiskBadge(patient),
                       _buildPairingCodeChip(patient),
                     ],
+                  ),
+                ),
+                Semantics(
+                  label: 'Open the family chat for $name',
+                  button: true,
+                  child: IconButton(
+                    tooltip: 'Family chat',
+                    icon: const Icon(Icons.forum_rounded),
+                    color: Colors.grey[700],
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ChatScreen(
+                            patientId: patient['id'] as int,
+                            patientName: name,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 Semantics(
