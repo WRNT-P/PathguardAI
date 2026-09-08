@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import 'navigation_screen.dart';
 import '../../services/sos_service.dart';
 import '../../services/trip_approval_service.dart';
@@ -23,32 +24,60 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   List<Map<String,dynamic>> recommendedPlaces = [];
   bool _loadingPlaces = true;
 
+  /// A cold Cloudflare tunnel/backend can 502 or time out on the very first
+  /// request after being idle (e.g. right after pairing on a fresh app
+  /// launch) — same problem patient_login_screen.dart's _postWithRetry
+  /// exists for. Without a retry here that transient failure looked
+  /// identical to "caregiver hasn't added any places yet" even when places
+  /// existed all along.
+  Future<http.Response?> _getWithRetry(String path, {int attempts = 3}) async {
+    for (var i = 0; i < attempts; i++) {
+      try {
+        final res = await apiGet(path);
+        if (res.statusCode == 200) return res;
+        if (i == attempts - 1) return res;
+      } catch (_) {
+        if (i == attempts - 1) return null;
+      }
+      await Future.delayed(Duration(seconds: 1 + i));
+    }
+    return null;
+  }
+
   Future<void> _loadRecommendations() async {
     final patientId = Session.instance.patientId;
-    if(patientId == null) return;
-
-    final response = await apiGet('/api/recommendation/$patientId');
-    if(!mounted) return;
-
-    if (response.statusCode != 200) {
+    if(patientId == null) {
       setState(() => _loadingPlaces = false);
       return;
     }
 
-    final body = jsonDecode(response.body);
-    final recommendations = body['recommendations'] as List;
+    try {
+      final response = await _getWithRetry('/api/recommendation/$patientId');
+      if(!mounted) return;
 
-    setState(() {
-      recommendedPlaces = recommendations
-          .where((r) => r['place_name'] != null)
-          .map((r) => {
-                'name': r['place_name'] as String,
-                'lat': (r['latitude'] as num).toDouble(),
-                'lng': (r['longitude'] as num).toDouble(),
-              })
-          .toList();
-      _loadingPlaces = false;
-    });
+      if (response == null || response.statusCode != 200) {
+        setState(() => _loadingPlaces = false);
+        return;
+      }
+
+      final body = jsonDecode(response.body);
+      final recommendations = body['recommendations'] as List;
+
+      setState(() {
+        recommendedPlaces = recommendations
+            .where((r) => r['place_name'] != null)
+            .map((r) => {
+                  'name': r['place_name'] as String,
+                  'lat': (r['latitude'] as num).toDouble(),
+                  'lng': (r['longitude'] as num).toDouble(),
+                })
+            .toList();
+        _loadingPlaces = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingPlaces = false);
+    }
    }
 
   @override
@@ -267,16 +296,23 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     if (recommendedPlaces.isEmpty) {
       return _buildEmptyState();
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Choose the place you want to go.',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 20),
-        ...recommendedPlaces.map(_buildPlaceTile),
-      ],
+    // Column alone fit the 3-tile design this screen shipped with — a 4th
+    // tile (home + 3 recommended, 2026-09-06) can run past the screen height
+    // on shorter devices: a debug build flags that with the yellow/black
+    // overflow stripes, but a release build just clips the overflow off the
+    // bottom with no warning at all.
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Choose the place you want to go.',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 20),
+          ...recommendedPlaces.map(_buildPlaceTile),
+        ],
+      ),
     );
   }
 

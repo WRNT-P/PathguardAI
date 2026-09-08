@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'navigation_screen.dart';
 import 'sos_contact_screen.dart';
 import 'dart:async';
+import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../../services/places_service.dart';
 import '../../services/sos_service.dart';
@@ -109,33 +110,61 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     }
   }
 
+  /// A cold Cloudflare tunnel/backend can 502 or time out on the very first
+  /// request after being idle (e.g. right after pairing on a fresh app
+  /// launch) — same problem patient_login_screen.dart's _postWithRetry
+  /// exists for. Without a retry here that transient failure looked
+  /// identical to "caregiver hasn't added any places yet" even when places
+  /// existed all along.
+  Future<http.Response?> _getWithRetry(String path, {int attempts = 3}) async {
+    for (var i = 0; i < attempts; i++) {
+      try {
+        final res = await apiGet(path);
+        if (res.statusCode == 200) return res;
+        if (i == attempts - 1) return res;
+      } catch (_) {
+        if (i == attempts - 1) return null;
+      }
+      await Future.delayed(Duration(seconds: 1 + i));
+    }
+    return null;
+  }
+
   Future<void> _loadRecommendations() async {
     final patientId = Session.instance.patientId;
-    if (patientId == null) return;
-
-    final response = await apiGet('/api/recommendation/$patientId');
-    if (!mounted) return;
-
-    if (response.statusCode != 200) {
+    if (patientId == null) {
       setState(() => _loadingPlaces = false);
       return;
     }
 
-    final body = jsonDecode(response.body);
-    final recommendations = body['recommendations'] as List;
+    try {
+      final response = await _getWithRetry('/api/recommendation/$patientId');
+      if (!mounted) return;
 
-    setState(() {
-      recommendedPlaces = recommendations
-          .where((r) => r['place_name'] != null)
-          .map((r) => {
-                'name': r['place_name'] as String,
-                'lat': (r['latitude'] as num).toDouble(),
-                'lng': (r['longitude'] as num).toDouble(),
-                'confidence_pct': r['confidence_pct'],
-              })
-          .toList();
-      _loadingPlaces = false;
-    });
+      if (response == null || response.statusCode != 200) {
+        setState(() => _loadingPlaces = false);
+        return;
+      }
+
+      final body = jsonDecode(response.body);
+      final recommendations = body['recommendations'] as List;
+
+      setState(() {
+        recommendedPlaces = recommendations
+            .where((r) => r['place_name'] != null)
+            .map((r) => {
+                  'name': r['place_name'] as String,
+                  'lat': (r['latitude'] as num).toDouble(),
+                  'lng': (r['longitude'] as num).toDouble(),
+                  'confidence_pct': r['confidence_pct'],
+                })
+            .toList();
+        _loadingPlaces = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingPlaces = false);
+    }
   }
 
   Future<void> _requestTrip(Map<String, dynamic> place) async {

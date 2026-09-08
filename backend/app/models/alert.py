@@ -8,7 +8,8 @@ from pydantic import BaseModel
 # it was two places once, and "gps_loss" vs "gps_lost" cost a caregiver a
 # duplicate push per GPS outage because the cooldown is keyed on the type.
 AlertType = Literal[
-    "wandering", "geofence", "gps_loss", "emergency", "sos", "trip_denied"
+    "wandering", "geofence", "gps_loss", "emergency", "sos", "trip_denied",
+    "safe_zone_exit",
 ]
 ALERT_TYPES: tuple[str, ...] = get_args(AlertType)
 

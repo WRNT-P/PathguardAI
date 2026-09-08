@@ -265,6 +265,23 @@ async def evaluate_risk(
             db, alert, thresholds[rule_repository.PUSH_COOLDOWN_SECONDS]
         )
 
+    # ── 9b. Safe-zone-exit alert — independent of the weighted score, mirrors
+    #        the GPS-loss check: "outside every known place" is a binary
+    #        geofence event to report, not a magnitude to blend into the score.
+    if raw["outside_safe_zone"]:
+        alert = await crud.save_alert(
+            db,
+            patient_id,
+            alert_type="safe_zone_exit",
+            severity="high",
+            message=f"Patient is outside all known safe areas — risk {adj_score}%.",
+            latitude=lat,
+            longitude=lng,
+        )
+        await notify_alert(
+            db, alert, thresholds[rule_repository.PUSH_COOLDOWN_SECONDS]
+        )
+
     # ── 10. GPS-loss alert ────────────────────────────────────────────────────
     if gap["gps_lost"]:
         last_known = gap["last_known"] or {}

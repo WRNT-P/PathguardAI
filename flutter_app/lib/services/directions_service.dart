@@ -47,10 +47,16 @@ Future<RouteResult?> fetchRoute(LatLng origin, LatLng destination) async {
   } catch (_) {
     return null;
   }
-  if (response.statusCode != 200) return null;
+  if (response.statusCode != 200) {
+    print('directions statusCode: ${response.statusCode}');
+    return null;
+  }
 
   final data = jsonDecode(response.body);
-  if (data['status'] != 'OK') return null;
+  if (data['status'] != 'OK') {
+    print('directions status : ${data['status']}, error: ${data['error_message']}');
+    return null;
+  }
 
   final route = data['routes'][0];
   final overviewPoints = route['overview_polyline']['points'] as String;

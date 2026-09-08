@@ -6,12 +6,18 @@ fits the Module 2 detectors, computes each risk factor, and assembles the RAW
 factor dict that ``data_normalization`` (file 1) will normalize later in the api
 layer. Output is intentionally pre-normalization.
 
-Output keys (the five the formula uses):
-  route_deviation : float, RAW metres off the predicted route
-  wandering       : float, 0–1 (from Module 2)
-  confusion       : float, 0–1 (from Module 2; 0.0 when not stopped)
-  danger_zone     : bool
-  familiarity     : float, 0–1, RAW from get_familiarity (NOT inverted)
+Output keys (the five the formula uses, plus one alert-only signal):
+  route_deviation  : float, RAW metres off the predicted route
+  wandering        : float, 0–1 (from Module 2)
+  confusion        : float, 0–1 (from Module 2; 0.0 when not stopped)
+  danger_zone      : bool
+  familiarity      : float, 0–1, RAW from get_familiarity (NOT inverted)
+  outside_safe_zone: bool, patient has known places but isn't inside any of
+                      them right now — NOT one of the five weighted factors,
+                      consumed directly by api/risk.py to fire a standalone
+                      safe_zone_exit alert (mirrors the danger-zone alert, but
+                      for "left every familiar place" instead of "entered an
+                      unsafe one").
 
 The single inversion to F (unfamiliarity) lives in file 7: it calls
 ``compute_unfamiliarity(factors["familiarity"])`` and stores the result as
@@ -20,7 +26,16 @@ the ``1 - familiarity`` step happens in exactly one place.
 
 Safety-biased defaults (Decision 4 — unknown ⇒ more caution):
   - wandering detect not "ok"      → wandering   = 0.5  (neutral-cautious)
-  - no predicted route             → route_dev   = 350.0 m (~0.7 after /500)
+  - no predicted route, but known_places exist
+                                    → route_dev   = real haversine distance to
+                                      the nearest known place (not a constant —
+                                      a patient far from every familiar place
+                                      must score higher than one nearby)
+  - no predicted route AND no known_places at all
+                                    → route_dev   = 350.0 m (~0.7 after /500;
+                                      truly nothing to measure against, and this
+                                      case is dropped from the score anyway in
+                                      partial mode — see api/risk.py)
   - stopped but classify errors    → confusion   = 0.5
   - empty / unmatched known_places → familiarity   = 0.0  (file 7 → F=1.0)
   - danger-zone check errors       → danger_zone = False (avoid false alarms)
@@ -40,6 +55,7 @@ from app.ai.module2_prediction.cluster_matcher import (
     haversine_km,
     get_familiarity,
     find_nearest_cluster,
+    distance_to_nearest_known_place_m,
 )
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
@@ -194,6 +210,13 @@ def collect_risk_factors(
             haversine_km(current_lat, current_lng, wlat, wlng) * 1000.0
             for wlat, wlng in predicted_route_tuples
         )
+    elif known_places:
+        # No specific route could be predicted, but the patient does have a
+        # profile — fall back to the real distance from the nearest known
+        # place instead of a constant disconnected from reality, so "very far"
+        # and "somewhat far" don't score identically.
+        route_deviation = distance_to_nearest_known_place_m(current_lat, current_lng, known_places)
+        defaults_fired.append("route_deviation_nearest_known_place_fallback")
     else:
         route_deviation = NO_ROUTE_DEVIATION_M
         defaults_fired.append("no_route_deviation_default")
@@ -230,12 +253,19 @@ def collect_risk_factors(
     # ── Z: danger zone ────────────────────────────────────────────────────────
     danger_zone = is_in_danger_zone(current_lat, current_lng, danger_zones)
 
+    # ── outside_safe_zone: patient has known places but isn't inside any of
+    #    them right now. Empty known_places means no safe zone is defined yet
+    #    — that must NOT read as "outside it" (would false-alarm every
+    #    partial-profile patient). ────────────────────────────────────────────
+    outside_safe_zone = bool(known_places) and cluster_id is None
+
     return {
         "route_deviation": route_deviation,
         "wandering": wandering,
         "confusion": confusion,
         "danger_zone": danger_zone,
         "familiarity": familiarity,
+        "outside_safe_zone": outside_safe_zone,
         "_meta": {
             "wandering_status": w_result.get("status"),
             "route_status": route_status,
@@ -312,18 +342,33 @@ if __name__ == "__main__":
           "(raw m), route_status=", r["_meta"]["route_status"])
 
     # 2) empty known_places -> familiarity = 0.0 (file 7 -> F=1.0) and D = 350.0
+    #    (nothing to measure distance against, and outside_safe_zone stays False
+    #    -- no zone is defined yet, so "outside" doesn't apply.)
     r = collect_risk_factors(gps_30d, recent_moving, {"known_places": []},
                              PLACES[1]["latitude"], PLACES[1]["longitude"], ZONES)
     assert r["familiarity"] == 0.0, r
     assert r["route_deviation"] == NO_ROUTE_DEVIATION_M, r
-    print("  [2] empty known_places: familiarity=", r["familiarity"], "D=", r["route_deviation"])
+    assert r["outside_safe_zone"] is False, r
+    print("  [2] empty known_places: familiarity=", r["familiarity"], "D=", r["route_deviation"],
+          "outside_safe_zone=", r["outside_safe_zone"])
 
-    # 3) no recent_gps -> route can't be predicted -> D = 350.0 default
+    # 3) no recent_gps -> route can't be predicted, but known_places exist ->
+    #    D falls back to the real distance to the nearest known place (here 0,
+    #    since current position IS place1's centroid), not the 350.0 constant.
     r = collect_risk_factors(gps_30d, [], profile,
                              PLACES[1]["latitude"], PLACES[1]["longitude"], ZONES)
-    assert r["route_deviation"] == NO_ROUTE_DEVIATION_M, r
-    assert "no_route_deviation_default" in r["_meta"]["defaults_fired"], r["_meta"]
+    assert approx(r["route_deviation"], 0.0, tol=1.0), r
+    assert "route_deviation_nearest_known_place_fallback" in r["_meta"]["defaults_fired"], r["_meta"]
     print("  [3] no recent_gps: D=", r["route_deviation"], "defaults=", r["_meta"]["defaults_fired"])
+
+    # 3b) same as [3], but far from every known place -> D = real large
+    #     distance (not the flat 350.0 constant) and outside_safe_zone = True.
+    FAR_LAT, FAR_LNG = 14.5000, 101.5000  # well outside every place's radius
+    r = collect_risk_factors(gps_30d, [], profile, FAR_LAT, FAR_LNG, ZONES)
+    assert r["route_deviation"] > 10_000.0, ("far D should be large, not 350.0", r["route_deviation"])
+    assert r["outside_safe_zone"] is True, r
+    print("  [3b] far from every known place: D=", round(r["route_deviation"], 1),
+          "outside_safe_zone=", r["outside_safe_zone"])
 
     # 4) stopped case (avg speed < 0.3) -> classify path runs, C in [0,1]
     recent_stopped = [pt(PLACES[1], NOW - timedelta(minutes=10 - k), 0.05) for k in range(8)]

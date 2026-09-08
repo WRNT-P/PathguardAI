@@ -270,20 +270,9 @@ class _NavigationScreenState extends State<NavigationScreen> {
       _backtracking = !_backtracking;
       if (_backtracking) _backtrackIndex = _nearestTrailIndex();
     });
-    // Stopping mid-retrace leaves the patient somewhere the old forward
-    // route's turn-by-turn was never built for — _currentStepIndex only ever
-    // advances, so resuming without a fresh route would show whatever turn
-    // instruction was current before the walk backward, not the one that
-    // matches where the patient is actually standing now.
     if (wasBacktracking) _fetchRoute();
   }
 
-  /// Where on the recorded trail the patient is standing right now.
-  ///
-  /// Not simply the end of the list. Retracing can be stopped halfway and
-  /// started again, and by then the far end of the trail is somewhere the
-  /// patient has already walked away from — resuming from it would point them
-  /// back out. The nearest point is the honest answer from anywhere.
   int _nearestTrailIndex() {
     if (_currentLocation == null || _trail.isEmpty) return 0;
     const distance = Distance();
@@ -378,6 +367,23 @@ class _NavigationScreenState extends State<NavigationScreen> {
     );
   }
 
+  void _showDirectionsList() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => ListView.builder(
+        itemCount: _routeSteps!.length,
+        itemBuilder: (context, index) {
+          final step = _routeSteps![index];
+          return ListTile(
+            leading: Icon(_instructionIcon(step.instruction)),
+            title: Text(step.instruction),
+            trailing: Text('${step.distanceMeters.toStringAsFixed(0)}m'),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _positionSubscription?.cancel();
@@ -408,10 +414,13 @@ class _NavigationScreenState extends State<NavigationScreen> {
       if (_backtracking && _trail.length >= 2)
         gmaps.Polyline(
           polylineId: const gmaps.PolylineId('backtrack'),
-          points: _trail
+          points: [
+            gmaps.LatLng(_currentLocation!.latitude,
+            _currentLocation!.longitude),
+            ..._trail
               .sublist(0, _backtrackIndex + 1)
-              .map((p) => gmaps.LatLng(p.latitude, p.longitude))
-              .toList(),
+              .map((p)=>gmaps.LatLng(p.latitude, p.longitude)),
+          ],
           color: Colors.deepOrange,
           width: 5,
         )
@@ -452,6 +461,14 @@ class _NavigationScreenState extends State<NavigationScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.place['name']),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.list),
+            onPressed: (_routeSteps == null || _routeSteps!.isEmpty)
+              ? null
+              : _showDirectionsList,
+          ),
+        ]
       ),
       body: Stack(
         children: [

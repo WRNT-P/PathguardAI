@@ -101,7 +101,6 @@ class _CaregiverRegistrationState2ScreenState extends State<CaregiverRegistratio
         caregiverId: data['id'] as int,
         caregiverName: _nameController.text.trim(),
       );
-      await registerDeviceToken();
 
       if (!mounted) return;
 
@@ -113,6 +112,12 @@ class _CaregiverRegistrationState2ScreenState extends State<CaregiverRegistratio
           ),
         ),
       );
+
+      // Fire-and-forget: push-notification registration has nothing the
+      // caregiver needs to see right now, so it shouldn't hold the home
+      // screen hostage while it makes two network round trips in the
+      // background.
+      registerDeviceToken();
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       setState(() {

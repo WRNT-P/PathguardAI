@@ -42,6 +42,10 @@ _TITLES = {
     # on (patient, alert_type), and a denied trip must never be able to suppress
     # a real button press.
     "trip_denied": "PathGuard — คำขอเดินทางถูกปฏิเสธ",
+    # Fired by risk.py directly (not the emergency decision engine) when the
+    # patient is outside every known/familiar place — its own key so its
+    # cooldown can't be suppressed by, or suppress, a "geofence"/"emergency" push.
+    "safe_zone_exit": "PathGuard — ผู้ป่วยออกนอกพื้นที่ปลอดภัย",
 }
 
 

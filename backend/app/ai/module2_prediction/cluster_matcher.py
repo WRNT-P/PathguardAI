@@ -40,6 +40,24 @@ def find_nearest_cluster(lat: float, lng: float, known_places: list[dict],
     return best_id
 
 
+def distance_to_nearest_known_place_m(lat: float, lng: float,
+                                       known_places: list[dict]) -> Optional[float]:
+    """Haversine distance (metres) to the nearest known place's centroid,
+    unbounded by that place's own radius — or None if known_places is empty.
+
+    Unlike ``find_nearest_cluster`` (a radius-bounded membership test), this
+    always returns a real distance for any non-empty known_places, so callers
+    that need "how far is the patient from anywhere familiar" don't have to
+    fall back to an arbitrary constant once the point is outside every radius.
+    """
+    if not known_places:
+        return None
+    return min(
+        haversine_km(lat, lng, place['latitude'], place['longitude']) * 1000.0
+        for place in known_places
+    )
+
+
 def get_familiarity(known_places: list[dict], cluster_id: int) -> float:
     """Normalized visit frequency as a familiarity proxy (0..1)."""
     freqs = [p.get('visit_frequency', 0) for p in known_places]

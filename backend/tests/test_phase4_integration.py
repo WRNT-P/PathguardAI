@@ -136,3 +136,51 @@ async def test_phase4_full_pipeline_high_risk_from_injected_segment(db_session):
     rec = (await get_recommendations(patient_id=pid, lat=None, lng=None, db=db)).model_dump()
     await db.commit()
     assert rec.get("status") in {"ok", None} or rec.get("recommendations") is not None, rec
+
+
+async def test_phase4_safe_zone_exit_alert_and_real_distance_scaling(db_session):
+    """A patient with a real behavioral profile who wanders far outside every
+    known place must (a) get a standalone safe_zone_exit alert, independent of
+    the weighted score, and (b) have route_deviation reflect the ACTUAL
+    distance rather than a flat constant — the two bugs the user hit: no alert
+    fired at all when far from home, and risk capped at "medium" because
+    route_deviation didn't scale with real distance. No danger zone here, to
+    isolate the safe-zone condition from the existing geofence one.
+    """
+    db = db_session
+    user = await crud.create_user(db, firebase_uid="safe_zone_test", name="Pat", role="patient")
+    await db.flush()
+    pid = user.id
+
+    await _seed_normal_routine(db, pid)
+    res = await analyze_behavior(db, pid, days=30)
+    await db.commit()
+    assert len(res["places"]) >= 5
+
+    # ── control: near home -> no safe_zone_exit alert, low route_deviation ────
+    near_lat, near_lon = _offset(_PLACES[0][0], _PLACES[0][1], 20.0, 20.0)
+    near = (await get_risk(patient_id=pid, lat=near_lat, lng=near_lon, db=db)).model_dump()
+    await db.commit()
+    assert near["status"] == "ok"
+    near_alerts = (await db.execute(
+        select(Alert).where(Alert.patient_id == pid, Alert.alert_type == "safe_zone_exit")
+    )).scalars().all()
+    assert not near_alerts, "no safe_zone_exit alert expected near home"
+
+    # ── far from every known place -> safe_zone_exit alert fires ──────────────
+    far_lat, far_lon = _offset(_PLACES[0][0], _PLACES[0][1], 60_000.0, 60_000.0)  # ~60 km
+    far = (await get_risk(patient_id=pid, lat=far_lat, lng=far_lon, db=db)).model_dump()
+    await db.commit()
+    assert far["status"] == "ok"
+    far_alerts = (await db.execute(
+        select(Alert).where(Alert.patient_id == pid, Alert.alert_type == "safe_zone_exit")
+    )).scalars().all()
+    assert far_alerts, "safe_zone_exit alert should fire when far from every known place"
+
+    # route_deviation now scales with real distance instead of a flat constant:
+    # the far case's contribution must clearly exceed the near case's, and sit
+    # at (or near) the weighted ceiling (0.30 * 100 = 30.0) once clamped.
+    near_dev = near["contributions"]["route_deviation"]
+    far_dev = far["contributions"]["route_deviation"]
+    assert far_dev > near_dev, (near_dev, far_dev)
+    assert far_dev >= 25.0, f"far route_deviation contribution should be near the 30-pt ceiling, got {far_dev}"

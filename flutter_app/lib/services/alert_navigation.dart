@@ -15,11 +15,12 @@ import '../screens/caregiver_screen/missing_patient_screen.dart';
 ///
 /// ⚠️ Every string here is an `alert_type` the **backend actually writes**.
 /// `emergency_decision_engine.py` emits `geofence` and `emergency`;
-/// `risk.py:274` emits `gps_loss`; `sos.py` emits `sos`. There is no
-/// `wandering` row and there never has been — wandering reaches a caregiver as
-/// `emergency` (sustained risk) or `geofence` (danger zone), so those two are
-/// what the off-route popup has to watch for.
-const urgentAlertTypes = {'sos', 'emergency', 'geofence'};
+/// `risk.py` emits `gps_loss` and, directly (not via the decision engine),
+/// `safe_zone_exit` when the patient is outside every known/familiar place;
+/// `sos.py` emits `sos`. There is no `wandering` row and there never has
+/// been — wandering reaches a caregiver as `emergency` (sustained risk) or
+/// `geofence` (danger zone), so those are what the off-route popup watches for.
+const urgentAlertTypes = {'sos', 'emergency', 'geofence', 'safe_zone_exit'};
 
 /// The patient has gone quiet — Module 4's search, not the SOS screen.
 ///
