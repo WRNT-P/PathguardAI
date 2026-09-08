@@ -197,10 +197,14 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
                 shape: BoxShape.circle,
                 color: Colors.red,
               ),
+              // Not "SOS" — see navigation_screen.dart's button. This screen
+              // is the other place the homepage's SOS press lands, and the
+              // caregiver has not been told until this is pressed.
               child: const Center (
                 child: Text(
-                  'SOS',
-                  style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                  'Call for\nhelp',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, height: 1.15),
                 ),
               ),
             ),
