@@ -659,16 +659,14 @@ class _NavigationScreenState extends State<NavigationScreen> {
                     onPressed: _sosSending ? null : _handleSOS,
                     backgroundColor: Colors.red,
                     shape: const CircleBorder(),
-                    // Not "SOS". The patient may well have arrived here BY
-                    // pressing SOS on the homepage, which no longer alerts
-                    // anyone — it only opens this screen. A second red button
-                    // reading the same word says "you already did this";
-                    // naming the action says the part that has not happened
-                    // yet. This press is the one the caregiver hears about.
+                    // Stays "SOS". This screen is reached far more often by
+                    // picking somewhere to go than by pressing SOS, and on an
+                    // ordinary walk this is a first, plain emergency button —
+                    // the word everyone already knows beats naming a step
+                    // that, on that path, was never outstanding.
                     child: const Text(
-                      'Call for\nhelp',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15, height: 1.15),
+                      'SOS',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
                     ),
                   )
                 )
