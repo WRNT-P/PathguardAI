@@ -59,6 +59,28 @@ const missingAlertType = 'gps_loss';
 /// looking like the alert screen "wouldn't close".
 int? openAlertId;
 
+/// Open a full-screen alert, unless one for that same alert is already up.
+///
+/// The guard lives here rather than at each call site because there are now
+/// three of them — the launch poll, the push listener, and the notifications
+/// list — and the third was added without it, which put two copies of the
+/// same alert on the stack again. Closing the top one just revealed the
+/// other, which is what "the alert screen won't close" looked like the first
+/// time round.
+Future<void> pushAlertScreen(
+  BuildContext context,
+  int alertId,
+  WidgetBuilder builder,
+) async {
+  if (openAlertId == alertId) return;
+  openAlertId = alertId;
+  try {
+    await Navigator.push(context, MaterialPageRoute(builder: builder));
+  } finally {
+    openAlertId = null;
+  }
+}
+
 /// Opens the right full-screen alert for an FCM payload, or returns false so
 /// the caller can fall back to something less interruptive.
 ///

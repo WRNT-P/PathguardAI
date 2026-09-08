@@ -270,25 +270,15 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
 
         final missing = unresolved.where((a) => a['alert_type'] == missingAlertType);
         if (missing.isNotEmpty) {
-          final missingId = missing.first['id'] as int;
-          // Shared with alert_navigation.dart's push listener — login is
-          // exactly when this poll and an FCM push for the same alert can
-          // both fire, and without this guard both used to push their own
-          // copy of the screen onto the same Navigator.
-          if (openAlertId != missingId) {
-            openAlertId = missingId;
-            if (!mounted) return;
-            try {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => MissingPatientScreen(patient: patient, alert: missing.first),
-                ),
-              );
-            } finally {
-              openAlertId = null;
-            }
-          }
+          if (!mounted) return;
+          // pushAlertScreen carries the no-duplicates guard, shared with the
+          // push listener: login is exactly when this poll and an FCM push
+          // for the same alert both fire.
+          await pushAlertScreen(
+            context,
+            missing.first['id'] as int,
+            (context) => MissingPatientScreen(patient: patient, alert: missing.first),
+          );
         }
 
         // Not the ones this caregiver already answered. Claiming an alert is
@@ -303,25 +293,17 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
             urgentAlertTypes.contains(a['alert_type']) && a['claimed_by'] != myId);
         if (active.isEmpty) continue;
 
-        final activeId = active.first['id'] as int;
-        if (openAlertId == activeId) continue;
-        openAlertId = activeId;
         if (!mounted) return;
-        try {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => SosAlertScreen(
-                patientId: patient['id'] as int,
-                patientName: patient['name'] as String,
-                alert: active.first,
-                profileImage: patient['profileImage'] as File?,
-              ),
-            ),
-          );
-        } finally {
-          openAlertId = null;
-        }
+        await pushAlertScreen(
+          context,
+          active.first['id'] as int,
+          (context) => SosAlertScreen(
+            patientId: patient['id'] as int,
+            patientName: patient['name'] as String,
+            alert: active.first,
+            profileImage: patient['profileImage'] as File?,
+          ),
+        );
       } catch (_) {
       }
     }

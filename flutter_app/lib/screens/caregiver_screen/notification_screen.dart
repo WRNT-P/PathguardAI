@@ -146,14 +146,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
           onPressed: () => _resolve(alert),
         ),
         onTap: () async {
-          await Navigator.push(
+          await pushAlertScreen(
             context,
-            MaterialPageRoute(
-              builder: (context) => SosAlertScreen(
-                patientId: patient['patient_id'] as int,
-                patientName: patient['name'] as String,
-                alert: alert,
-              ),
+            alert['id'] as int,
+            (context) => SosAlertScreen(
+              patientId: patient['patient_id'] as int,
+              patientName: patient['name'] as String,
+              alert: alert,
             ),
           );
           _loadSosAlerts();
