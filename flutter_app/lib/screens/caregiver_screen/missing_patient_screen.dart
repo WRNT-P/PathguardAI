@@ -27,6 +27,10 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
   String? _error;
   Map<String, dynamic>? _result;
   Timer? _alertPoll;
+  /// Same guard as sos_alert_screen: the close button and the 10s poll can
+  /// both decide to leave, and two pops take the patient list with them and
+  /// leave a black screen.
+  bool _leaving = false;
 
   @override
   void initState() {
@@ -41,14 +45,23 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
     super.dispose();
   }
 
+  /// The one way out, so no two exits can fire.
+  void _close() {
+    if (_leaving) return;
+    _leaving = true;
+    _alertPoll?.cancel();
+    if (mounted) Navigator.of(context).pop();
+  }
+
   Future<void> _checkResolved() async {
+    if (_leaving) return;
     try {
       final res = await apiGet('/api/patients/${widget.patient['id']}/alerts');
       if (res.statusCode != 200) return;
       final alerts = (jsonDecode(res.body)['alerts'] as List).cast<Map<String, dynamic>>();
       final updated = alerts.firstWhere((a) => a['id'] == _alert['id'], orElse: () => _alert);
-      if (updated['resolved'] == true && mounted) {
-        Navigator.of(context).pop();
+      if (updated['resolved'] == true) {
+        _close();
         return;
       }
       if (mounted) setState(() => _alert = updated);
@@ -85,7 +98,7 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
         title: Text('Missing — ${widget.patient['name']}'),
         automaticallyImplyLeading: false,
         actions: [
-          IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.of(context).pop()),
+          IconButton(icon: const Icon(Icons.close), onPressed: _close),
         ],
       ),
       body: _loading

@@ -41,6 +41,14 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
   Map<String, dynamic>? _prediction;
   bool _acting = false;
   Timer? _refreshTimer;
+  /// Set the instant this screen starts going away, by any of its four exits.
+  ///
+  /// They can race: marking an alert resolved pops immediately, and the 8s
+  /// poll then reads back the row it just changed, sees `resolved`, and pops
+  /// a second time — taking the patient list with it and leaving a black
+  /// screen. Claiming has the same shape, where the stray pop would close the
+  /// navigation screen that had just replaced this one.
+  bool _leaving = false;
   // Tracks whether the claim popup has already been shown for THIS alert, so
   // an 8s poll after it's dismissed doesn't show it again while claimed_by
   // stays the same person.
@@ -177,7 +185,16 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
     super.dispose();
   }
 
+  /// The one way out. Every exit goes through here so no two can fire.
+  void _close() {
+    if (_leaving) return;
+    _leaving = true;
+    _refreshTimer?.cancel();
+    if (mounted) Navigator.of(context).pop();
+  }
+
   Future<void> _refresh() async {
+    if (_leaving) return;
     try {
       final alertsRes = await apiGet('/api/patients/${widget.patientId}/alerts');
       if (alertsRes.statusCode == 200) {
@@ -192,7 +209,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
             updated['claimed_by'] != myId;
         if (mounted) setState(() => _alert = updated);
         if (updated['resolved'] == true) {
-          if (mounted) Navigator.of(context).pop();
+          _close();
           return;
         }
         // Someone else just claimed it while this screen was open — this is
@@ -234,7 +251,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
         ],
       ),
     );
-    if (mounted) Navigator.of(context).pop();
+    _close();
   }
 
   Future<void> _claim() async {
@@ -247,7 +264,9 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
         // alert rather than stacking on it: coming back from navigation
         // should land on the patient list, not on the alert they answered.
         // Other caregivers learn about the claim on their own _refresh() poll.
-        if (mounted) {
+        if (mounted && !_leaving) {
+          _leaving = true;
+          _refreshTimer?.cancel();
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
               builder: (context) => CaregiverNavigationScreen(
@@ -290,7 +309,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
     try {
       final res = await apiPatch('/api/alerts/${_alert['id']}', body: {'resolved': true});
       if (res.statusCode == 200) {
-        if (mounted) Navigator.of(context).pop();
+        _close();
         return;
       }
     } catch (_) {
