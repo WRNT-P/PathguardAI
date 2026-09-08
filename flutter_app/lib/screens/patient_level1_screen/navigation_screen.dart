@@ -51,42 +51,51 @@ class _NavigationScreenState extends State<NavigationScreen> {
       _sosSending = true;
     });
 
-    // Same "don't stack timeouts" reasoning as the homepage's SOS handler:
-    // notifying the caregiver, looking up the nearest caregiver's name, and
-    // finding a safe place nearby don't depend on each other.
+    // Looking up the nearest caregiver's name does not block anything, so it
+    // runs alongside. The safe place does block the SOS, because the alert
+    // carries where the patient is being walked to — a caregiver who knows
+    // that can meet them, and the coordinates in the alert are stale the
+    // moment this screen starts moving them.
     String? nearestName;
-    Map<String, dynamic>? safePlace;
-    await Future.wait([
-      triggerSOS().catchError((_) => false),
-      () async {
-        try {
-          final patientId = Session.instance.patientId;
-          if (patientId != null) {
-            final res = await apiGet('/api/patients/$patientId/caregivers');
-            if (res.statusCode == 200) {
-              final caregivers = (jsonDecode(res.body)['caregivers'] as List).cast<Map<String, dynamic>>();
-              if (caregivers.isNotEmpty) {
-                nearestName = caregivers.first['name'] as String?;
-              }
-            }
-          }
-        } catch (_) {}
-      }(),
-      () async {
-        try {
-          // Already-tracked live location is near-instant; only ask the GPS
-          // for a fresh fix if navigation hasn't produced one yet.
-          var here = _currentLocation;
-          if (here == null) {
-            final pos = await Geolocator.getCurrentPosition(
-              locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
-            ).timeout(const Duration(seconds: 3));
-            here = LatLng(pos.latitude, pos.longitude);
-          }
-          safePlace = await findNearestSafePlace(here.latitude, here.longitude);
-        } catch (_) {}
-      }(),
-    ]);
+    final nameLookup = () async {
+      try {
+        final patientId = Session.instance.patientId;
+        if (patientId == null) return;
+        final res = await apiGet('/api/patients/$patientId/caregivers');
+        if (res.statusCode != 200) return;
+        final caregivers =
+            (jsonDecode(res.body)['caregivers'] as List).cast<Map<String, dynamic>>();
+        if (caregivers.isNotEmpty) nearestName = caregivers.first['name'] as String?;
+      } catch (_) {}
+    }();
+
+    final placeLookup = () async {
+      try {
+        // Already-tracked live location is near-instant; only ask the GPS
+        // for a fresh fix if navigation hasn't produced one yet.
+        var here = _currentLocation;
+        if (here == null) {
+          final pos = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+          ).timeout(const Duration(seconds: 3));
+          here = LatLng(pos.latitude, pos.longitude);
+        }
+        return await findNearestSafePlace(here.latitude, here.longitude);
+      } catch (_) {
+        return null;
+      }
+    }();
+
+    // Capped: telling the family is the part that must not wait on Google.
+    // Past three seconds the SOS goes without a destination, and the walk
+    // still starts when the lookup lands.
+    final placeForAlert = await placeLookup
+        .timeout(const Duration(seconds: 3), onTimeout: () => null);
+    await triggerSOS(destinationName: placeForAlert?['name'] as String?)
+        .catchError((_) => false);
+
+    final safePlace = placeForAlert ?? await placeLookup.catchError((_) => null);
+    await nameLookup;
 
     if (!mounted) return;
     setState((){
@@ -100,7 +109,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
     // replaced: it's no longer the point once SOS has been pressed.
     if (safePlace != null) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => NavigationScreen(place: safePlace!)),
+        MaterialPageRoute(builder: (context) => NavigationScreen(place: safePlace)),
       );
       return;
     }

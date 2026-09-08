@@ -36,6 +36,9 @@ class AlertResponse(BaseModel):
     message: str
     latitude: float | None
     longitude: float | None
+    # The safe place the patient's own app is walking them to, when there is
+    # one. Null on every alert type but a mid-journey SOS.
+    destination_name: str | None = None
     resolved: bool
     resolved_at: datetime | None
     created_at: datetime

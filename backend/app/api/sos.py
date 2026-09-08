@@ -51,18 +51,7 @@ _FALLBACK_COOLDOWN_S = 60.0
 _MESSAGE = "Patient pressed the SOS button."
 
 
-def _message(destination_name: str | None) -> str:
-    """What the caregiver reads on the alert.
 
-    Naming where the patient is walking to matters more than it looks: the
-    app sends them to the nearest safe place the moment they press, so by the
-    time anyone arrives at the coordinates in this alert the patient has
-    already left them. A caregiver told the destination can go straight there
-    instead of chasing a position that is deliberately out of date.
-    """
-    if not destination_name:
-        return _MESSAGE
-    return f"{_MESSAGE} Heading to {destination_name}."
 
 
 class SOSIn(BaseModel):
@@ -153,9 +142,14 @@ async def raise_sos(
         payload.patient_id,
         **({"alert_type": "sos_home", "severity": "high"} if payload.at_home
            else {"alert_type": "sos", "severity": "critical"}),
-        message=_message(payload.destination_name),
+        message=_MESSAGE,
         latitude=lat,
         longitude=lng,
+        # Where their own app is now walking them. Kept as a field rather than
+        # a sentence in the message: the caregiver's screen answers "where are
+        # they going" in its own right, and by the time anyone reaches the
+        # coordinates above the patient has deliberately left them.
+        destination_name=payload.destination_name,
     )
 
     push = await notify_alert(db, alert, await _cooldown_seconds(db))

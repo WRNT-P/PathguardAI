@@ -181,11 +181,17 @@ async def _notify_alert(db: AsyncSession, alert: Alert, cooldown_s: float) -> di
         "severity": alert.severity,
         "latitude": "" if alert.latitude is None else str(alert.latitude),
         "longitude": "" if alert.longitude is None else str(alert.longitude),
+        "destination_name": alert.destination_name or "",
     }
     title = _TITLES.get(alert.alert_type, "PathGuard")
+    # The destination lives in its own column so the app can show it as its
+    # own thing; the push has only one line, so it gets it appended.
+    body = alert.message
+    if alert.destination_name:
+        body = f"{body} Heading to {alert.destination_name}."
 
     delivered = await _push_to_tokens(
-        db, alert.patient_id, tokens, title, alert.message, data)
+        db, alert.patient_id, tokens, title, body, data)
 
     if delivered == 0:
         return {"status": "failed", "recipients": 0}

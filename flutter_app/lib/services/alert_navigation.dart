@@ -98,6 +98,7 @@ Future<bool> openAlertFromPush(
     'message': data['message'],
     'latitude': double.tryParse(data['latitude'] as String? ?? ''),
     'longitude': double.tryParse(data['longitude'] as String? ?? ''),
+    'destination_name': data['destination_name'],
     'resolved': false,
     'claimed_by': null,
     'claimed_by_name': null,

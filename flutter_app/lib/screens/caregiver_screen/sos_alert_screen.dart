@@ -113,6 +113,50 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
   /// drive needs to know whether "the temple" is a pattern or a guess, and one
   /// orange box saying "Predicted destination" for both teaches them to
   /// distrust it within a week.
+  /// Where the patient's own app is walking them, when it told us.
+  ///
+  /// Takes the place of the prediction card whenever it exists, because it
+  /// beats it outright: Module 2 guesses from travel history, this is the
+  /// destination the patient is being led to right now. And the coordinates
+  /// on this screen are stale the moment they set off, so this is the part a
+  /// caregiver can actually drive to.
+  Widget _destinationCard(String destination) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.blue[50],
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.blue[200]!),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.directions_walk, color: Colors.blue[700]),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Walking to $destination',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 16)),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Their app is guiding them to this safe place now, so they '
+                    'are already leaving the position on the map.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _predictionCard() {
     final historyStatus = _prediction!['history_status'] as String?;
     final observed = _prediction!['transitions_observed'] as int? ?? 0;
@@ -357,7 +401,12 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
-          if (_prediction != null) _predictionCard(),
+          // The real destination when the patient's app told us one, and only
+          // otherwise the guess.
+          if ((_alert['destination_name'] as String?)?.isNotEmpty ?? false)
+            _destinationCard(_alert['destination_name'] as String)
+          else if (_prediction != null)
+            _predictionCard(),
           if (lat != null && lng != null)
             SizedBox(
               height: 220,

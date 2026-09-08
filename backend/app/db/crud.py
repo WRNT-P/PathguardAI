@@ -323,6 +323,7 @@ async def save_alert(
     message: str,
     latitude: float | None = None,
     longitude: float | None = None,
+    destination_name: str | None = None,
 ) -> Alert:
     """Persist an alert. Written by AI module 3 (emergency decision engine)."""
     alert = Alert(
@@ -332,6 +333,7 @@ async def save_alert(
         message=message,
         latitude=latitude,
         longitude=longitude,
+        destination_name=destination_name,
     )
     db.add(alert)
     await db.flush()

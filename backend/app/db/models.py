@@ -172,6 +172,12 @@ class Alert(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Where the patient's own app is walking them, for an SOS raised mid-walk.
+    # Structured rather than folded into ``message`` because the caregiver's
+    # screen shows it as its own answer to "where are they going" — reading it
+    # back out of a sentence would break the day somebody rephrases that
+    # sentence, and silently.
+    destination_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # "I'll go and get them" (report C-2). Which caregiver is on their way, and
