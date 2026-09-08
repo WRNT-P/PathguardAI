@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'navigation_screen.dart';
-import 'sos_contact_screen.dart';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
@@ -11,9 +10,6 @@ import '../../services/gps_reporter.dart';
 import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/session.dart';
-import 'package:geolocator/geolocator.dart';
-import '../../services/safe_zone_service.dart';
-import '../../services/sos_service.dart';
 import '../login_screen.dart';
 
 enum _ScreenState { browsing, waitingApproval, rejected }
@@ -63,62 +59,6 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       MaterialPageRoute(builder: (context) => const LoginScreen()),
       (route) => false,
     );
-  }
-
-  /// Nearest police station / hospital to wherever the patient is standing.
-  /// A cached fix is near-instant; only wait on a fresh one if there is
-  /// truly nothing recent to work with.
-  Future<Map<String, dynamic>?> _nearestSafePlace() async {
-    try {
-      var position = await Geolocator.getLastKnownPosition();
-      position ??= await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
-      ).timeout(const Duration(seconds: 3));
-      return await findNearestSafePlace(position.latitude, position.longitude);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  bool _sosSending = false;
-  Future<void> _handleSOS() async {
-    setState(() {
-      _sosSending = true;
-    });
-
-    // The safe place is looked up first so the caregiver's alert can name it:
-    // the app starts walking the patient there immediately, so the position
-    // in that alert is out of date the moment it is sent, and "heading to X"
-    // is what lets a caregiver meet them rather than chase them.
-    //
-    // Capped, though. Telling the family is the part that must not wait on a
-    // slow Places lookup, so after three seconds the SOS goes out without a
-    // destination and the walk still starts once the lookup lands.
-    final placeLookup = _nearestSafePlace();
-    final placeForAlert = await placeLookup
-        .timeout(const Duration(seconds: 3), onTimeout: () => null);
-
-    await triggerSOS(destinationName: placeForAlert?['name'] as String?)
-        .catchError((_) => false);
-
-    final safePlace = placeForAlert ?? await placeLookup.catchError((_) => null);
-
-    if (!mounted) return;
-    setState(() {
-      _sosSending = false;
-    });
-
-    if (safePlace != null) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => NavigationScreen(place: safePlace)),
-      );
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const SosContactsScreen()),
-      );
-    }
   }
 
   /// A cold Cloudflare tunnel/backend can 502 or time out on the very first
@@ -443,20 +383,6 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
         ],
       ),
       body: content,
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: SizedBox(
-        width: 80,
-        height: 80,
-        child: FloatingActionButton(
-          onPressed: _sosSending ? null : _handleSOS,
-          backgroundColor: Colors.red,
-          shape: const CircleBorder(),
-          child: const Text(
-          'SOS',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-        ),
-      ),
-    ),
     );
   }
 }
