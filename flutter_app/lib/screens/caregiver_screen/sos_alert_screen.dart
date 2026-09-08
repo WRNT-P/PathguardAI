@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:url_launcher/url_launcher.dart';
@@ -17,11 +18,17 @@ class SosAlertScreen extends StatefulWidget {
   final int patientId;
   final String patientName;
   final Map<String, dynamic> alert;
+
+  /// Carried only so the navigation screen can draw them as their own face.
+  /// Null when the alert arrived by push, which knows ids and not photos.
+  final File? profileImage;
+
   const SosAlertScreen({
     super.key,
     required this.patientId,
     required this.patientName,
     required this.alert,
+    this.profileImage,
   });
 
   @override
@@ -249,6 +256,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
                 initialLatitude: (_alert['latitude'] as num?)?.toDouble(),
                 initialLongitude: (_alert['longitude'] as num?)?.toDouble(),
                 alertMessage: _alert['message'] as String?,
+                profileImage: widget.profileImage,
               ),
             ),
           );

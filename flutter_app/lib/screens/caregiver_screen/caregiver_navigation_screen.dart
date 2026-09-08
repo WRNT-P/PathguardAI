@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -8,6 +9,8 @@ import 'package:latlong2/latlong.dart';
 
 import '../../services/api_client.dart';
 import '../../services/directions_service.dart';
+import '../../utils/bearing.dart';
+import '../../utils/patient_marker.dart';
 
 /// Routes the caregiver who claimed an SOS to the patient.
 ///
@@ -29,6 +32,10 @@ class CaregiverNavigationScreen extends StatefulWidget {
   /// it back up by string would break silently the day someone rephrases it.
   final String? alertMessage;
 
+  /// The patient's photo, so they appear here as the same face the tracking
+  /// map shows. Held on this device only, so frequently null.
+  final File? profileImage;
+
   const CaregiverNavigationScreen({
     super.key,
     required this.patientId,
@@ -36,6 +43,7 @@ class CaregiverNavigationScreen extends StatefulWidget {
     this.initialLatitude,
     this.initialLongitude,
     this.alertMessage,
+    this.profileImage,
   });
 
   @override
@@ -62,9 +70,24 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
   DateTime? _patientFixAt;
 
   List<gmaps.LatLng>? _routePoints;
+  List<RouteStep>? _routeSteps;
+  int _currentStepIndex = 0;
   LatLng? _routeFetchedFor;
   DateTime? _routeFetchedAt;
   bool _fittedOnce = false;
+
+  gmaps.BitmapDescriptor? _patientIcon;
+
+  /// Which way the car is pointing, smoothed. Taken from movement between
+  /// fixes rather than the magnetometer: a phone on a passenger seat faces
+  /// whichever way it was put down, while the direction of travel at road
+  /// speed is unambiguous.
+  double? _travelBearing;
+
+  /// Whether the camera chases the caregiver. Turned off the moment they pan
+  /// the map by hand — fighting a driver for control of their own map is
+  /// worse than showing them the wrong part of it.
+  bool _followCaregiver = true;
 
   @override
   void initState() {
@@ -72,9 +95,15 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
     if (widget.initialLatitude != null && widget.initialLongitude != null) {
       _patientLocation = LatLng(widget.initialLatitude!, widget.initialLongitude!);
     }
+    _loadPatientIcon();
     _startCaregiverUpdates();
     _pollPatient();
     _patientPoll = Timer.periodic(_patientPollInterval, (_) => _pollPatient());
+  }
+
+  Future<void> _loadPatientIcon() async {
+    final icon = await buildPatientMarkerIcon(widget.profileImage);
+    if (mounted) setState(() => _patientIcon = icon);
   }
 
   @override
@@ -112,11 +141,64 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
 
   void _handleCaregiverPosition(Position position) {
     if (!mounted) return;
+    final updated = LatLng(position.latitude, position.longitude);
+    final previous = _caregiverLocation;
+    const distance = Distance();
+
     setState(() {
-      _caregiverLocation = LatLng(position.latitude, position.longitude);
+      // A bearing computed across a few metres is mostly GPS noise; at road
+      // speed the floor is passed on every fix anyway.
+      if (previous != null &&
+          distance.as(LengthUnit.Meter, previous, updated) >= 5) {
+        final raw = calculateBearing(
+          previous.latitude, previous.longitude, updated.latitude, updated.longitude);
+        if (_travelBearing == null) {
+          _travelBearing = raw;
+        } else {
+          final delta = shortestAngleDelta(_travelBearing!, raw);
+          _travelBearing = (_travelBearing! + delta * 0.25) % 360;
+          if (_travelBearing! < 0) _travelBearing = _travelBearing! + 360;
+        }
+      }
+
+      _caregiverLocation = updated;
+
+      // Walk the turn list forward as each step's end is reached.
+      final steps = _routeSteps;
+      if (steps != null && _currentStepIndex < steps.length - 1) {
+        final end = steps[_currentStepIndex].endLocation;
+        if (distance.as(LengthUnit.Meter, updated, LatLng(end.latitude, end.longitude)) <
+            _stepAdvanceThresholdMeters) {
+          _currentStepIndex++;
+        }
+      }
     });
+
     _fitBothOnce();
+    _followCamera();
     _refreshRouteIfWorthwhile();
+  }
+
+  /// Distance at which a turn counts as taken. Wider than the patient
+  /// screens' 15 m: a car passes a junction faster than a fix arrives.
+  static const double _stepAdvanceThresholdMeters = 30;
+
+  /// Keep the caregiver centred and the map turned the way they are driving,
+  /// which is the whole difference between a map and a navigation screen.
+  void _followCamera() {
+    if (!_followCaregiver || !_fittedOnce) return;
+    final me = _caregiverLocation;
+    if (me == null) return;
+    _mapController?.animateCamera(
+      gmaps.CameraUpdate.newCameraPosition(
+        gmaps.CameraPosition(
+          target: gmaps.LatLng(me.latitude, me.longitude),
+          zoom: 17.5,
+          tilt: 45,
+          bearing: _travelBearing ?? 0,
+        ),
+      ),
+    );
   }
 
   Future<void> _pollPatient() async {
@@ -171,6 +253,8 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
     );
     if (!mounted) return;
     setState(() {
+      _routeSteps = route?.steps;
+      _currentStepIndex = 0;
       // A straight line still says which way to set off, which beats an empty
       // map when Directions is unavailable.
       _routePoints = route?.points
@@ -231,6 +315,29 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
     return [gmaps.LatLng(me.latitude, me.longitude), ...route.sublist(nearest)];
   }
 
+  RouteStep? get _currentStep {
+    final steps = _routeSteps;
+    if (steps == null || steps.isEmpty) return null;
+    return steps[_currentStepIndex.clamp(0, steps.length - 1)];
+  }
+
+  /// Same mapping the patient's level 2 screen uses, so an instruction reads
+  /// the same on both sides of the family.
+  IconData _instructionIcon(String instruction) {
+    switch (instruction) {
+      case 'Turn left':
+        return Icons.turn_left;
+      case 'Turn right':
+        return Icons.turn_right;
+      case 'Turn around':
+        return Icons.u_turn_left;
+      case 'Go through the roundabout':
+        return Icons.roundabout_left;
+      default:
+        return Icons.straight;
+    }
+  }
+
   String get _distanceLabel {
     final me = _caregiverLocation;
     final them = _patientLocation;
@@ -255,8 +362,36 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
+                if (_currentStep != null)
+                  Container(
+                    width: double.infinity,
+                    color: Colors.red[700],
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    child: Row(
+                      children: [
+                        Icon(_instructionIcon(_currentStep!.instruction),
+                            color: Colors.white, size: 34),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('${_currentStep!.distanceMeters.round()} m',
+                                  style: TextStyle(color: Colors.red[100], fontSize: 13)),
+                              Text(_currentStep!.instruction,
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 Expanded(
-                  child: gmaps.GoogleMap(
+                  child: Stack(children: [
+                    gmaps.GoogleMap(
                     initialCameraPosition: gmaps.CameraPosition(
                       target: gmaps.LatLng(them.latitude, them.longitude),
                       zoom: 15,
@@ -265,14 +400,25 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                       _mapController = c;
                       _fitBothOnce();
                     },
+                    // Panning by hand means they want to look at something.
+                    // Snapping the camera back on the next fix would take it
+                    // away again mid-glance.
+                    onCameraMoveStarted: () {
+                      if (_followCaregiver) setState(() => _followCaregiver = false);
+                    },
                     myLocationEnabled: true,
                     markers: {
                       gmaps.Marker(
                         markerId: const gmaps.MarkerId('patient'),
                         position: gmaps.LatLng(them.latitude, them.longitude),
                         infoWindow: gmaps.InfoWindow(title: widget.patientName),
-                        icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
-                            gmaps.BitmapDescriptor.hueRed),
+                        // Their face in a circle, the same as the tracking
+                        // map. Falls back to a pin only until the bitmap is
+                        // ready, which is a frame or two.
+                        icon: _patientIcon ??
+                            gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                                gmaps.BitmapDescriptor.hueRed),
+                        anchor: const Offset(0.5, 0.5),
                       ),
                     },
                     polylines: {
@@ -284,7 +430,23 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                           width: 5,
                         ),
                     },
-                  ),
+                    ),
+                    // Panning turns following off; this is the way back, and
+                    // it only exists while it would do something.
+                    if (!_followCaregiver)
+                      Positioned(
+                        right: 16,
+                        bottom: 16,
+                        child: FloatingActionButton.small(
+                          onPressed: () {
+                            setState(() => _followCaregiver = true);
+                            _followCamera();
+                          },
+                          backgroundColor: Colors.white,
+                          child: const Icon(Icons.navigation, color: Colors.red),
+                        ),
+                      ),
+                  ]),
                 ),
                 SafeArea(
                   top: false,

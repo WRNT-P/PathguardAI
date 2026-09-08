@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:ui' as ui;
 import 'package:collection/collection.dart';
 import '../../services/api_client.dart';
+import '../../utils/patient_marker.dart';
 
 import 'package:flutter/material.dart';
 import 'dart:io';
@@ -96,82 +96,10 @@ class _TrackScreenState extends State<TrackScreen>{
   /// no image content is possible on a plain Circle overlay, so this has to
   /// be a custom Marker bitmap with a center anchor instead of a pin anchor.
   Future<void> _loadPatientIcon() async {
-    final icon = await _buildPatientIcon(widget.patient['profileImage'] as File?);
+    final icon = await buildPatientMarkerIcon(widget.patient['profileImage'] as File?);
     if (mounted) setState(() => _patientIcon = icon);
   }
 
-  Future<gmaps.BitmapDescriptor> _buildPatientIcon(File? profileImage) async {
-    const double size = 64;
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
-    const center = Offset(size / 2, size / 2);
-    const radius = size / 2;
-
-    var drewPhoto = false;
-    if (profileImage != null) {
-      try {
-        final bytes = await profileImage.readAsBytes();
-        final codec = await ui.instantiateImageCodec(
-          bytes,
-          targetWidth: size.toInt(),
-          targetHeight: size.toInt(),
-        );
-        final frame = await codec.getNextFrame();
-        canvas.save();
-        canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: center, radius: radius - 4)));
-        paintImage(
-          canvas: canvas,
-          rect: Rect.fromCircle(center: center, radius: radius - 4),
-          image: frame.image,
-          fit: BoxFit.cover,
-        );
-        canvas.restore();
-        drewPhoto = true;
-      } catch (_) {
-        drewPhoto = false;
-      }
-    }
-
-    if (!drewPhoto) {
-      canvas.drawCircle(center, radius - 4, Paint()..color = Colors.blue);
-      final iconPainter = TextPainter(textDirection: TextDirection.ltr)
-        ..text = TextSpan(
-          text: String.fromCharCode(Icons.person.codePoint),
-          style: TextStyle(
-            fontSize: radius,
-            fontFamily: Icons.person.fontFamily,
-            package: Icons.person.fontPackage,
-            color: Colors.white,
-          ),
-        )
-        ..layout();
-      iconPainter.paint(
-        canvas,
-        center - Offset(iconPainter.width / 2, iconPainter.height / 2),
-      );
-    }
-
-    canvas.drawCircle(
-      center,
-      radius - 0.5,
-      Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
-
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(size.toInt(), size.toInt());
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    // Without an explicit logical size, the platform draws the PNG's raw
-    // pixels 1:1 against device pixels — on a high-DPI phone that makes a
-    // 64x64 bitmap render far larger on-screen than a 64dp widget would.
-    return gmaps.BitmapDescriptor.bytes(
-      byteData!.buffer.asUint8List(),
-      width: 36,
-      height: 36,
-    );
-  }
 
   @override
   void initState() {

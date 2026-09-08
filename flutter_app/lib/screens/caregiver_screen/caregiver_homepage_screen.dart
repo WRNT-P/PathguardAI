@@ -279,6 +279,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 patientId: patient['id'] as int,
                 patientName: patient['name'] as String,
                 alert: active.first,
+                profileImage: patient['profileImage'] as File?,
               ),
             ),
           );
