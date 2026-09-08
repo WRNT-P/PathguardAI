@@ -46,33 +46,34 @@ const notificationListAlertTypes = {'sos', 'sos_home'};
 /// it is not, and never was, an `alert_type`.
 const missingAlertType = 'gps_loss';
 
-/// The alert currently on screen, so a push arriving while its own screen is
-/// already open does not stack a second copy of it.
+/// The alert currently taking over the screen, or null when none is.
 ///
-/// Shared (not private to this file) because there are two independent
-/// triggers for the same full-screen alert: this push listener, and
-/// `caregiver_homepage_screen.dart`'s own unresolved-alert poll on launch.
-/// Login is exactly when both fire together — the poll finds the row the
-/// same moment the push for it arrives — and each used to check only its own
-/// state, so both pushed a copy onto the SAME Navigator. Claiming (or
-/// closing) the top one only revealed the other, unclaimed, underneath —
-/// looking like the alert screen "wouldn't close".
+/// Shared (not private to this file) because three independent triggers open
+/// these screens: the push listener below, the caregiver home screen's
+/// unresolved-alert poll on launch, and the notifications list. Login is
+/// exactly when the first two fire together — the poll finds the row the same
+/// moment the push for it arrives — and each used to check only its own
+/// state, so both pushed a copy onto the SAME Navigator.
 int? openAlertId;
 
-/// Open a full-screen alert, unless one for that same alert is already up.
+/// Open a full-screen alert, unless one is already up.
 ///
-/// The guard lives here rather than at each call site because there are now
-/// three of them — the launch poll, the push listener, and the notifications
-/// list — and the third was added without it, which put two copies of the
-/// same alert on the stack again. Closing the top one just revealed the
-/// other, which is what "the alert screen won't close" looked like the first
-/// time round.
+/// **One at a time, whichever alert it is.** The guard used to allow a second
+/// screen as long as it was a different alert, which is fine in theory and
+/// wrong in practice: unresolved alerts accumulate — an "sos" never closes
+/// itself — so a caregiver opening the app met a stack of emergency screens,
+/// each one revealing another underneath as it was dismissed. Nothing is lost
+/// by holding the rest back; they are all on the notifications list, and the
+/// screen that is up polls itself.
+///
+/// The guard lives here rather than at each call site because the third
+/// caller was added without it and put the stacking straight back.
 Future<void> pushAlertScreen(
   BuildContext context,
   int alertId,
   WidgetBuilder builder,
 ) async {
-  if (openAlertId == alertId) return;
+  if (openAlertId != null) return;
   openAlertId = alertId;
   try {
     await Navigator.push(context, MaterialPageRoute(builder: builder));
@@ -111,7 +112,10 @@ Future<bool> openAlertFromPush(
   final alertId = int.tryParse(data['alert_id'] as String? ?? '');
   if (patientId == null || alertId == null) return false;
 
-  if (openAlertId == alertId) return true;
+  // One alert screen at a time, same rule as pushAlertScreen — including
+  // when the one already up is a different alert. Returning true says
+  // "handled", which keeps a SnackBar from doubling up on it too.
+  if (openAlertId != null) return true;
 
   final alert = <String, dynamic>{
     'id': alertId,
