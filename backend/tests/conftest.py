@@ -8,6 +8,24 @@ never connects, and Firebase is only initialised on demand (never in tests).
 """
 from __future__ import annotations
 
+import os
+
+# Pin the suite to auth-off BEFORE anything imports the app.
+#
+# ``app.services.auth`` evaluates ``AUTH_ENABLED = _read_flag()`` once at import,
+# and ``app.db.database`` calls ``load_dotenv()``, so a developer whose .env says
+# AUTH_ENABLED=true would silently run a different suite: measured 2026-09-08,
+# 174 of 466 tests failed on 401s that say nothing about the code. The two modes
+# are both covered deliberately — test_auth.py and test_api_pairing.py
+# monkeypatch ``auth.AUTH_ENABLED`` to True for the cases that need it, and
+# test_auth.py / test_list_my_patients.py assert the default is False — so the
+# default has to be the flag's value, not the machine's.
+#
+# load_dotenv() defaults to override=False, so setting it here wins over .env.
+# setdefault, not assignment: `AUTH_ENABLED=true pytest` stays possible for
+# anyone who deliberately wants to watch the suite fail that way.
+os.environ.setdefault("AUTH_ENABLED", "false")
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import BigInteger
