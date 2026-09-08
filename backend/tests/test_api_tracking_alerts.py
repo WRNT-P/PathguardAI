@@ -158,3 +158,26 @@ async def test_alerts_for_an_unknown_patient_are_a_404(client):
     resp = await client.get("/api/patients/999999/alerts")
 
     assert resp.status_code == 404
+
+
+async def test_the_feed_carries_where_the_patient_is_walking_to(client, db_session):
+    """The column exists and is written; this is about it reaching the app.
+
+    It did not, for a while: the field was added to ``models/alert.py``'s
+    AlertResponse, which no route serves — this endpoint renders ``AlertOut``
+    in api/alerts.py — so the value sat in the database and the caregiver's
+    screen had nothing to show. Checking the schema it was added to said it
+    was fine. Only the response says that.
+    """
+    patient_id = await _patient(client)
+    await crud.save_alert(
+        db_session, patient_id, alert_type="sos", severity="critical",
+        message="Patient pressed the SOS button.",
+        latitude=BANGKOK[0], longitude=BANGKOK[1],
+        destination_name="Phutthamonthon Police Lodging",
+    )
+    await db_session.commit()
+
+    body = (await client.get(f"/api/patients/{patient_id}/alerts")).json()
+
+    assert body["alerts"][0]["destination_name"] == "Phutthamonthon Police Lodging"

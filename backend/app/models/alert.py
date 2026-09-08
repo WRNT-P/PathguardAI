@@ -29,6 +29,15 @@ class AlertCreate(BaseModel):
 
 
 class AlertResponse(BaseModel):
+    """⚠️ No route serves this. ``api/alerts.py``'s ``AlertOut`` is what the
+    app actually receives — this is a second, older description of the same
+    row that nothing renders.
+
+    Adding a field here and believing it shipped cost a day: the value was
+    written to the database, the schema said it existed, and the endpoint
+    never returned it. Change ``AlertOut`` and ``_to_out``, then check the
+    response body rather than the schema.
+    """
     id: int
     patient_id: int
     alert_type: str

@@ -39,6 +39,9 @@ class AlertOut(BaseModel):
     message: str
     latitude: float | None = None
     longitude: float | None = None
+    # The safe place the patient's own app is walking them to, when there is
+    # one. Null on every alert type but an SOS raised mid-journey.
+    destination_name: str | None = None
     resolved: bool
     claimed_by: int | None = None
     claimed_by_name: str | None = None
@@ -83,6 +86,7 @@ def _to_out(alert, claimer=None, now: datetime | None = None) -> AlertOut:
         message=alert.message,
         latitude=alert.latitude,
         longitude=alert.longitude,
+        destination_name=alert.destination_name,
         resolved=alert.resolved,
         claimed_by=alert.claimed_by,
         claimed_by_name=None if claimer is None else claimer.name,
