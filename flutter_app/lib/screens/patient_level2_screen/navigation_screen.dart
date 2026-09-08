@@ -122,6 +122,14 @@ class _NavigationScreenState extends State<NavigationScreen>{
     // call, and on a device (or emulator) slow to lock GPS that left this
     // screen on "Finding your location…" far longer than the level 1 screen,
     // which fetches this same one-off fix before ever touching the stream.
+    // Cached first: it returns at once and gets the map on screen, where the
+    // fresh fix below can take the full five seconds. Level 2's screen is the
+    // one that must not sit blank — this patient is meant to glance and go.
+    try {
+      final cached = await Geolocator.getLastKnownPosition();
+      if (cached != null) _handlePosition(cached);
+    } catch (_) {}
+
     try {
       final seed = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),

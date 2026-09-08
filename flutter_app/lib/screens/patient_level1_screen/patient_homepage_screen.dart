@@ -38,6 +38,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
 
   _ScreenState _state = _ScreenState.browsing;
   Map<String, dynamic>? _selectedPlace;
+  bool _startingTrip = false;
 
   @override
   void initState() {
@@ -171,16 +172,29 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     // Level 1 patients never need caregiver approval (backend returns
     // status: "not_required" immediately) — this screen is Level 1 only, so
     // there is nothing to wait on and no reason to flash a "waiting" screen.
+    //
+    // It still costs a round trip through the tunnel, though, and nothing on
+    // screen used to change while it ran: the patient pressed Start, saw
+    // nothing happen, and pressed it again. The spinner below is the whole
+    // acknowledgement they get, so it has to appear on the press itself.
     setState(() {
       _selectedPlace = place;
+      _startingTrip = true;
     });
 
-    final approved = await requestTripApproval(
-      patientName: widget.patientName ?? 'patient',
-      place: place,
-    );
+    bool approved = false;
+    try {
+      approved = await requestTripApproval(
+        patientName: widget.patientName ?? 'patient',
+        place: place,
+      );
+    } catch (_) {
+      // Falls through to clearing the spinner. Letting this throw would leave
+      // every Start button disabled with no way back.
+    }
 
     if (!mounted) return;
+    setState(() => _startingTrip = false);
 
     if (approved) {
       Navigator.push(
@@ -369,8 +383,16 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                                       title: Text(place['name']),
                                       subtitle: const Text('Often visited'),
                                       trailing: ElevatedButton(
-                                        onPressed: () => _requestTrip(place),
-                                        child: const Text('Start'),
+                                        onPressed: _startingTrip
+                                            ? null
+                                            : () => _requestTrip(place),
+                                        child: _startingTrip && _selectedPlace == place
+                                            ? const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child: CircularProgressIndicator(strokeWidth: 2),
+                                              )
+                                            : const Text('Start'),
                                       ),
                                     ),
                                   );

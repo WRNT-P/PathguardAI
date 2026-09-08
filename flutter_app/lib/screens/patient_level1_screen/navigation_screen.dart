@@ -161,6 +161,16 @@ class _NavigationScreenState extends State<NavigationScreen> {
       return;
     }
 
+    // The cached fix is what makes the map appear at once. Waiting on a fresh
+    // high-accuracy one first cost up to five seconds of blank screen after
+    // "Start" — and the route can only be fetched once a position exists, so
+    // that delay was in front of the Directions call too, not beside it. The
+    // stream below replaces this with a live fix within seconds either way.
+    try {
+      final cached = await Geolocator.getLastKnownPosition();
+      if (cached != null) _handlePosition(cached);
+    } catch (_) {}
+
     try {
       final seed = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
