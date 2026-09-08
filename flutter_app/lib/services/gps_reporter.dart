@@ -53,6 +53,22 @@ Future<void> startGpsReporting() async {
     )
   ).listen(_send);
 
+  // The stream above only fires after the patient has moved 10 m, so a patient
+  // who opens the app and sits still reported nothing at all — no position on
+  // the caregiver's map and, because risk is only ever scored on GPS ingest,
+  // no risk score and no alerts either. Send the current fix once up front so
+  // "app is open" always means "caregiver can see where they are".
+  try {
+    final first = await Geolocator.getLastKnownPosition() ??
+        await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        ).timeout(const Duration(seconds: 10));
+    await _send(first);
+  } catch (_) {
+    // No fix available yet (permission just granted, cold GPS). The stream
+    // above is still live and will report as soon as one arrives.
+  }
+
   _initForegroundTask();
   await FlutterForegroundTask.startService(
     serviceId: 256,

@@ -232,29 +232,28 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
   Future<void> _claim() async {
     setState(() => _acting = true);
     try {
-      debugPrint('[DEBUG] _claim: posting /api/alerts/${_alert['id']}/claim');
       final res = await apiPost('/api/alerts/${_alert['id']}/claim');
-      debugPrint('[DEBUG] _claim: status=${res.statusCode} body=${res.body} mounted=$mounted');
       if (res.statusCode == 200) {
         // Claiming is the caregiver's commitment to go — nothing left for
         // them to do on this screen, so it closes for them the same way it
         // would once the alert resolves. Other caregivers still on this
         // screen learn about the claim on their own _refresh() poll.
-        if (mounted) {
-          debugPrint('[DEBUG] _claim: popping SosAlertScreen now');
-          Navigator.of(context).pop();
-        } else {
-          debugPrint('[DEBUG] _claim: NOT mounted, cannot pop!');
-        }
+        if (mounted) Navigator.of(context).pop();
         return;
       } else if (res.statusCode == 409 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Someone already claimed this')),
         );
         await _refresh();
+      } else if (mounted) {
+        // Anything else used to fall through in silence: the button just did
+        // nothing and the screen stayed open with no explanation, which is
+        // how a 401 from an auth-disabled backend went unnoticed for a day.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not claim this alert (${res.statusCode})')),
+        );
       }
-    } catch (e) {
-      debugPrint('[DEBUG] _claim EXCEPTION: $e');
+    } catch (_) {
     } finally {
       if (mounted) setState(() => _acting = false);
     }

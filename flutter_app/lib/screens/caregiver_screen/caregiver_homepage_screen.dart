@@ -147,13 +147,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   /// keyed off the caregiver's own token — no caregiver_id needed.
   Future<void> _loadPatients() async {
     try {
-      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
-      debugPrint(
-          '[DEBUG] currentUser=${FirebaseAuth.instance.currentUser?.uid} tokenLen=${token?.length}');
-
       final res = await apiGet('/api/patients');
-      debugPrint('[DEBUG] /api/patients status=${res.statusCode} body=${res.body}');
-
       if (res.statusCode != 200) return;
       final data = jsonDecode(res.body);
       final basics = (data['patients'] as List)
@@ -174,8 +168,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       if (!mounted) return;
       setState(() => patients = loaded);
       await _checkForActiveAlerts();
-    } catch (e) {
-      debugPrint('[DEBUG] _loadPatients EXCEPTION: $e');
+    } catch (_) {
     } finally {
       if (mounted) setState(() => _loadingPatients = false);
     }
