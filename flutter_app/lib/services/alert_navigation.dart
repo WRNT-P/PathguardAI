@@ -28,6 +28,14 @@ import '../screens/caregiver_screen/missing_patient_screen.dart';
 /// made mid-journey stays `sos` and still takes over.
 const urgentAlertTypes = {'sos', 'emergency', 'geofence', 'safe_zone_exit'};
 
+/// Alert types the caregiver's notifications screen lists.
+///
+/// A push carrying one of these needs no SnackBar: it is already waiting
+/// behind the bell, with a badge on it, and a bar sliding over the bottom of
+/// whatever the caregiver was doing only says the same thing louder and then
+/// takes it away again after eight seconds.
+const notificationListAlertTypes = {'sos', 'sos_home'};
+
 /// The patient has gone quiet — Module 4's search, not the SOS screen.
 ///
 /// ⚠️ `gps_loss`, with an **e**. The app matched `gps_lost` until 2026-09-06,

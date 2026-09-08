@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../../services/alert_navigation.dart';
 import '../../services/api_client.dart';
 import '../../services/trip_request_directory.dart';
 import 'sos_alert_screen.dart';
@@ -54,8 +55,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
         final alerts = (jsonDecode(alertsRes.body)['alerts'] as List)
             .cast<Map<String, dynamic>>();
         for (final alert in alerts) {
-          final type = alert['alert_type'];
-          if (alert['resolved'] == false && (type == 'sos' || type == 'sos_home')) {
+          if (alert['resolved'] == false &&
+              notificationListAlertTypes.contains(alert['alert_type'])) {
             found.add({...alert, '_patient': patient});
           }
         }

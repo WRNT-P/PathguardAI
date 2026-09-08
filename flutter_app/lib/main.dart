@@ -62,6 +62,10 @@ Future<void> _initPushNotifications() async {
     // payload is one it handles, so the two lists cannot disagree.
     if (await openAlertFromPush(navigatorKey, message.data)) return;
 
+    // Anything the notifications screen lists is already somewhere the
+    // caregiver can find it, with a badge on the bell to say so.
+    if (notificationListAlertTypes.contains(message.data['alert_type'])) return;
+
     final context = navigatorKey.currentContext;
     if (context == null || !context.mounted) return;
     final title = message.notification?.title ?? 'PathGuard alert';

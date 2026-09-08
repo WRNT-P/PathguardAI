@@ -32,6 +32,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   List<Map<String, dynamic>> patients = [];
   bool _loadingPatients = true;
   Timer? _countdownTicker;
+  int _sosAlertCount = 0;
   Timer? _locationTicker;
   /// Three states, and the third is why this is nullable: null means this
   /// caregiver has never answered the question, which is not the same claim as
@@ -88,6 +89,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       if (!mounted) return;
       setState(() {});
       _refreshRiskLevels();
+      _refreshSosCount();
     });
     // Where this caregiver is, for the patient's SOS ranking. Its own timer
     // rather than a share of the one above: the ranking sorts on freshness
@@ -167,10 +169,35 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
 
       if (!mounted) return;
       setState(() => patients = loaded);
+      await _refreshSosCount();
       await _checkForActiveAlerts();
     } catch (_) {
     } finally {
       if (mounted) setState(() => _loadingPatients = false);
+    }
+  }
+
+  /// Unresolved SOS presses across every patient, for the bell's badge.
+  ///
+  /// The push for one of these no longer raises a SnackBar — it belongs on
+  /// the notifications list — so without a badge a caregiver with the app
+  /// open would have nothing at all telling them to look.
+  Future<void> _refreshSosCount() async {
+    try {
+      var count = 0;
+      for (final patient in patients) {
+        final res = await apiGet('/api/patients/${patient['id']}/alerts');
+        if (res.statusCode != 200) continue;
+        final alerts = (jsonDecode(res.body)['alerts'] as List).cast<Map<String, dynamic>>();
+        count += alerts
+            .where((a) =>
+                a['resolved'] == false &&
+                notificationListAlertTypes.contains(a['alert_type']))
+            .length;
+      }
+      if (mounted) setState(() => _sosAlertCount = count);
+    } catch (_) {
+      // Leave the last count up; a dropped poll is not news.
     }
   }
 
@@ -746,7 +773,8 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   /// sign-out. Kept visually calm (no bright colors) since nothing here is an
   /// emergency action — those live one tap away on Track/Notifications.
   Widget _buildHeader(BuildContext context) {
-    final pendingCount = TripRequestDirectory.instance.pending.length;
+    final pendingCount =
+        TripRequestDirectory.instance.pending.length + _sosAlertCount;
     return Container(
       width: double.infinity,
       color: Colors.grey[200],
@@ -819,8 +847,11 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
             ),
           ),
           Semantics(
+            // Not "trip requests" any more: the badge counts unresolved SOS
+            // presses too, and a screen reader announcing an emergency as a
+            // trip request is worse than announcing nothing.
             label: pendingCount > 0
-                ? 'Notifications, $pendingCount pending trip request${pendingCount == 1 ? '' : 's'}'
+                ? 'Notifications, $pendingCount item${pendingCount == 1 ? '' : 's'} needing attention'
                 : 'Notifications',
             button: true,
             child: IconButton(
