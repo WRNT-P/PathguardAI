@@ -40,22 +40,31 @@ def find_nearest_cluster(lat: float, lng: float, known_places: list[dict],
     return best_id
 
 
-def distance_to_nearest_known_place_m(lat: float, lng: float,
-                                       known_places: list[dict]) -> Optional[float]:
-    """Haversine distance (metres) to the nearest known place's centroid,
-    unbounded by that place's own radius — or None if known_places is empty.
+def distance_beyond_known_places_m(lat: float, lng: float,
+                                   known_places: list[dict],
+                                   max_distance_km: float = 0.15) -> Optional[float]:
+    """How far OUTSIDE every known place this point is, in metres.
 
-    Unlike ``find_nearest_cluster`` (a radius-bounded membership test), this
-    always returns a real distance for any non-empty known_places, so callers
-    that need "how far is the patient from anywhere familiar" don't have to
-    fall back to an arbitrary constant once the point is outside every radius.
+    Zero anywhere inside a pin, then growing from that pin's edge — or None if
+    known_places is empty. Unlike ``find_nearest_cluster`` (a yes/no membership
+    test) this keeps growing once the patient is outside everything, which is
+    what a distance-based risk factor needs.
+
+    Measured from the edge, not the centroid, because the radius is the whole
+    point of the pin: a patient standing in the middle of their own 400 m home
+    pin is 279 m from its centre and *at home*, and charging them 279 m of
+    route deviation for that had the risk formula calling one position both
+    familiar (F=0, C=0) and off-course at the same instant — the same
+    split-brain ``familiarity_at`` was written to end.
     """
     if not known_places:
         return None
-    return min(
-        haversine_km(lat, lng, place['latitude'], place['longitude']) * 1000.0
-        for place in known_places
-    )
+    beyond = []
+    for place in known_places:
+        dist_m = haversine_km(lat, lng, place['latitude'], place['longitude']) * 1000.0
+        radius_m = place.get('radius_m') or max_distance_km * 1000.0
+        beyond.append(max(0.0, dist_m - radius_m))
+    return min(beyond)
 
 
 def get_familiarity(known_places: list[dict], cluster_id: int) -> float:

@@ -30,6 +30,30 @@ class _TrackScreenState extends State<TrackScreen>{
   gmaps.GoogleMapController? _mapController;
   gmaps.BitmapDescriptor? _patientIcon;
 
+  /// places.py's DEFAULT_RADIUS_M, for pins written before radii existed.
+  static const double _defaultPlaceRadiusM = 150.0;
+
+  /// The pinned place the patient is currently standing inside, or null.
+  ///
+  /// Mirrors the backend's ``find_nearest_cluster``: a point counts as
+  /// somewhere they know when it falls inside SOME pin's OWN radius, not
+  /// within one fixed distance of home. The two definitions have to agree —
+  /// this screen and the risk formula describing the same point differently is
+  /// exactly the split-brain the stop/confusion classifier had until
+  /// ``familiarity_at`` (2026-09-08), where a patient 279 m from a 400 m home
+  /// pin was simultaneously at home and nowhere familiar.
+  Map<String, dynamic>? _placeContaining(LatLng point) {
+    for (final place in _places) {
+      final lat = (place['latitude'] as num?)?.toDouble();
+      final lng = (place['longitude'] as num?)?.toDouble();
+      if (lat == null || lng == null) continue;
+      final radius = (place['radius_m'] as num?)?.toDouble() ?? _defaultPlaceRadiusM;
+      final metres = const Distance().as(LengthUnit.Meter, LatLng(lat, lng), point);
+      if (metres <= radius) return place;
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>?> _fetchLatestTrackPoint() async {
     final res = await apiGet('/api/patients/${widget.patient['id']}/track', queryParams: {'hours': '6'});
     if (res.statusCode != 200) return null;
@@ -319,9 +343,26 @@ class _TrackScreenState extends State<TrackScreen>{
     final profileImage = widget.patient['profileImage'] as File?;
     final patientName = widget.patient['name'] as String? ?? 'Patient';
     final isTraveling = _status == 'traveling';
-    final statusColor = isTraveling ? Colors.orange[800]! : Colors.green[700]!;
-    final statusIcon = isTraveling ? Icons.directions_walk_rounded : Icons.home_rounded;
-    final statusLabel = isTraveling ? 'Traveling' : 'At safe place';
+    // "At safe place" used to mean nothing more than "no unresolved alert", so
+    // it stayed green with the patient kilometres from anywhere they know — an
+    // alert only exists once risk has recomputed (60 s throttle) and survived
+    // its push cooldown, and it is cleared the moment the condition passes.
+    // The label now answers the question it appears to answer.
+    final atKnownPlace =
+        _currentLocation != null && _placeContaining(_currentLocation!) != null;
+    final statusColor = isTraveling || !atKnownPlace
+        ? Colors.orange[800]!
+        : Colors.green[700]!;
+    final statusIcon = isTraveling
+        ? Icons.directions_walk_rounded
+        : atKnownPlace
+            ? Icons.home_rounded
+            : Icons.explore_off_rounded;
+    final statusLabel = isTraveling
+        ? 'Traveling'
+        : atKnownPlace
+            ? 'At safe place'
+            : 'Away from safe places';
     final homePlace = widget.patient['home'] as ParsedLocation?;
     double? distanceInMeters;
 

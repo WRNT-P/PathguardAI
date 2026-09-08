@@ -55,7 +55,7 @@ from app.ai.module2_prediction.cluster_matcher import (
     haversine_km,
     get_familiarity,
     find_nearest_cluster,
-    distance_to_nearest_known_place_m,
+    distance_beyond_known_places_m,
 )
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
@@ -212,11 +212,13 @@ def collect_risk_factors(
         )
     elif known_places:
         # No specific route could be predicted, but the patient does have a
-        # profile — fall back to the real distance from the nearest known
-        # place instead of a constant disconnected from reality, so "very far"
-        # and "somewhat far" don't score identically.
-        route_deviation = distance_to_nearest_known_place_m(current_lat, current_lng, known_places)
-        defaults_fired.append("route_deviation_nearest_known_place_fallback")
+        # profile — fall back to how far OUTSIDE their known places they are,
+        # instead of a constant disconnected from reality, so "very far" and
+        # "somewhat far" don't score identically. Zero while they are inside
+        # one: a patient at home is not off-course, and this factor carries
+        # 30 % of the score.
+        route_deviation = distance_beyond_known_places_m(current_lat, current_lng, known_places)
+        defaults_fired.append("route_deviation_beyond_known_places_fallback")
     else:
         route_deviation = NO_ROUTE_DEVIATION_M
         defaults_fired.append("no_route_deviation_default")
@@ -353,13 +355,24 @@ if __name__ == "__main__":
           "outside_safe_zone=", r["outside_safe_zone"])
 
     # 3) no recent_gps -> route can't be predicted, but known_places exist ->
-    #    D falls back to the real distance to the nearest known place (here 0,
-    #    since current position IS place1's centroid), not the 350.0 constant.
+    #    D falls back to how far outside the known places they are, not the
+    #    350.0 constant. Standing on place1 itself, that is 0.
     r = collect_risk_factors(gps_30d, [], profile,
                              PLACES[1]["latitude"], PLACES[1]["longitude"], ZONES)
     assert approx(r["route_deviation"], 0.0, tol=1.0), r
-    assert "route_deviation_nearest_known_place_fallback" in r["_meta"]["defaults_fired"], r["_meta"]
+    assert "route_deviation_beyond_known_places_fallback" in r["_meta"]["defaults_fired"], r["_meta"]
     print("  [3] no recent_gps: D=", r["route_deviation"], "defaults=", r["_meta"]["defaults_fired"])
+
+    # 3c) inside a known place but off its centre -> still 0, because the pin's
+    #     radius is what "at this place" means. Regression for a patient scored
+    #     both at home (F=0, C=0) and 279 m off-course at the same instant.
+    WIDE = [{**PLACES[1], "radius_m": 400}]
+    r = collect_risk_factors(gps_30d, [], {"known_places": WIDE},
+                             PLACES[1]["latitude"] + 0.0025, PLACES[1]["longitude"], ZONES)
+    assert r["route_deviation"] == 0.0, ("inside a 400 m pin is not off-route", r["route_deviation"])
+    assert r["outside_safe_zone"] is False, r
+    print("  [3c] 278 m inside a 400 m pin: D=", r["route_deviation"],
+          "outside_safe_zone=", r["outside_safe_zone"])
 
     # 3b) same as [3], but far from every known place -> D = real large
     #     distance (not the flat 350.0 constant) and outside_safe_zone = True.
