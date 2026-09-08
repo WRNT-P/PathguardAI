@@ -47,4 +47,7 @@ app.*.map.json
 # Secrets — never commit API keys
 .env
 .env.*
+# ...except the template, which is the only way a rename in .env reaches
+# anyone else's machine: .env itself never travels by pull.
+!.env.example
 

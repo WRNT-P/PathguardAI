@@ -1,7 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'google_api_key.dart';
 
 class PlacePrediction {
   final String description;
@@ -10,11 +9,7 @@ class PlacePrediction {
   PlacePrediction({required this.description, required this.placeId});
 }
 
-String _apiKey() {
-  return Platform.isIOS
-      ? dotenv.env['IOS_GOOGLE_MAPS_API_KEY']!
-      : dotenv.env['ANDROID_GOOGLE_MAPS_API_KEY']!;
-}
+String _apiKey() => googleWebServicesKey()!;
 
 Future<List<PlacePrediction>> fetchAutocomplete(String input, String sessionToken) async {
   final url = Uri.parse('https://places.googleapis.com/v1/places:autocomplete');

@@ -1,7 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'google_api_key.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 /// One leg of a walking route — mirrors what Google's Directions API already
@@ -26,9 +25,7 @@ class RouteResult {
 }
 
 Future<RouteResult?> fetchRoute(LatLng origin, LatLng destination) async {
-  final apiKey = Platform.isIOS
-      ? dotenv.env['IOS_GOOGLE_MAPS_API_KEY']
-      : dotenv.env['ANDROID_GOOGLE_MAPS_API_KEY'];
+  final apiKey = googleWebServicesKey();
 
   final url = Uri.parse(
     'https://maps.googleapis.com/maps/api/directions/json'

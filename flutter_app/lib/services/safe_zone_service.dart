@@ -1,12 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'google_api_key.dart';
 
 Future<Map<String, dynamic>?> findNearestSafePlace(double lat, double lng) async {
-  final apiKey = Platform.isIOS
-    ? dotenv.env['IOS_GOOGLE_MAPS_API_KEY']!
-    : dotenv.env['ANDROID_GOOGLE_MAPS_API_KEY']!;
+  final apiKey = googleWebServicesKey()!;
 
     final url = Uri.parse('https://places.googleapis.com/v1/places:searchNearby');
 
