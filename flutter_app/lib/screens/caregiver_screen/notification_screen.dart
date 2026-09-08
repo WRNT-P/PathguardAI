@@ -54,7 +54,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
         final alerts = (jsonDecode(alertsRes.body)['alerts'] as List)
             .cast<Map<String, dynamic>>();
         for (final alert in alerts) {
-          if (alert['resolved'] == false && alert['alert_type'] == 'sos') {
+          final type = alert['alert_type'];
+          if (alert['resolved'] == false && (type == 'sos' || type == 'sos_home')) {
             found.add({...alert, '_patient': patient});
           }
         }
@@ -80,7 +81,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
       color: Colors.red[50],
       child: ListTile(
         leading: const Icon(Icons.emergency_share, color: Colors.red, size: 32),
-        title: Text('${patient['name']} pressed SOS',
+        title: Text(
+            alert['alert_type'] == 'sos_home'
+                ? '${patient['name']} pressed SOS at home'
+                : '${patient['name']} pressed SOS',
             style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text([
           if (createdAt != null)

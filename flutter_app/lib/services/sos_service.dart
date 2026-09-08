@@ -8,7 +8,12 @@ import 'session.dart';
 /// goes into the alert the caregiver reads, because the coordinates in that
 /// alert start going stale the instant the patient sets off — knowing where
 /// they are headed is what lets a caregiver meet them instead of chase them.
-Future<bool> triggerSOS({String? destinationName}) async {
+///
+/// [atHome] marks a press made from the home screen rather than mid-journey.
+/// The caregiver app lists those instead of taking over the screen with them.
+/// It defaults to false so that forgetting to pass it makes an alert louder
+/// than intended, never quieter.
+Future<bool> triggerSOS({String? destinationName, bool atHome = false}) async {
   final patientId = Session.instance.patientId;
   if (patientId == null) return false;
 
@@ -31,6 +36,7 @@ Future<bool> triggerSOS({String? destinationName}) async {
     if (here != null) 'latitude': here.latitude,
     if (here != null) 'longitude': here.longitude,
     'destination_name': ?destinationName,
+    'at_home': atHome,
   });
 
   return response.statusCode == 201;

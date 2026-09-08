@@ -65,7 +65,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
 
     var sent = false;
     try {
-      sent = await triggerSOS();
+      sent = await triggerSOS(atHome: true);
     } catch (_) {
       sent = false;
     }

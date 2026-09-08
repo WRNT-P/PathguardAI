@@ -10,6 +10,11 @@ from pydantic import BaseModel
 AlertType = Literal[
     "wandering", "geofence", "gps_loss", "emergency", "sos", "trip_denied",
     "safe_zone_exit",
+    # A press from the home screen, where the patient is not out walking.
+    # Its own type, not a severity on "sos", because the push cooldown is
+    # keyed on (patient, alert_type): sharing one would let a press from the
+    # sofa silently swallow the push for a press made lost in the street.
+    "sos_home",
 ]
 ALERT_TYPES: tuple[str, ...] = get_args(AlertType)
 

@@ -72,6 +72,10 @@ class SOSIn(BaseModel):
     destination_name: str | None = Field(
         None, max_length=255,
         description="สถานที่ปลอดภัยที่แอปกำลังนำผู้ป่วยไป — ใส่ไว้ในข้อความแจ้งเตือน")
+    at_home: bool = Field(
+        False,
+        description="กดจากหน้าแรก (ไม่ได้กำลังเดินทาง) — ขึ้นเป็นรายการแจ้งเตือน "
+                    "แทนที่จะเด้งเต็มจอฝั่งผู้ดูแล")
 
 
 class SOSOut(BaseModel):
@@ -136,14 +140,19 @@ async def raise_sos(
 
     patient = await crud.get_user(db, payload.patient_id)
 
+    # Its own alert_type, never "emergency". The push cooldown is keyed on
+    # (patient_id, alert_type), so sharing that key would let an automatic
+    # emergency from three minutes ago silently swallow the patient's press.
+    #
+    # And two types rather than one, for the same reason: a press from the
+    # home screen means "something is wrong here", a press mid-journey means
+    # "I am out and I need help", and the caregiver app surfaces them
+    # differently. One shared type would also share one cooldown.
     alert = await crud.save_alert(
         db,
         payload.patient_id,
-        alert_type="sos",
-        # Its own alert_type, not "emergency". The push cooldown is keyed on
-        # (patient_id, alert_type), so sharing that key would let an automatic
-        # emergency from three minutes ago silently swallow the patient's press.
-        severity="critical",
+        **({"alert_type": "sos_home", "severity": "high"} if payload.at_home
+           else {"alert_type": "sos", "severity": "critical"}),
         message=_message(payload.destination_name),
         latitude=lat,
         longitude=lng,

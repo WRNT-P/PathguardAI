@@ -20,6 +20,12 @@ import '../screens/caregiver_screen/missing_patient_screen.dart';
 /// `sos.py` emits `sos`. There is no `wandering` row and there never has
 /// been — wandering reaches a caregiver as `emergency` (sustained risk) or
 /// `geofence` (danger zone), so those are what the off-route popup watches for.
+///
+/// `sos_home` is deliberately absent. A press from the patient's home screen
+/// is a call for help from somewhere they are not lost, and it belongs on the
+/// notifications list the caregiver can come back to — taking over their
+/// screen for it is what made them start dismissing these on sight. A press
+/// made mid-journey stays `sos` and still takes over.
 const urgentAlertTypes = {'sos', 'emergency', 'geofence', 'safe_zone_exit'};
 
 /// The patient has gone quiet — Module 4's search, not the SOS screen.

@@ -46,6 +46,9 @@ _TITLES = {
     # patient is outside every known/familiar place — its own key so its
     # cooldown can't be suppressed by, or suppress, a "geofence"/"emergency" push.
     "safe_zone_exit": "PathGuard — ผู้ป่วยออกนอกพื้นที่ปลอดภัย",
+    # Pressed from the home screen rather than mid-journey — the caregiver app
+    # lists this one instead of taking over the screen with it.
+    "sos_home": "PathGuard — ผู้ป่วยกดขอความช่วยเหลือที่บ้าน",
 }
 
 
