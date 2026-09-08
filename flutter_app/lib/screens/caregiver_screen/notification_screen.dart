@@ -71,6 +71,53 @@ class _NotificationScreenState extends State<NotificationScreen> {
     }
   }
 
+  /// Close an SOS from the list.
+  ///
+  /// The other way to end one is to claim it, drive there, and press "I've
+  /// reached them" — right for a real emergency and painful for the row left
+  /// open by a test, a misfire, or a patient who rang instead. Confirmed,
+  /// because it changes what every other caregiver sees.
+  Future<void> _resolve(Map<String, dynamic> alert) async {
+    final patient = alert['_patient'] as Map<String, dynamic>;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Close ${patient['name']}\'s SOS?'),
+        content: const Text(
+          'This clears the alert for everyone. Only do it if you know the '
+          'patient is safe.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('They are safe'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final res = await apiPatch('/api/alerts/${alert['id']}', body: {'resolved': true});
+      if (!mounted) return;
+      if (res.statusCode != 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not close it (${res.statusCode})')),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not reach the server')),
+      );
+    }
+    _loadSosAlerts();
+  }
+
   Widget _buildSosTile(Map<String, dynamic> alert) {
     final patient = alert['_patient'] as Map<String, dynamic>;
     final claimedByName = alert['claimed_by_name'] as String?;
@@ -92,7 +139,11 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 '${createdAt.minute.toString().padLeft(2, '0')}',
           if (claimedByName != null) '$claimedByName is on their way',
         ].join(' · ')),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: IconButton(
+          icon: const Icon(Icons.check_circle_outline, color: Colors.green),
+          tooltip: 'Mark as resolved',
+          onPressed: () => _resolve(alert),
+        ),
         onTap: () async {
           await Navigator.push(
             context,
