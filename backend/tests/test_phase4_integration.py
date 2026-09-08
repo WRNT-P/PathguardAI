@@ -176,6 +176,21 @@ async def test_phase4_safe_zone_exit_alert_and_real_distance_scaling(db_session)
         select(Alert).where(Alert.patient_id == pid, Alert.alert_type == "safe_zone_exit")
     )).scalars().all()
     assert far_alerts, "safe_zone_exit alert should fire when far from every known place"
+    assert all(not a.resolved for a in far_alerts)
+
+    # ── back near home -> the stale safe_zone_exit alert(s) auto-resolve ──────
+    # Without this a caregiver opening the app later still gets the
+    # full-screen SOS alert for an episode that's already over.
+    back = (await get_risk(patient_id=pid, lat=near_lat, lng=near_lon, db=db)).model_dump()
+    await db.commit()
+    assert back["status"] == "ok"
+    await db.refresh(far_alerts[0])
+    resolved_alerts = (await db.execute(
+        select(Alert).where(Alert.patient_id == pid, Alert.alert_type == "safe_zone_exit")
+    )).scalars().all()
+    assert resolved_alerts and all(a.resolved for a in resolved_alerts), (
+        "safe_zone_exit alerts must auto-resolve once the patient is back in a known place"
+    )
 
     # route_deviation now scales with real distance instead of a flat constant:
     # the far case's contribution must clearly exceed the near case's, and sit
@@ -184,3 +199,51 @@ async def test_phase4_safe_zone_exit_alert_and_real_distance_scaling(db_session)
     far_dev = far["contributions"]["route_deviation"]
     assert far_dev > near_dev, (near_dev, far_dev)
     assert far_dev >= 25.0, f"far route_deviation contribution should be near the 30-pt ceiling, got {far_dev}"
+
+
+async def test_phase4_geofence_alert_auto_resolves_when_patient_leaves_danger_zone(db_session):
+    """geofence (danger-zone entry) is a STATUS alert like safe_zone_exit: it
+    must close itself once the patient is no longer inside the zone, or a
+    caregiver keeps getting the full-screen SOS alert for a hazard the
+    patient already walked away from.
+    """
+    db = db_session
+    user = await crud.create_user(db, firebase_uid="geofence_resolve_test", name="Pat", role="patient")
+    await db.flush()
+    pid = user.id
+
+    await _seed_normal_routine(db, pid)
+    await analyze_behavior(db, pid, days=30)
+    await db.commit()
+
+    zone_lat, zone_lon = _offset(_PLACES[0][0], _PLACES[0][1], 3000.0, 3000.0)
+    db.add(DangerZone(
+        name="Test hazard @ geofence resolve test",
+        center_latitude=zone_lat, center_longitude=zone_lon,
+        radius_meters=150.0, zone_type="waterway", active=True,
+        synthetic_injected=True,
+        source_reference="test", rationale="isolated geofence-resolve check",
+        created_by="test",
+    ))
+    await db.commit()
+
+    # ── inside the danger zone -> geofence alert fires ─────────────────────
+    inside = (await get_risk(patient_id=pid, lat=zone_lat, lng=zone_lon, db=db)).model_dump()
+    await db.commit()
+    assert inside["status"] == "ok"
+    open_alerts = (await db.execute(
+        select(Alert).where(Alert.patient_id == pid, Alert.alert_type == "geofence")
+    )).scalars().all()
+    assert open_alerts and all(not a.resolved for a in open_alerts)
+
+    # ── back near home, well outside the zone -> the alert auto-resolves ───
+    near_lat, near_lon = _offset(_PLACES[0][0], _PLACES[0][1], 20.0, 20.0)
+    outside = (await get_risk(patient_id=pid, lat=near_lat, lng=near_lon, db=db)).model_dump()
+    await db.commit()
+    assert outside["status"] == "ok"
+    resolved_alerts = (await db.execute(
+        select(Alert).where(Alert.patient_id == pid, Alert.alert_type == "geofence")
+    )).scalars().all()
+    assert resolved_alerts and all(a.resolved for a in resolved_alerts), (
+        "geofence alerts must auto-resolve once the patient leaves the danger zone"
+    )

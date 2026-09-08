@@ -147,7 +147,13 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   /// keyed off the caregiver's own token — no caregiver_id needed.
   Future<void> _loadPatients() async {
     try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      debugPrint(
+          '[DEBUG] currentUser=${FirebaseAuth.instance.currentUser?.uid} tokenLen=${token?.length}');
+
       final res = await apiGet('/api/patients');
+      debugPrint('[DEBUG] /api/patients status=${res.statusCode} body=${res.body}');
+
       if (res.statusCode != 200) return;
       final data = jsonDecode(res.body);
       final basics = (data['patients'] as List)
@@ -168,7 +174,8 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       if (!mounted) return;
       setState(() => patients = loaded);
       await _checkForActiveAlerts();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[DEBUG] _loadPatients EXCEPTION: $e');
     } finally {
       if (mounted) setState(() => _loadingPatients = false);
     }
@@ -243,29 +250,48 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
 
         final missing = unresolved.where((a) => a['alert_type'] == missingAlertType);
         if (missing.isNotEmpty) {
-          if (!mounted) return;
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => MissingPatientScreen(patient: patient, alert: missing.first),
-            ),
-          );
+          final missingId = missing.first['id'] as int;
+          // Shared with alert_navigation.dart's push listener — login is
+          // exactly when this poll and an FCM push for the same alert can
+          // both fire, and without this guard both used to push their own
+          // copy of the screen onto the same Navigator.
+          if (openAlertId != missingId) {
+            openAlertId = missingId;
+            if (!mounted) return;
+            try {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => MissingPatientScreen(patient: patient, alert: missing.first),
+                ),
+              );
+            } finally {
+              openAlertId = null;
+            }
+          }
         }
 
         final active = unresolved.where((a) => urgentAlertTypes.contains(a['alert_type']));
         if (active.isEmpty) continue;
 
+        final activeId = active.first['id'] as int;
+        if (openAlertId == activeId) continue;
+        openAlertId = activeId;
         if (!mounted) return;
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SosAlertScreen(
-              patientId: patient['id'] as int,
-              patientName: patient['name'] as String,
-              alert: active.first,
+        try {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => SosAlertScreen(
+                patientId: patient['id'] as int,
+                patientName: patient['name'] as String,
+                alert: active.first,
+              ),
             ),
-          ),
-        );
+          );
+        } finally {
+          openAlertId = null;
+        }
       } catch (_) {
       }
     }

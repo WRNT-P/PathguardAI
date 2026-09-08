@@ -122,6 +122,18 @@ class RiskResponse(BaseModel):
     temporal_rules_triggered: list[str] = []
 
 
+async def _resolve_stale(db: AsyncSession, patient_id: int, alert_type: str) -> None:
+    """Close every unresolved alert of one STATUS type for a patient.
+
+    Only for types whose truth is re-derived every scoring round (danger
+    zone, over-threshold score, GPS gap, outside every known place) — never
+    for "sos", which a human pressed and only a human should close.
+    """
+    stale = await crud.get_unresolved_alerts_by_type(db, patient_id, alert_type)
+    for alert in stale:
+        await crud.set_alert_resolved(db, alert.id, True)
+
+
 async def evaluate_risk(
     db: AsyncSession,
     patient_id: int,
@@ -265,6 +277,17 @@ async def evaluate_risk(
             db, alert, thresholds[rule_repository.PUSH_COOLDOWN_SECONDS]
         )
 
+    # geofence/emergency are STATUS alerts (is the patient in a danger zone /
+    # over the emergency threshold right now), not one-off events — so
+    # whichever of the two isn't the current reason is stale and gets closed
+    # the same way safe_zone_exit does below. "sos" is deliberately excluded:
+    # a human pressed it, so a human — not a recomputed score — has to close
+    # it (see the caregiver app's own resolve action).
+    if decision["reason"] != "danger_zone":
+        await _resolve_stale(db, patient_id, "geofence")
+    if decision["reason"] not in ("high_score", "sustained_risk"):
+        await _resolve_stale(db, patient_id, "emergency")
+
     # ── 9b. Safe-zone-exit alert — independent of the weighted score, mirrors
     #        the GPS-loss check: "outside every known place" is a binary
     #        geofence event to report, not a magnitude to blend into the score.
@@ -281,6 +304,12 @@ async def evaluate_risk(
         await notify_alert(
             db, alert, thresholds[rule_repository.PUSH_COOLDOWN_SECONDS]
         )
+    else:
+        # Back inside a known place — every safe_zone_exit row opened while
+        # they were out is now stale. Without this a caregiver who opens the
+        # app later still gets the full-screen SOS alert for an episode
+        # that's already over, because nothing else ever resolves this type.
+        await _resolve_stale(db, patient_id, "safe_zone_exit")
 
     # ── 10. GPS-loss alert ────────────────────────────────────────────────────
     if gap["gps_lost"]:
@@ -297,6 +326,11 @@ async def evaluate_risk(
         await notify_alert(
             db, alert, thresholds[rule_repository.PUSH_COOLDOWN_SECONDS]
         )
+    else:
+        # A fresh GPS point is what got this function called at all, so
+        # reaching here already means the gap is over — close out whatever
+        # gps_loss rows were opened while the signal was missing.
+        await _resolve_stale(db, patient_id, "gps_loss")
 
     # ── 11. Response (mirrors RecommendationResponse's status + data shape) ───
     return RiskResponse(

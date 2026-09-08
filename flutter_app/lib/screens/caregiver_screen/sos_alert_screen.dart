@@ -33,6 +33,10 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
   Map<String, dynamic>? _prediction;
   bool _acting = false;
   Timer? _refreshTimer;
+  // Tracks whether the claim popup has already been shown for THIS alert, so
+  // an 8s poll after it's dismissed doesn't show it again while claimed_by
+  // stays the same person.
+  bool _claimPopupShown = false;
 
   @override
   void initState() {
@@ -174,10 +178,22 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
               (a) => a['id'] == _alert['id'],
               orElse: () => _alert,
             );
+        final myId = CaregiverSession.instance.caregiverId;
+        final newlyClaimedByOther = _alert['claimed_by'] == null &&
+            updated['claimed_by'] != null &&
+            updated['claimed_by'] != myId;
         if (mounted) setState(() => _alert = updated);
         if (updated['resolved'] == true) {
           if (mounted) Navigator.of(context).pop();
           return;
+        }
+        // Someone else just claimed it while this screen was open — this is
+        // the caregiver's own exit path (removed the unconditional X so
+        // nobody dismisses an unclaimed SOS by accident), gated behind
+        // actually seeing who's responding.
+        if (newlyClaimedByOther && !_claimPopupShown && mounted) {
+          _claimPopupShown = true;
+          await _showClaimAcknowledgement(updated['claimed_by_name'] as String?);
         }
       }
 
@@ -190,17 +206,71 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
     }
   }
 
+  /// Shown to every OTHER caregiver still on this screen once someone claims
+  /// the alert. "รับทราบ" both dismisses the dialog and closes the full-screen
+  /// alert for them — they've seen who's going, there's nothing left to do
+  /// here, and the alert itself stays unresolved until that person is back.
+  Future<void> _showClaimAcknowledgement(String? claimerName) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('มีคนไปรับแล้ว'),
+        content: Text('${claimerName ?? "เพื่อนร่วมดูแล"} กำลังไปรับผู้ป่วย'),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('รับทราบ'),
+          ),
+        ],
+      ),
+    );
+    if (mounted) Navigator.of(context).pop();
+  }
+
   Future<void> _claim() async {
     setState(() => _acting = true);
     try {
+      debugPrint('[DEBUG] _claim: posting /api/alerts/${_alert['id']}/claim');
       final res = await apiPost('/api/alerts/${_alert['id']}/claim');
+      debugPrint('[DEBUG] _claim: status=${res.statusCode} body=${res.body} mounted=$mounted');
       if (res.statusCode == 200) {
-        setState(() => _alert = jsonDecode(res.body)['alert'] as Map<String, dynamic>);
+        // Claiming is the caregiver's commitment to go — nothing left for
+        // them to do on this screen, so it closes for them the same way it
+        // would once the alert resolves. Other caregivers still on this
+        // screen learn about the claim on their own _refresh() poll.
+        if (mounted) {
+          debugPrint('[DEBUG] _claim: popping SosAlertScreen now');
+          Navigator.of(context).pop();
+        } else {
+          debugPrint('[DEBUG] _claim: NOT mounted, cannot pop!');
+        }
+        return;
       } else if (res.statusCode == 409 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Someone already claimed this')),
         );
         await _refresh();
+      }
+    } catch (e) {
+      debugPrint('[DEBUG] _claim EXCEPTION: $e');
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
+  }
+
+  /// "sos" is the one alert type the backend never auto-resolves — a human
+  /// pressed it, so a human decides when it's actually handled. (Every other
+  /// type here — safe_zone_exit, geofence, emergency, gps_loss — closes
+  /// itself once its triggering condition clears; see risk.py.)
+  Future<void> _markResolved() async {
+    setState(() => _acting = true);
+    try {
+      final res = await apiPatch('/api/alerts/${_alert['id']}', body: {'resolved': true});
+      if (res.statusCode == 200) {
+        if (mounted) Navigator.of(context).pop();
+        return;
       }
     } catch (_) {
     } finally {
@@ -236,12 +306,6 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
         foregroundColor: Colors.white,
         title: Text('SOS — ${widget.patientName}'),
         automaticallyImplyLeading: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ],
       ),
       body: Column(
         children: [
@@ -319,10 +383,27 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
                         child: const Text("I'll go get them", style: TextStyle(color: Colors.white)),
                       )
                     : claimedBy == myId
-                        ? ElevatedButton(
-                            onPressed: _acting ? null : _cancelClaim,
-                            style: ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
-                            child: const Text('Cancel claim'),
+                        ? Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_alert['alert_type'] == 'sos')
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: ElevatedButton(
+                                    onPressed: _acting ? null : _markResolved,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      minimumSize: const Size(double.infinity, 48),
+                                    ),
+                                    child: const Text('Mark as resolved', style: TextStyle(color: Colors.white)),
+                                  ),
+                                ),
+                              ElevatedButton(
+                                onPressed: _acting ? null : _cancelClaim,
+                                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 48)),
+                                child: const Text('Cancel claim'),
+                              ),
+                            ],
                           )
                         : Container(
                             padding: const EdgeInsets.all(12),

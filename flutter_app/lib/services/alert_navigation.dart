@@ -34,7 +34,16 @@ const missingAlertType = 'gps_loss';
 
 /// The alert currently on screen, so a push arriving while its own screen is
 /// already open does not stack a second copy of it.
-int? _openAlertId;
+///
+/// Shared (not private to this file) because there are two independent
+/// triggers for the same full-screen alert: this push listener, and
+/// `caregiver_homepage_screen.dart`'s own unresolved-alert poll on launch.
+/// Login is exactly when both fire together — the poll finds the row the
+/// same moment the push for it arrives — and each used to check only its own
+/// state, so both pushed a copy onto the SAME Navigator. Claiming (or
+/// closing) the top one only revealed the other, unclaimed, underneath —
+/// looking like the alert screen "wouldn't close".
+int? openAlertId;
 
 /// Opens the right full-screen alert for an FCM payload, or returns false so
 /// the caller can fall back to something less interruptive.
@@ -66,7 +75,7 @@ Future<bool> openAlertFromPush(
   final alertId = int.tryParse(data['alert_id'] as String? ?? '');
   if (patientId == null || alertId == null) return false;
 
-  if (_openAlertId == alertId) return true;
+  if (openAlertId == alertId) return true;
 
   final alert = <String, dynamic>{
     'id': alertId,
@@ -85,7 +94,7 @@ Future<bool> openAlertFromPush(
   final navigator = navigatorKey.currentState;
   if (navigator == null) return false;
 
-  _openAlertId = alertId;
+  openAlertId = alertId;
   try {
     await navigator.push(
       MaterialPageRoute(
@@ -102,7 +111,7 @@ Future<bool> openAlertFromPush(
       ),
     );
   } finally {
-    _openAlertId = null;
+    openAlertId = null;
   }
   return true;
 }

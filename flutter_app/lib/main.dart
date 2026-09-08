@@ -12,6 +12,7 @@ import 'screens/patient_level2_screen/patient_homepage_screen.dart' as level2;
 import 'screens/caregiver_screen/caregiver_homepage_screen.dart';
 import 'services/device_token_service.dart';
 import 'services/alert_navigation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 // Lets the FCM foreground listener show something even though it isn't
 // inside any screen's widget tree — there was previously no code at all
@@ -25,6 +26,8 @@ void main() async {
   FlutterForegroundTask.initCommunicationPort();
   await dotenv.load(fileName: ".env");
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  await FirebaseAuth.instance.authStateChanges().first;
   await Session.instance.load();
   await CaregiverSession.instance.load();
   await _initPushNotifications();

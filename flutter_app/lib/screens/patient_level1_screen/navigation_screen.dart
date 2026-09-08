@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'sos_contact_screen.dart';
 import '../../services/sos_service.dart';
+import '../../services/safe_zone_service.dart';
 import '../../services/api_client.dart';
 import '../../services/session.dart';
 import '../../utils/bearing.dart';
@@ -47,26 +48,59 @@ class _NavigationScreenState extends State<NavigationScreen> {
       _sosSending = true;
     });
 
-    await triggerSOS();
-
+    // Same "don't stack timeouts" reasoning as the homepage's SOS handler:
+    // notifying the caregiver, looking up the nearest caregiver's name, and
+    // finding a safe place nearby don't depend on each other.
     String? nearestName;
-    try {
-      final patientId = Session.instance.patientId;
-      if (patientId != null) {
-        final res = await apiGet('/api/patients/$patientId/caregivers');
-        if (res.statusCode == 200) {
-          final caregivers = (jsonDecode(res.body)['caregivers'] as List).cast<Map<String, dynamic>>();
-          if (caregivers.isNotEmpty) {
-            nearestName = caregivers.first['name'] as String?;
+    Map<String, dynamic>? safePlace;
+    await Future.wait([
+      triggerSOS().catchError((_) => false),
+      () async {
+        try {
+          final patientId = Session.instance.patientId;
+          if (patientId != null) {
+            final res = await apiGet('/api/patients/$patientId/caregivers');
+            if (res.statusCode == 200) {
+              final caregivers = (jsonDecode(res.body)['caregivers'] as List).cast<Map<String, dynamic>>();
+              if (caregivers.isNotEmpty) {
+                nearestName = caregivers.first['name'] as String?;
+              }
+            }
           }
-        }
-      }
-    } catch (_) {}
+        } catch (_) {}
+      }(),
+      () async {
+        try {
+          // Already-tracked live location is near-instant; only ask the GPS
+          // for a fresh fix if navigation hasn't produced one yet.
+          var here = _currentLocation;
+          if (here == null) {
+            final pos = await Geolocator.getCurrentPosition(
+              locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+            ).timeout(const Duration(seconds: 3));
+            here = LatLng(pos.latitude, pos.longitude);
+          }
+          safePlace = await findNearestSafePlace(here.latitude, here.longitude);
+        } catch (_) {}
+      }(),
+    ]);
 
     if (!mounted) return;
     setState((){
       _sosSending = false;
     });
+
+    // A patient already mid-walk who presses SOS needs redirecting to safety,
+    // not a dialog about who was told — this is exactly the "Safe Zone
+    // Navigation" feature, just reached from a different screen than the
+    // homepage's SOS button. Whatever destination they were headed to gets
+    // replaced: it's no longer the point once SOS has been pressed.
+    if (safePlace != null) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => NavigationScreen(place: safePlace!)),
+      );
+      return;
+    }
 
     showDialog(
       context: context,

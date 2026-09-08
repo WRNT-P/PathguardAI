@@ -532,6 +532,26 @@ async def get_alerts(
     return list(result.scalars().all())
 
 
+async def get_unresolved_alerts_by_type(
+    db: AsyncSession, patient_id: int, alert_type: str,
+) -> list[Alert]:
+    """Every unresolved alert of one type for a patient.
+
+    A condition-based alert (safe_zone_exit, geofence) writes a new row on
+    every scoring round it holds — never one row updated in place — so
+    "the condition cleared" can mean several unresolved rows need closing at
+    once, not just the newest.
+    """
+    result = await db.execute(
+        select(Alert).where(
+            Alert.patient_id == patient_id,
+            Alert.alert_type == alert_type,
+            Alert.resolved.is_(False),
+        )
+    )
+    return list(result.scalars().all())
+
+
 async def set_alert_resolved(
     db: AsyncSession, alert_id: int, resolved: bool,
 ) -> Alert | None:
