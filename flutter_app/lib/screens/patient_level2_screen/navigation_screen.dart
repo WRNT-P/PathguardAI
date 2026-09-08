@@ -272,9 +272,11 @@ class _NavigationScreenState extends State<NavigationScreen>{
   /// Finds the point [lookaheadMeters] ahead of [current] along [route] —
   /// this is what the arrow points at instead of the raw destination, so it
   /// follows the actual street shape instead of cutting through buildings.
-  LatLng _lookaheadTarget(List<LatLng> route, LatLng current, {double lookaheadMeters = 15}) {
+  /// Index of the route point nearest the patient — how far along the line
+  /// they are. Shared so the arrow and the drawn line can never disagree
+  /// about where "here" is on the route.
+  int _nearestRouteIndex(List<LatLng> route, LatLng current) {
     const distance = Distance();
-
     var nearestIndex = 0;
     var nearestDistance = double.infinity;
     for (var i = 0; i < route.length; i++) {
@@ -284,6 +286,31 @@ class _NavigationScreenState extends State<NavigationScreen>{
         nearestIndex = i;
       }
     }
+    return nearestIndex;
+  }
+
+  /// The part of the route still ahead, drawn from where the patient is now.
+  ///
+  /// The route is fetched once (Directions is billed per call), so its points
+  /// never move — drawing them raw left the line starting wherever the walk
+  /// began, however far along the patient actually was.
+  List<gmaps.LatLng> _remainingRoute() {
+    final route = _routePoints!;
+    final here = _currentLocation;
+    if (here == null) {
+      return route.map((p) => gmaps.LatLng(p.latitude, p.longitude)).toList();
+    }
+    return [
+      gmaps.LatLng(here.latitude, here.longitude),
+      ...route
+          .sublist(_nearestRouteIndex(route, here))
+          .map((p) => gmaps.LatLng(p.latitude, p.longitude)),
+    ];
+  }
+
+  LatLng _lookaheadTarget(List<LatLng> route, LatLng current, {double lookaheadMeters = 15}) {
+    const distance = Distance();
+    final nearestIndex = _nearestRouteIndex(route, current);
 
     var accumulated = 0.0;
     for (var i = nearestIndex; i < route.length - 1; i++) {
@@ -485,7 +512,7 @@ class _NavigationScreenState extends State<NavigationScreen>{
       if (_routePoints != null && _routePoints!.length >= 2)
         gmaps.Polyline(
           polylineId: const gmaps.PolylineId('route'),
-          points: _routePoints!.map((p) => gmaps.LatLng(p.latitude, p.longitude)).toList(),
+          points: _remainingRoute(),
           color: Colors.deepOrange,
           width: 4,
         ),

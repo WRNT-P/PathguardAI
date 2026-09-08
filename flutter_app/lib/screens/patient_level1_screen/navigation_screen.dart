@@ -29,6 +29,9 @@ class _NavigationScreenState extends State<NavigationScreen> {
   StreamSubscription<Position>? _positionSubscription;
   LatLng? _currentLocation;
   List<gmaps.LatLng>? _routePoints;
+  /// How far along `_routePoints` the patient has walked — see the trimming
+  /// in `_handlePosition`. Reset whenever a new route is fetched.
+  int _routeProgressIndex = 0;
   List<RouteStep>? _routeSteps;
   int _currentStepIndex = 0;
   gmaps.GoogleMapController? _mapController;
@@ -271,6 +274,28 @@ class _NavigationScreenState extends State<NavigationScreen> {
         }
       }
 
+      // Walk the route line past the points already behind them. The route is
+      // fetched once and never re-fetched (Directions is billed per call), so
+      // without this the drawn line stays pinned to wherever the walk started
+      // and the patient watches a path they are no longer on.
+      //
+      // Forward-only, and only while the next point is genuinely nearer than
+      // the current one, so a route that doubles back near itself cannot snap
+      // the line onto the wrong leg.
+      final route = _routePoints;
+      if (route != null) {
+        while (_routeProgressIndex < route.length - 1) {
+          final here = route[_routeProgressIndex];
+          final next = route[_routeProgressIndex + 1];
+          final toHere = distance.as(
+              LengthUnit.Meter, updated, LatLng(here.latitude, here.longitude));
+          final toNext = distance.as(
+              LengthUnit.Meter, updated, LatLng(next.latitude, next.longitude));
+          if (toNext >= toHere) break;
+          _routeProgressIndex++;
+        }
+      }
+
       _currentLocation = updated;
     });
 
@@ -345,6 +370,20 @@ class _NavigationScreenState extends State<NavigationScreen> {
     return total;
   }
 
+  /// The part of the route still ahead, drawn from where the patient is now.
+  ///
+  /// Anchoring it to the live position is what makes the line follow them:
+  /// the route itself is fetched once (Directions is billed per call), so the
+  /// stored points never move, and drawing them raw left the line starting at
+  /// wherever the walk began no matter how far along they were.
+  List<gmaps.LatLng> _remainingRoute() {
+    final route = _routePoints!;
+    final ahead = route.sublist(_routeProgressIndex.clamp(0, route.length - 1));
+    final here = _currentLocation;
+    if (here == null) return ahead;
+    return [gmaps.LatLng(here.latitude, here.longitude), ...ahead];
+  }
+
   Future<void> _fetchRoute() async {
     final origin = gmaps.LatLng(_currentLocation!.latitude, _currentLocation!.longitude);
     final route = await fetchRoute(origin, _destination);
@@ -358,6 +397,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
         _routePoints = [origin, _destination];
         _routeSteps = [];
         _currentStepIndex = 0;
+        _routeProgressIndex = 0;
       });
       return;
     }
@@ -365,6 +405,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
       _routePoints = route.points;
       _routeSteps = route.steps;
       _currentStepIndex = 0;
+      _routeProgressIndex = 0;
       // Seed the map's rotation from the route's own first leg. Travel bearing
       // needs two fixes ten metres apart to exist, so until now the map sat
       // north-up for the opening stretch of the walk — the exact stretch where
@@ -471,7 +512,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
       else if (_routePoints != null)
         gmaps.Polyline(
           polylineId: const gmaps.PolylineId('route'),
-          points: _routePoints!,
+          points: _remainingRoute(),
           color: Colors.blue,
           width: 4,
         ),
