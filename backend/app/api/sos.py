@@ -51,10 +51,27 @@ _FALLBACK_COOLDOWN_S = 60.0
 _MESSAGE = "Patient pressed the SOS button."
 
 
+def _message(destination_name: str | None) -> str:
+    """What the caregiver reads on the alert.
+
+    Naming where the patient is walking to matters more than it looks: the
+    app sends them to the nearest safe place the moment they press, so by the
+    time anyone arrives at the coordinates in this alert the patient has
+    already left them. A caregiver told the destination can go straight there
+    instead of chasing a position that is deliberately out of date.
+    """
+    if not destination_name:
+        return _MESSAGE
+    return f"{_MESSAGE} Heading to {destination_name}."
+
+
 class SOSIn(BaseModel):
     patient_id: int = Field(..., description="users.id ของผู้ป่วย (จาก /api/register)")
     latitude: float | None = Field(None, ge=-90, le=90)
     longitude: float | None = Field(None, ge=-180, le=180)
+    destination_name: str | None = Field(
+        None, max_length=255,
+        description="สถานที่ปลอดภัยที่แอปกำลังนำผู้ป่วยไป — ใส่ไว้ในข้อความแจ้งเตือน")
 
 
 class SOSOut(BaseModel):
@@ -127,7 +144,7 @@ async def raise_sos(
         # (patient_id, alert_type), so sharing that key would let an automatic
         # emergency from three minutes ago silently swallow the patient's press.
         severity="critical",
-        message=_MESSAGE,
+        message=_message(payload.destination_name),
         latitude=lat,
         longitude=lng,
     )

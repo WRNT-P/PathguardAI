@@ -24,14 +24,20 @@ class RouteResult {
   RouteResult({required this.points, required this.steps});
 }
 
-Future<RouteResult?> fetchRoute(LatLng origin, LatLng destination) async {
+/// [mode] is Google's travel mode. Patients walk, which is why that is the
+/// default; a caregiver answering an SOS is usually getting in a car.
+Future<RouteResult?> fetchRoute(
+  LatLng origin,
+  LatLng destination, {
+  String mode = 'walking',
+}) async {
   final apiKey = googleWebServicesKey();
 
   final url = Uri.parse(
     'https://maps.googleapis.com/maps/api/directions/json'
     '?origin=${origin.latitude},${origin.longitude}'
     '&destination=${destination.latitude},${destination.longitude}'
-    '&mode=walking'
+    '&mode=$mode'
     '&key=$apiKey',
   );
 

@@ -5,6 +5,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/api_client.dart';
 import '../../services/caregiver_session.dart';
+import 'caregiver_navigation_screen.dart';
 
 /// Full-screen SOS/emergency alert — pops up when the caregiver opens the app
 /// while one of their patients has an unresolved sos/emergency/geofence alert.
@@ -234,11 +235,24 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
     try {
       final res = await apiPost('/api/alerts/${_alert['id']}/claim');
       if (res.statusCode == 200) {
-        // Claiming is the caregiver's commitment to go — nothing left for
-        // them to do on this screen, so it closes for them the same way it
-        // would once the alert resolves. Other caregivers still on this
-        // screen learn about the claim on their own _refresh() poll.
-        if (mounted) Navigator.of(context).pop();
+        // Claiming means "I am setting off", so the next thing this caregiver
+        // needs is the way there — not this screen again. It replaces the
+        // alert rather than stacking on it: coming back from navigation
+        // should land on the patient list, not on the alert they answered.
+        // Other caregivers learn about the claim on their own _refresh() poll.
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => CaregiverNavigationScreen(
+                patientId: widget.patientId,
+                patientName: widget.patientName,
+                initialLatitude: (_alert['latitude'] as num?)?.toDouble(),
+                initialLongitude: (_alert['longitude'] as num?)?.toDouble(),
+                alertMessage: _alert['message'] as String?,
+              ),
+            ),
+          );
+        }
         return;
       } else if (res.statusCode == 409 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

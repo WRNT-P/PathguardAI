@@ -2,7 +2,13 @@ import 'package:geolocator/geolocator.dart';
 import 'api_client.dart';
 import 'session.dart';
 
-Future<bool> triggerSOS() async {
+/// Raise an SOS for the paired patient.
+///
+/// [destinationName] is the safe place the app is about to walk them to. It
+/// goes into the alert the caregiver reads, because the coordinates in that
+/// alert start going stale the instant the patient sets off — knowing where
+/// they are headed is what lets a caregiver meet them instead of chase them.
+Future<bool> triggerSOS({String? destinationName}) async {
   final patientId = Session.instance.patientId;
   if (patientId == null) return false;
 
@@ -24,6 +30,7 @@ Future<bool> triggerSOS() async {
     'patient_id': patientId,
     if (here != null) 'latitude': here.latitude,
     if (here != null) 'longitude': here.longitude,
+    'destination_name': ?destinationName,
   });
 
   return response.statusCode == 201;

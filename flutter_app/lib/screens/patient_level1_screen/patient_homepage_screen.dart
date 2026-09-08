@@ -13,6 +13,7 @@ import '../../services/api_client.dart';
 import '../../services/session.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../services/safe_zone_service.dart';
+import '../../services/sos_service.dart';
 import '../login_screen.dart';
 
 enum _ScreenState { browsing, waitingApproval, rejected }
@@ -64,31 +65,43 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     );
   }
 
+  /// Nearest police station / hospital to wherever the patient is standing.
+  /// A cached fix is near-instant; only wait on a fresh one if there is
+  /// truly nothing recent to work with.
+  Future<Map<String, dynamic>?> _nearestSafePlace() async {
+    try {
+      var position = await Geolocator.getLastKnownPosition();
+      position ??= await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+      ).timeout(const Duration(seconds: 3));
+      return await findNearestSafePlace(position.latitude, position.longitude);
+    } catch (_) {
+      return null;
+    }
+  }
+
   bool _sosSending = false;
   Future<void> _handleSOS() async {
     setState(() {
       _sosSending = true;
     });
 
-    // **This press does not alert the caregiver.** It opens SOS mode: find
-    // the nearest safe place and start walking them there. The alert is sent
-    // by the SOS button on whichever screen that lands them on — navigation
-    // or the contacts list — so a button this large and this red cannot call
-    // the family from a pocket or a misplaced hand.
+    // The safe place is looked up first so the caregiver's alert can name it:
+    // the app starts walking the patient there immediately, so the position
+    // in that alert is out of date the moment it is sent, and "heading to X"
+    // is what lets a caregiver meet them rather than chase them.
     //
-    // Level 1 only. The level 2 screen alerts on the first press and must
-    // keep doing so: it answers with "stay where you are, help is coming",
-    // which there is no second press to make true.
-    Map<String, dynamic>? safePlace;
-    try {
-      // A cached fix is near-instant; only wait on a fresh one if there's
-      // truly nothing recent to work with.
-      var position = await Geolocator.getLastKnownPosition();
-      position ??= await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
-      ).timeout(const Duration(seconds: 3));
-      safePlace = await findNearestSafePlace(position.latitude, position.longitude);
-    } catch (_) {}
+    // Capped, though. Telling the family is the part that must not wait on a
+    // slow Places lookup, so after three seconds the SOS goes out without a
+    // destination and the walk still starts once the lookup lands.
+    final placeLookup = _nearestSafePlace();
+    final placeForAlert = await placeLookup
+        .timeout(const Duration(seconds: 3), onTimeout: () => null);
+
+    await triggerSOS(destinationName: placeForAlert?['name'] as String?)
+        .catchError((_) => false);
+
+    final safePlace = placeForAlert ?? await placeLookup.catchError((_) => null);
 
     if (!mounted) return;
     setState(() {
@@ -98,7 +111,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     if (safePlace != null) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => NavigationScreen(place: safePlace!)),
+        MaterialPageRoute(builder: (context) => NavigationScreen(place: safePlace)),
       );
     } else {
       Navigator.push(
