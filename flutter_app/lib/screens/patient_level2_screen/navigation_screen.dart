@@ -42,6 +42,11 @@ class _NavigationScreenState extends State<NavigationScreen>{
   /// instead. Without it the screen sat on a spinner forever, because
   /// ``_heading`` had exactly one writer and that writer never fired.
   bool _compassHasReported = false;
+  // When the compass last caused a repaint, and the heading that was drawn —
+  // see _startCompassUpdates for why the filter and the repaint are throttled
+  // separately.
+  DateTime? _lastCompassPaint;
+  double? _paintedHeading;
   /// Location was refused (or the service is off). Kept so the screen can say
   /// so: the old code just returned out of ``_startLocationUpdates`` and left
   /// the same spinner up, which is indistinguishable from "still loading" and
@@ -319,10 +324,30 @@ class _NavigationScreenState extends State<NavigationScreen>{
       final rawHeading = event.heading;
       if (rawHeading == null) return;
 
-      setState(() {
-        _compassHasReported = true;
-        _updateHeading(rawHeading);
-      });
+      // The smoothing filter still sees every sample. Throttling the samples
+      // themselves would change how it behaves, not just how often it draws.
+      final firstReport = !_compassHasReported;
+      _compassHasReported = true;
+      _updateHeading(rawHeading);
+
+      // Painting is what gets throttled. A magnetometer reports tens of times
+      // a second and each setState here rebuilds the GoogleMap along with
+      // everything else — which is what put "Skipped 128 frames" in the log,
+      // on a screen meant to stay open all day on a patient's phone. Ten
+      // frames a second, and only once the arrow would visibly move.
+      //
+      // The first reading is exempt: it is what takes the screen out of its
+      // "waiting for the compass" state, so it has to land immediately.
+      final now = DateTime.now();
+      final tooSoon = _lastCompassPaint != null &&
+          now.difference(_lastCompassPaint!) < const Duration(milliseconds: 100);
+      final tooSmall = _paintedHeading != null &&
+          shortestAngleDelta(_paintedHeading!, _heading!).abs() < 1.0;
+      if (!firstReport && (tooSoon || tooSmall)) return;
+
+      _lastCompassPaint = now;
+      _paintedHeading = _heading;
+      if (mounted) setState(() {});
     });
   }
   
