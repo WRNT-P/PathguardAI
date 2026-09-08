@@ -140,19 +140,33 @@ def score_place(place: dict, ctx: UserContext, ml_score: float | None = None) ->
 
 
 def generate_recommendations(ctx: UserContext, ranker=None) -> list[ScoredPlace]:
-    """Score every known place. Empty profile -> empty list.
+    """Score every known place except home. Empty profile -> empty list.
 
     With a trained ``ranker`` (see ``ranker.load_ranker``), confidences come
     from the learned model (batch-scored; unknown weather is marginalized).
     Without one, the transparent rule blend applies and results stay flagged
     ``scorer="rules"`` — the fallback is never passed off as ML.
+
+    **Home is scored but never returned.** "Somewhere you might like to go"
+    is a question about leaving the house, so offering the house back was
+    spending one of only three tiles on the patient's home screen on a trip
+    they are already on. It stays in the scoring input because the learned
+    ranker normalizes visit frequency across whatever it is handed
+    (``PlaceStatsNorm.from_places``) and home is the busiest place by
+    construction — dropping it earlier would rescale every other place's
+    confidence, which is a model change, not a display one.
     """
+    home_ids = {
+        int(p["cluster_id"]) for p in ctx.known_places if p.get("is_home")
+    }
     if ranker is not None and getattr(ranker, "model", None) is not None and ctx.known_places:
         ml_scores = ranker.score_places(
             ctx.known_places, ctx.now, ctx.current_lat, ctx.current_lng
         )
-        return [
+        scored = [
             score_place(place, ctx, ml_score=round(ml_scores[int(place["cluster_id"])], 4))
             for place in ctx.known_places
         ]
-    return [score_place(place, ctx) for place in ctx.known_places]
+    else:
+        scored = [score_place(place, ctx) for place in ctx.known_places]
+    return [s for s in scored if int(s.cluster_id) not in home_ids]

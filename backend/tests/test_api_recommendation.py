@@ -64,14 +64,20 @@ async def make_patient(db_session, places, routine=None):
 
 async def test_pinned_places_come_back_with_the_name_the_caregiver_gave_them(
         client, db_session):
-    """The blocking one: the patient's home screen has to say "บ้าน", not 13.7563."""
+    """The blocking one: the patient's home screen has to say "วัด", not 13.7601.
+
+    Home is pinned in this fixture and deliberately absent from the answer:
+    "somewhere you might like to go" is a question about leaving the house, so
+    generate_recommendations drops it rather than spending one of only three
+    tiles offering the patient the trip they are already on.
+    """
     patient_id = await make_patient(db_session, PINNED)
 
     r = await client.get(f"/api/recommendation/{patient_id}")
 
     assert r.status_code == 200, r.text
     names = {p["place_name"] for p in r.json()["recommendations"]}
-    assert names == {"บ้าน", "วัด"}
+    assert names == {"วัด"}, "pinned name must survive, and home must not appear"
 
 
 async def test_a_learned_place_has_no_name_and_says_so(client, db_session):

@@ -49,7 +49,11 @@ router = APIRouter()
 # next person who reads "Top 5" in the report lands on this decision instead of
 # "fixing" the code back. The exchange it came from was APP_SYNC_2026-08-28.md,
 # deleted 2026-09-02 once superseded; recover it with `git log --diff-filter=D`.
-_TOP_N_BY_LEVEL = {1: 3, 2: 4}
+#
+# Level 2 was briefly 4 to compensate for home eating one of the three tiles.
+# generate_recommendations now excludes home outright, so the compensation is
+# gone and both stages are back to the three this comment describes.
+_TOP_N_BY_LEVEL = {1: 3, 2: 3}
 _DEFAULT_TOP_N = 3
 
 
