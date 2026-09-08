@@ -247,3 +247,42 @@ async def test_phase4_geofence_alert_auto_resolves_when_patient_leaves_danger_zo
     assert resolved_alerts and all(a.resolved for a in resolved_alerts), (
         "geofence alerts must auto-resolve once the patient leaves the danger zone"
     )
+
+
+async def test_an_sos_raised_out_walking_closes_when_the_patient_gets_somewhere_safe(
+        db_session):
+    """"sos" ends with the episode; "sos_home" does not.
+
+    A press from the navigation screen means "I am out and I need help", so
+    reaching somewhere they know is the end of it. A press from the home
+    screen means "something is wrong here", where being somewhere familiar
+    says nothing at all about whether they are alright — that one waits for a
+    person, which is why it is a separate type.
+    """
+    db = db_session
+    user = await crud.create_user(db, firebase_uid="sos_resolve_test", name="Pat", role="patient")
+    await db.flush()
+    pid = user.id
+
+    await _seed_normal_routine(db, pid)
+    await analyze_behavior(db, pid, days=30)
+    await db.commit()
+
+    for alert_type in ("sos", "sos_home"):
+        await crud.save_alert(db, pid, alert_type=alert_type, severity="critical",
+                              message="Patient pressed the SOS button.")
+    await db.commit()
+
+    # Home, well inside the first known place.
+    near_lat, near_lon = _offset(_PLACES[0][0], _PLACES[0][1], 20.0, 20.0)
+    scored = (await get_risk(patient_id=pid, lat=near_lat, lng=near_lon, db=db)).model_dump()
+    await db.commit()
+    assert scored["status"] == "ok"
+
+    rows = (await db.execute(select(Alert).where(Alert.patient_id == pid))).scalars().all()
+    by_type = {a.alert_type: a for a in rows}
+    assert by_type["sos"].resolved is True, "an SOS from out walking ends when they get somewhere safe"
+    assert by_type["sos_home"].resolved is False, (
+        "an SOS pressed at home must wait for a person — being at home is "
+        "exactly where it was raised"
+    )

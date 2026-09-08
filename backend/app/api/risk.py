@@ -311,6 +311,21 @@ async def evaluate_risk(
         # that's already over, because nothing else ever resolves this type.
         await _resolve_stale(db, patient_id, "safe_zone_exit")
 
+        # And the SOS they raised while out there, for the same reason.
+        #
+        # This type was held back from auto-resolving on the argument that a
+        # patient can press SOS at home, where "they are somewhere familiar"
+        # says nothing about whether they are alright. That argument now
+        # belongs to "sos_home", which is a separate type and is deliberately
+        # NOT resolved here. "sos" is only ever raised from the navigation
+        # screen — a patient out walking — and them reaching somewhere they
+        # know is the end of that episode.
+        #
+        # Without this the row outlived the emergency for ever: it kept
+        # seizing the caregiver's screen on every app open until a human ran
+        # SQL, which is not a thing an app may ask of anyone.
+        await _resolve_stale(db, patient_id, "sos")
+
     # ── 10. GPS-loss alert ────────────────────────────────────────────────────
     if gap["gps_lost"]:
         last_known = gap["last_known"] or {}
