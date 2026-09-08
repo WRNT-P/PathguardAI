@@ -656,6 +656,25 @@ class _NavigationScreenState extends State<NavigationScreen> {
                 ),
               ),
             ),
+            // Bottom left, so it balances the controls on the right without
+            // reaching the SOS circle in the middle. Ringing a person the
+            // patient knows is a different kind of help from the red button —
+            // quieter, and sometimes all they actually want.
+            Positioned(
+              bottom: 30,
+              left: 16,
+              child: FloatingActionButton.extended(
+                heroTag: 'contacts',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const SosContactsScreen()),
+                ),
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black87,
+                icon: const Icon(Icons.call),
+                label: const Text('Call'),
+              ),
+            ),
             Positioned(
               bottom: 30,
               left: 0,
