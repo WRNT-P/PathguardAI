@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../../services/places_service.dart';
+import '../../services/sos_service.dart';
 import '../../services/trip_approval_service.dart';
 import '../../services/gps_reporter.dart';
 import 'dart:convert';
@@ -48,6 +49,51 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     _debounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  bool _sosSending = false;
+
+  /// Tell the caregiver, and nothing else.
+  ///
+  /// No safe-place lookup and no navigation: a patient who presses this is at
+  /// home, not mid-walk, and marching them off to a police station is the
+  /// wrong answer to "something is wrong here". Walking them somewhere safe
+  /// belongs to the SOS button on the navigation screen, where they are
+  /// already out and already moving.
+  Future<void> _handleSOS() async {
+    setState(() => _sosSending = true);
+
+    var sent = false;
+    try {
+      sent = await triggerSOS();
+    } catch (_) {
+      sent = false;
+    }
+
+    if (!mounted) return;
+    setState(() => _sosSending = false);
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(sent ? Icons.check_circle : Icons.error_outline,
+            color: sent ? Colors.green : Colors.red, size: 64),
+        title: Text(sent ? 'Help is coming' : 'Could not send',
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        content: Text(
+          sent
+              ? 'Your caregiver has been told. Stay where you are.'
+              : 'We could not reach your caregiver. Please try again.',
+          style: const TextStyle(fontSize: 18),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK', style: TextStyle(fontSize: 18)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _handleLogout() async {
@@ -383,6 +429,27 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
         ],
       ),
       body: content,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: SizedBox(
+        width: 80,
+        height: 80,
+        child: FloatingActionButton(
+          onPressed: _sosSending ? null : _handleSOS,
+          backgroundColor: Colors.red,
+          shape: const CircleBorder(),
+          child: _sosSending
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Text(
+                  'SOS',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+        ),
+      ),
     );
   }
 }

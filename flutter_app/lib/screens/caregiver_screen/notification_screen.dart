@@ -1,5 +1,10 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import '../../services/api_client.dart';
 import '../../services/trip_request_directory.dart';
+import 'sos_alert_screen.dart';
 
 class NotificationScreen extends StatefulWidget {
   const NotificationScreen({super.key});
@@ -9,16 +14,96 @@ class NotificationScreen extends StatefulWidget {
 }
 
 class _NotificationScreenState extends State<NotificationScreen> {
+  /// Unresolved SOS presses across every patient this caregiver looks after.
+  ///
+  /// An "sos" alert never closes itself — a person pressed the button, so a
+  /// person decides when it is over — so it belongs on a list the caregiver
+  /// can come back to, not only in a full-screen takeover they may have
+  /// dismissed while driving.
+  List<Map<String, dynamic>> _sosAlerts = [];
+  bool _loadingAlerts = true;
+  Timer? _poll;
+
   @override
   void initState() {
     super.initState();
     TripRequestDirectory.instance.addListener(_onRequestsChanged);
+    _loadSosAlerts();
+    _poll = Timer.periodic(const Duration(seconds: 20), (_) => _loadSosAlerts());
   }
 
   @override
   void dispose() {
+    _poll?.cancel();
     TripRequestDirectory.instance.removeListener(_onRequestsChanged);
     super.dispose();
+  }
+
+  Future<void> _loadSosAlerts() async {
+    try {
+      final res = await apiGet('/api/patients');
+      if (res.statusCode != 200) return;
+      final patients = (jsonDecode(res.body)['patients'] as List)
+          .cast<Map<String, dynamic>>();
+
+      final found = <Map<String, dynamic>>[];
+      for (final patient in patients) {
+        final id = patient['patient_id'] as int;
+        final alertsRes = await apiGet('/api/patients/$id/alerts');
+        if (alertsRes.statusCode != 200) continue;
+        final alerts = (jsonDecode(alertsRes.body)['alerts'] as List)
+            .cast<Map<String, dynamic>>();
+        for (final alert in alerts) {
+          if (alert['resolved'] == false && alert['alert_type'] == 'sos') {
+            found.add({...alert, '_patient': patient});
+          }
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _sosAlerts = found;
+        _loadingAlerts = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingAlerts = false);
+    }
+  }
+
+  Widget _buildSosTile(Map<String, dynamic> alert) {
+    final patient = alert['_patient'] as Map<String, dynamic>;
+    final claimedByName = alert['claimed_by_name'] as String?;
+    final createdAt = DateTime.tryParse(alert['created_at'] as String? ?? '')?.toLocal();
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: Colors.red[50],
+      child: ListTile(
+        leading: const Icon(Icons.emergency_share, color: Colors.red, size: 32),
+        title: Text('${patient['name']} pressed SOS',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text([
+          if (createdAt != null)
+            '${createdAt.hour.toString().padLeft(2, '0')}:'
+                '${createdAt.minute.toString().padLeft(2, '0')}',
+          if (claimedByName != null) '$claimedByName is on their way',
+        ].join(' · ')),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => SosAlertScreen(
+                patientId: patient['patient_id'] as int,
+                patientName: patient['name'] as String,
+                alert: alert,
+              ),
+            ),
+          );
+          _loadSosAlerts();
+        },
+      ),
+    );
   }
 
   void _onRequestsChanged() {
@@ -77,15 +162,25 @@ class _NotificationScreenState extends State<NotificationScreen> {
   @override
   Widget build(BuildContext context) {
     final pending = TripRequestDirectory.instance.pending;
+    final nothingAtAll =
+        pending.isEmpty && _sosAlerts.isEmpty && !_loadingAlerts;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notifications'),
       ),
-      body: pending.isEmpty
+      body: nothingAtAll
           ? const Center(child: Text('No notifications'))
-          : ListView(
-              children: pending.map(_buildTripRequestTile).toList(),
+          : RefreshIndicator(
+              onRefresh: _loadSosAlerts,
+              child: ListView(
+                children: [
+                  // Emergencies first. A trip request can wait for the length
+                  // of a scroll; somebody who pressed SOS cannot.
+                  ..._sosAlerts.map(_buildSosTile),
+                  ...pending.map(_buildTripRequestTile),
+                ],
+              ),
             ),
     );
   }
