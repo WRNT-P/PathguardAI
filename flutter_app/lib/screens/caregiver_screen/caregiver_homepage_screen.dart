@@ -264,7 +264,16 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
           }
         }
 
-        final active = unresolved.where((a) => urgentAlertTypes.contains(a['alert_type']));
+        // Not the ones this caregiver already answered. Claiming an alert is
+        // saying "I am handling this", and an alert stays unresolved until
+        // somebody closes it — so without this the person on their way to the
+        // patient has the whole screen taken away from them on every app
+        // open, by a warning about the thing they are currently doing.
+        // Somebody else's claim still shows: that a colleague is going is news
+        // to them, and it is how they learn not to set off as well.
+        final myId = CaregiverSession.instance.caregiverId;
+        final active = unresolved.where((a) =>
+            urgentAlertTypes.contains(a['alert_type']) && a['claimed_by'] != myId);
         if (active.isEmpty) continue;
 
         final activeId = active.first['id'] as int;
