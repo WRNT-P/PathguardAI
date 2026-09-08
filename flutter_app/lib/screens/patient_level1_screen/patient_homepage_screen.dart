@@ -6,7 +6,6 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../../services/places_service.dart';
-import '../../services/sos_service.dart';
 import '../../services/trip_approval_service.dart';
 import '../../services/gps_reporter.dart';
 import 'dart:convert';
@@ -71,27 +70,25 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       _sosSending = true;
     });
 
-    // Notifying the caregiver and finding a nearby safe place don't depend on
-    // each other — running them one after another (as this used to) stacked
-    // a 15s backend timeout, a fresh 5s high-accuracy GPS fetch, and an
-    // unbounded Places API call end to end, which is what made the button
-    // feel like it hung. In parallel, the whole thing is bounded by whichever
-    // side is slowest, not both added together.
+    // **This press does not alert the caregiver.** It opens SOS mode: find
+    // the nearest safe place and start walking them there. The alert is sent
+    // by the SOS button on whichever screen that lands them on — navigation
+    // or the contacts list — so a button this large and this red cannot call
+    // the family from a pocket or a misplaced hand.
+    //
+    // Level 1 only. The level 2 screen alerts on the first press and must
+    // keep doing so: it answers with "stay where you are, help is coming",
+    // which there is no second press to make true.
     Map<String, dynamic>? safePlace;
-    await Future.wait([
-      triggerSOS().catchError((_) => false),
-      () async {
-        try {
-          // A cached fix is near-instant; only wait on a fresh one if there's
-          // truly nothing recent to work with.
-          var position = await Geolocator.getLastKnownPosition();
-          position ??= await Geolocator.getCurrentPosition(
-            locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
-          ).timeout(const Duration(seconds: 3));
-          safePlace = await findNearestSafePlace(position.latitude, position.longitude);
-        } catch (_) {}
-      }(),
-    ]);
+    try {
+      // A cached fix is near-instant; only wait on a fresh one if there's
+      // truly nothing recent to work with.
+      var position = await Geolocator.getLastKnownPosition();
+      position ??= await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+      ).timeout(const Duration(seconds: 3));
+      safePlace = await findNearestSafePlace(position.latitude, position.longitude);
+    } catch (_) {}
 
     if (!mounted) return;
     setState(() {
