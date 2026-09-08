@@ -36,6 +36,15 @@ class CaregiverNavigationScreen extends StatefulWidget {
   /// map shows. Held on this device only, so frequently null.
   final File? profileImage;
 
+  /// The alert this drive is answering, so it can be closed on arrival.
+  ///
+  /// Closing it has to live here. An "sos" alert never resolves itself — a
+  /// person pressed the button, so a person decides when it is over — and the
+  /// caregiver who claimed it is sent straight to this screen and no longer
+  /// shown the alert on their home screen. Without this button the only way
+  /// to end an emergency would be to edit the database.
+  final int? alertId;
+
   const CaregiverNavigationScreen({
     super.key,
     required this.patientId,
@@ -44,6 +53,7 @@ class CaregiverNavigationScreen extends StatefulWidget {
     this.initialLongitude,
     this.alertMessage,
     this.profileImage,
+    this.alertId,
   });
 
   @override
@@ -83,6 +93,8 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
   /// whichever way it was put down, while the direction of travel at road
   /// speed is unambiguous.
   double? _travelBearing;
+
+  bool _resolving = false;
 
   /// Whether the camera chases the caregiver. Turned off the moment they pan
   /// the map by hand — fighting a driver for control of their own map is
@@ -315,6 +327,54 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
     return [gmaps.LatLng(me.latitude, me.longitude), ...route.sublist(nearest)];
   }
 
+  /// End the emergency. Behind a confirmation because it is the one action
+  /// here that changes what every other caregiver sees, and a thumb on a
+  /// phone propped in a car is not a considered decision.
+  Future<void> _markResolved() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Reached ${widget.patientName}?'),
+        content: const Text(
+          'This closes the emergency for everyone. Only do it once the '
+          'patient is safe with you.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Not yet'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Yes, they are safe'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _resolving = true);
+    try {
+      final res = await apiPatch('/api/alerts/${widget.alertId}',
+          body: {'resolved': true});
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        Navigator.of(context).pop();
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not close this alert (${res.statusCode})')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not reach the server')),
+      );
+    } finally {
+      if (mounted) setState(() => _resolving = false);
+    }
+  }
+
   RouteStep? get _currentStep {
     final steps = _routeSteps;
     if (steps == null || steps.isEmpty) return null;
@@ -474,6 +534,23 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                             '${_patientFixAt!.hour.toString().padLeft(2, '0')}:'
                             '${_patientFixAt!.minute.toString().padLeft(2, '0')}',
                             style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                          ),
+                        ],
+                        if (widget.alertId != null) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: _resolving ? null : _markResolved,
+                              icon: const Icon(Icons.check_circle_outline,
+                                  color: Colors.white),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green[700],
+                                minimumSize: const Size(0, 48),
+                              ),
+                              label: const Text("I've reached them",
+                                  style: TextStyle(color: Colors.white, fontSize: 16)),
+                            ),
                           ),
                         ],
                       ],

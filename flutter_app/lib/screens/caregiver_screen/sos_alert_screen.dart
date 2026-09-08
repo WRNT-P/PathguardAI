@@ -276,6 +276,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
                 initialLongitude: (_alert['longitude'] as num?)?.toDouble(),
                 alertMessage: _alert['message'] as String?,
                 profileImage: widget.profileImage,
+                alertId: _alert['id'] as int?,
               ),
             ),
           );
