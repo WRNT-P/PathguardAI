@@ -68,6 +68,30 @@ def get_familiarity(known_places: list[dict], cluster_id: int) -> float:
     return 0.0
 
 
+def familiarity_at(lat: float, lng: float, known_places: list[dict],
+                   max_distance_km: float = 0.15) -> float:
+    """Familiarity of wherever this point is standing, 0..1.
+
+    The single definition of "is the patient somewhere they know", so callers
+    cannot drift apart. Module 3 asks it through find_nearest_cluster +
+    get_familiarity; the stop/confusion classifier used to carry its own
+    hardcoded 100 m rule, which meant a patient 279 m from a 400 m home pin was
+    simultaneously *at home* to the risk formula and *nowhere familiar* to the
+    classifier — measured on live patient 44, 2026-09-08.
+
+    Inside a pin, the normalized visit frequency is the familiarity, matching
+    get_familiarity. A profile whose pins carry no frequencies at all (older
+    rows, hand-built test fixtures) still counts as familiar: being inside the
+    pin is the assertion, and get_familiarity would divide by zero there.
+    """
+    cluster_id = find_nearest_cluster(lat, lng, known_places, max_distance_km)
+    if cluster_id is None:
+        return 0.0
+    if not any(p.get('visit_frequency') for p in known_places):
+        return 1.0
+    return get_familiarity(known_places, cluster_id)
+
+
 def bearing(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Bearing from point 1 -> point 2, in degrees (0-360)."""
     phi1, phi2 = math.radians(lat1), math.radians(lat2)

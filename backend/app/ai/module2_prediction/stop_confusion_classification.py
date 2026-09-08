@@ -14,6 +14,7 @@ import numpy as np
 from app.ai.module2_prediction.cluster_matcher import (
     haversine_km, bearing as _bearing, angle_diff as _angle_diff,
     get_lat_lng as _get_lat_lng, get_speed as _get_speed,
+    familiarity_at as _familiarity_at,
 )
 
 # ─── Thresholds ─────────────────────────────────────────────────────────────
@@ -82,19 +83,13 @@ class StopConfusionClassifier:
             if _angle_diff(bearings[i], bearings[i - 1]) > 45.0:
                 dir_changes += 1
 
-        # 4. Familiarity score (อิงตามระยะห่างจากสถานที่คุ้นเคยที่ใกล้ที่สุด)
-        familiarity = 0.0
-        if known_places:
-            min_dist = float('inf')
-            for kp in known_places:
-                klat, klng = _get_lat_lng(kp)
-                dist = haversine_km(current_lat, current_lng, klat, klng)
-                if dist < min_dist:
-                    min_dist = dist
-            
-            # ถ้าใกล้ที่คุ้นเคยในระยะ 100m -> familiarity สูง (1.0 ที่ 0m, 0.0 ที่ >= 100m)
-            if min_dist <= 0.1:
-                familiarity = 1.0 - (min_dist / 0.1)
+        # 4. Familiarity score — the SHARED definition, so this agrees with the
+        #    risk formula's F factor. This used to be a local `min_dist <= 0.1`
+        #    rule that ignored each pin's own radius_m, so a patient 279 m from
+        #    a 400 m home pin read as familiarity 0.0 here while Module 3 read
+        #    1.0 for the same point at the same instant (measured on live
+        #    patient 44, 2026-09-08) — worth 0.20 of a score capped at 1.00.
+        familiarity = _familiarity_at(current_lat, current_lng, known_places)
 
         # 5. Route deviation (ระยะห่างจากเส้นทางแนะนำที่คาดการณ์ไว้)
         deviation_m = 0.0
@@ -107,8 +102,14 @@ class StopConfusionClassifier:
                     min_dev = dist
             deviation_m = min_dev
         else:
-            # ถ้าไม่มีเส้นทางแนะนำที่คาดเดาได้ (อาจจะกำลังหลงทางตั้งแต่แรก)
-            deviation_m = 300.0  # ให้เป็นค่าผิดปกติเบื้องต้น
+            # No predicted route means there is nothing to be off-course from,
+            # not that the patient is far off course. The old 300.0 constant is
+            # above _rule_based_score's 250.0 divisor, so this term hit its full
+            # 0.15 ceiling for every patient the route predictor could not fit —
+            # the ordinary case, not the exception. Distance from familiar places
+            # is already its own 30 %-weighted risk factor (route_deviation);
+            # charging it again inside confusion double-counts one fact.
+            deviation_m = 0.0
 
         return np.array([
             stop_dur,
@@ -178,13 +179,22 @@ class StopConfusionClassifier:
         stop_dur, avg_speed, dir_changes, familiarity, deviation_m = feat
 
         score = 0.0
-        
-        # 1. หยุดนาน > 5 นาที (300s) -> ยิ่งนานยิ่งน่าสับสน
-        score += min(stop_dur / 900.0, 0.3)
-        
+
+        # How much of the "stopped a long time, barely moving" evidence counts.
+        # A three-hour motionless stop is the definition of being at home and the
+        # definition of being stranded — the place is what separates them, and
+        # the module docstring already says so ("Normal Stop ... อยู่บ้าน"). Left
+        # unscaled, a patient asleep in their own bed scored 0.45 before any
+        # other term, which on live data reached the 1.00 ceiling and spent the
+        # full 20 points of the C factor on somebody doing nothing wrong.
+        strangeness = 1.0 - familiarity
+
+        # 1. หยุดนาน > 5 นาที (300s) -> ยิ่งนานยิ่งน่าสับสน (ถ้าไม่ใช่ที่คุ้นเคย)
+        score += min(stop_dur / 900.0, 0.3) * strangeness
+
         # 2. ความเร็วก่อนหยุด (ต่ำมาก = ลังเล, สูงมาก = ปกติ)
         if avg_speed < 0.6:
-            score += 0.15
+            score += 0.15 * strangeness
             
         # 3. เลี้ยวเยอะก่อนหยุด -> วนเวียนสับสน
         score += min(dir_changes * 0.08, 0.2)
