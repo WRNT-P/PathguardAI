@@ -7,6 +7,7 @@ import '../../services/sos_service.dart';
 import '../../services/safe_zone_service.dart';
 import '../../services/api_client.dart';
 import '../../services/session.dart';
+import '../../services/active_trip_service.dart';
 import '../../utils/bearing.dart';
 import '../../services/directions_service.dart';
 import 'dart:ui' as ui;
@@ -38,6 +39,9 @@ class _NavigationScreenState extends State<NavigationScreen> {
   gmaps.BitmapDescriptor? _navigationIcon;
   double? _travelBearing;
   bool _sosSending = false;
+
+  /// This screen's claim on `active_trips/{patientId}` — see [dispose].
+  ActiveTripHandle? _tripHandle;
 
   final List<LatLng> _trail = [];
   static const double _trailSpacingMeters = 15;
@@ -170,6 +174,18 @@ class _NavigationScreenState extends State<NavigationScreen> {
     super.initState();
     _startLocationUpdates();
     _loadNavigationIcon();
+    _publishActiveTrip();
+  }
+
+  /// Tell the caregiver's screen a trip is under way, for as long as this
+  /// screen is open. Fire-and-forget by design: the service swallows its own
+  /// failures, because a Realtime Database outage must not stand between a
+  /// patient and the directions home.
+  void _publishActiveTrip() {
+    final patientId = Session.instance.patientId;
+    if (patientId == null) return;
+    _tripHandle =
+        ActiveTripService.instance.start(patientId: patientId, place: widget.place);
   }
 
   Future<void> _startLocationUpdates() async {
@@ -499,6 +515,12 @@ class _NavigationScreenState extends State<NavigationScreen> {
   @override
   void dispose() {
     _positionSubscription?.cancel();
+    // Not awaited — dispose cannot be async — and it does not need to be:
+    // if the write never lands, the heartbeat has already stopped and the
+    // trip ages out on the reader's side within staleAfter. Ending through
+    // the handle means the SOS redirect's replacement screen, which starts
+    // its own trip before this one is disposed, is not wiped by it.
+    _tripHandle?.end();
     super.dispose();
   }
   @override

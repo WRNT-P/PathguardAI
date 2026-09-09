@@ -66,6 +66,27 @@
           ".validate": "newData.hasChildren(['status'])"
         }
       }
+    },
+
+    // Where a patient is walking to right now, written by their own device
+    // while the navigation screen is open and deleted when it closes (see
+    // services/active_trip_service.dart). The caregiver's track screen reads
+    // it to say "On a trip to X" instead of inferring travel from GPS
+    // displacement alone.
+    //
+    // Same access list as the chat and the trip requests. It is family-wide
+    // rather than patient-only for the same reason those are: `access` holds
+    // uids with no role attached, so these rules cannot tell the patient from
+    // their caregivers. Widening it to the family is the honest limit of what
+    // the index can express — narrow it here the day access/ carries roles.
+    "active_trips": {
+      "$patient_id": {
+        ".read": "auth != null && root.child('access').child($patient_id).child(auth.uid).exists()",
+        ".write": "auth != null && root.child('access').child($patient_id).child(auth.uid).exists()",
+        // A trip with no heartbeat can never expire — readers age it out by
+        // that field, and a node missing it would read as live forever.
+        ".validate": "!newData.exists() || newData.hasChildren(['destination_name', 'heartbeat'])"
+      }
     }
   }
 }

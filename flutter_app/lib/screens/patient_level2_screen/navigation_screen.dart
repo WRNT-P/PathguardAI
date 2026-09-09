@@ -8,6 +8,8 @@ import 'dart:async';
 import '../../utils/bearing.dart';
 import '../../services/sos_service.dart';
 import '../../services/directions_service.dart';
+import '../../services/session.dart';
+import '../../services/active_trip_service.dart';
 
 class NavigationScreen extends StatefulWidget{
   final Map<String, dynamic> place;
@@ -28,6 +30,10 @@ class _NavigationScreenState extends State<NavigationScreen>{
   gmaps.GoogleMapController? _mapController;
   gmaps.BitmapDescriptor? _navigationIcon;
   bool _sosSending = false;
+
+  /// This screen's claim on `active_trips/{patientId}` — see [dispose].
+  ActiveTripHandle? _tripHandle;
+
   /// true (default) = north-up: flat, with north at the top like a paper
   /// map, and the arrow rotating in place to show which way the path runs.
   /// false = the camera tilts and rotates to keep the path ahead pointing up,
@@ -75,7 +81,18 @@ class _NavigationScreenState extends State<NavigationScreen>{
     _startCompassUpdates();
     _loadNavigationIcon();
     _routeSteps = [];
+    _publishActiveTrip();
+  }
 
+  /// Tell the caregiver's screen a trip is under way, for as long as this
+  /// screen is open. Fire-and-forget by design: the service swallows its own
+  /// failures, because a Realtime Database outage must not stand between a
+  /// patient and the directions home.
+  void _publishActiveTrip() {
+    final patientId = Session.instance.patientId;
+    if (patientId == null) return;
+    _tripHandle =
+        ActiveTripService.instance.start(patientId: patientId, place: widget.place);
   }
 
   /// Draws Material's navigation-arrow glyph to a bitmap once, so it can be
@@ -388,6 +405,12 @@ class _NavigationScreenState extends State<NavigationScreen>{
   void dispose() {
   _positionSubscription?.cancel();
   _compassSubscription?.cancel();
+  // Not awaited — dispose cannot be async — and it does not need to be: if
+  // the write never lands, the heartbeat has already stopped and the trip
+  // ages out on the reader's side within staleAfter. Ending through the
+  // handle means a replacement screen that started its own trip before this
+  // one was disposed is not wiped by it.
+  _tripHandle?.end();
   super.dispose();
   }
   

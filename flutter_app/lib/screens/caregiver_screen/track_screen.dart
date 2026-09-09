@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:collection/collection.dart';
 import '../../services/api_client.dart';
+import '../../services/active_trip_service.dart';
 import '../../utils/patient_marker.dart';
 
 import 'package:flutter/material.dart';
@@ -22,7 +22,26 @@ class _TrackScreenState extends State<TrackScreen>{
   Timer? _timer;
   LatLng? _currentLocation;
   DateTime? _lastUpdated;
-  String _status = 'stationary';
+
+  /// Whether the patient's own recent track shows them actually moving.
+  ///
+  /// This used to be `activeAlert != null`, which answered a completely
+  /// different question: a patient sitting still at home with any unresolved
+  /// alert — an SOS nobody closed, a wandering alert that outlived the
+  /// condition — read as "Traveling", while one genuinely walking away with no
+  /// alert yet read as stationary. Movement is a property of the track, so it
+  /// is now measured from the track.
+  bool _isMoving = false;
+
+  /// The trip the patient's own device says it is navigating, or null.
+  ///
+  /// A stronger signal than [_isMoving] where it exists — it names the
+  /// destination and appears the instant they set off, instead of waiting for
+  /// enough track to prove displacement. It is not a replacement for it: a
+  /// patient who wanders out without opening the app never writes this, and
+  /// that is precisely the patient this product is for.
+  ActiveTrip? _activeTrip;
+  StreamSubscription<ActiveTrip?>? _activeTripSubscription;
   double? _riskScore;
   String? _riskLevel;
   DateTime? _riskCalculatedAt;
@@ -54,21 +73,62 @@ class _TrackScreenState extends State<TrackScreen>{
     return null;
   }
 
-  Future<Map<String, dynamic>?> _fetchLatestTrackPoint() async {
-    final res = await apiGet('/api/patients/${widget.patient['id']}/track', queryParams: {'hours': '6'});
-    if (res.statusCode != 200) return null;
-    final data = jsonDecode(res.body);
-    final points = data['points'] as List;
-    if (points.isEmpty) return null;
-    return points.last as Map<String, dynamic>;
-  }
+  /// How far back to look when deciding "are they moving right now".
+  static const Duration _movementWindow = Duration(minutes: 5);
 
-  Future<List<dynamic>> _fetchAlerts() async {
-    final res = await apiGet('/api/patients/${widget.patient['id']}/alerts');
+  /// Displacement inside that window that counts as travelling rather than
+  /// GPS noise. A consumer phone fix drifts tens of metres while sitting on a
+  /// table, so anything below this would call a sleeping patient a walking one.
+  static const double _movingDisplacementM = 60.0;
+
+  /// Past this, the last fix is too old to describe the patient at all — the
+  /// phone is off, out of signal, or the uploader has stopped. Saying either
+  /// "Traveling" or "At safe place" from an hour-old point is a guess dressed
+  /// as an observation, so the panel says the fix is old instead.
+  static const Duration _staleFixAfter = Duration(minutes: 15);
+
+  /// The whole recent track, newest last — `points.last` is the current
+  /// position, and the tail before it is what movement is measured against.
+  Future<List<Map<String, dynamic>>> _fetchRecentTrack() async {
+    final res = await apiGet('/api/patients/${widget.patient['id']}/track', queryParams: {'hours': '6'});
     if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body);
-    return data['alerts'] as List;
+    return (data['points'] as List).cast<Map<String, dynamic>>();
   }
+
+  /// True when the track moved more than [_movingDisplacementM] away from the
+  /// latest fix at some point in the last [_movementWindow].
+  ///
+  /// Measured against the newest point's own timestamp, not wall-clock now: a
+  /// track that stopped an hour ago must not be re-read as "moving" simply
+  /// because its final two points happened to be far apart. Staleness is a
+  /// separate question, answered by [_lastFixIsStale].
+  bool _trackShowsMovement(List<Map<String, dynamic>> points) {
+    if (points.length < 2) return false;
+    final latest = points.last;
+    final latestAt = DateTime.tryParse(latest['recorded_at'] as String? ?? '');
+    if (latestAt == null) return false;
+    final latestPoint = LatLng(
+      (latest['latitude'] as num).toDouble(),
+      (latest['longitude'] as num).toDouble(),
+    );
+
+    for (final point in points.reversed.skip(1)) {
+      final recordedAt = DateTime.tryParse(point['recorded_at'] as String? ?? '');
+      if (recordedAt == null) continue;
+      if (latestAt.difference(recordedAt) > _movementWindow) break;
+      final metres = const Distance().as(
+        LengthUnit.Meter,
+        latestPoint,
+        LatLng((point['latitude'] as num).toDouble(), (point['longitude'] as num).toDouble()),
+      );
+      if (metres > _movingDisplacementM) return true;
+    }
+    return false;
+  }
+
+  bool get _lastFixIsStale =>
+      _lastUpdated == null || DateTime.now().difference(_lastUpdated!) > _staleFixAfter;
 
   /// GET .../risk/latest — read-only, safe to poll. Never GET /api/risk/{id}
   /// here: that one recomputes and can write an alert + push on every call.
@@ -106,19 +166,15 @@ class _TrackScreenState extends State<TrackScreen>{
     super.initState();
     _loadPatientIcon();
     _fetchPlaces();
+    _watchActiveTrip();
     _timer = Timer.periodic(const Duration(seconds: 15), (timer) async {
-      final point = await _fetchLatestTrackPoint();
-      final alerts = await _fetchAlerts();
+      final points = await _fetchRecentTrack();
       final risk = await _fetchLatestRisk();
       if (!mounted) return;
 
-      final activeAlert = alerts
-          .cast<Map<String, dynamic>>()
-          .where((a) => a['resolved'] == false)
-          .firstOrNull;
-
       setState(() {
-        if (point != null) {
+        if (points.isNotEmpty) {
+          final point = points.last;
           _currentLocation = LatLng(
             (point['latitude'] as num).toDouble(),
             (point['longitude'] as num).toDouble(),
@@ -127,8 +183,8 @@ class _TrackScreenState extends State<TrackScreen>{
           if (recordedAt != null) {
             _lastUpdated = DateTime.parse(recordedAt).toLocal();
           }
+          _isMoving = _trackShowsMovement(points);
         }
-        _status = activeAlert != null ? 'traveling' : 'stationary';
 
         if (risk != null && risk['status'] == 'ok') {
           _riskScore = (risk['risk_score'] as num?)?.toDouble();
@@ -145,9 +201,23 @@ class _TrackScreenState extends State<TrackScreen>{
     });
   }
 
+  /// Realtime, not polled: the point of this signal over the track-based one
+  /// is that it lands the moment the patient sets off, and a 15 s poll would
+  /// throw most of that away.
+  void _watchActiveTrip() {
+    final patientId = (widget.patient['id'] as num?)?.toInt();
+    if (patientId == null) return;
+    _activeTripSubscription =
+        ActiveTripService.instance.watch(patientId).listen((trip) {
+      if (!mounted) return;
+      setState(() => _activeTrip = trip);
+    });
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
+    _activeTripSubscription?.cancel();
     super.dispose();
   }
 
@@ -266,11 +336,22 @@ class _TrackScreenState extends State<TrackScreen>{
     return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
   }
 
+  /// A clock time alone hides how old it is — a caregiver glancing at "11:20"
+  /// has to know the current time to notice the fix is 90 minutes cold. Once
+  /// the fix is stale the age is spelled out beside it.
+  String _lastUpdatedLabel() {
+    if (_lastUpdated == null) return 'Waiting for location...';
+    final at = _formatTime(_lastUpdated!);
+    if (!_lastFixIsStale) return 'Location last updated $at';
+    final minutes = DateTime.now().difference(_lastUpdated!).inMinutes;
+    final age = minutes < 60 ? '$minutes min ago' : '${minutes ~/ 60}h ${minutes % 60}m ago';
+    return 'Location last updated $at — $age';
+  }
+
   @override
   Widget build(BuildContext context) {
     final profileImage = widget.patient['profileImage'] as File?;
     final patientName = widget.patient['name'] as String? ?? 'Patient';
-    final isTraveling = _status == 'traveling';
     // "At safe place" used to mean nothing more than "no unresolved alert", so
     // it stayed green with the patient kilometres from anywhere they know — an
     // alert only exists once risk has recomputed (60 s throttle) and survived
@@ -278,19 +359,44 @@ class _TrackScreenState extends State<TrackScreen>{
     // The label now answers the question it appears to answer.
     final atKnownPlace =
         _currentLocation != null && _placeContaining(_currentLocation!) != null;
-    final statusColor = isTraveling || !atKnownPlace
-        ? Colors.orange[800]!
-        : Colors.green[700]!;
-    final statusIcon = isTraveling
-        ? Icons.directions_walk_rounded
-        : atKnownPlace
-            ? Icons.home_rounded
-            : Icons.explore_off_rounded;
-    final statusLabel = isTraveling
-        ? 'Traveling'
-        : atKnownPlace
-            ? 'At safe place'
-            : 'Away from safe places';
+    // An old fix says nothing about where the patient is now, so it outranks
+    // every question below it.
+    final fixIsStale = _lastFixIsStale;
+    // Re-checked here rather than trusted from the last stream event: the
+    // stream only fires on change, so a trip whose heartbeat simply stopped
+    // would otherwise stay on screen as live until the node changed again.
+    final trip = _activeTrip?.isFresh == true ? _activeTrip : null;
+    final onTrip = !fixIsStale && trip != null;
+    final isTraveling = !fixIsStale && !onTrip && _isMoving;
+    final statusColor = fixIsStale
+        ? Colors.grey[600]!
+        : onTrip
+            ? Colors.blue[700]!
+            : isTraveling || !atKnownPlace
+                ? Colors.orange[800]!
+                : Colors.green[700]!;
+    final statusIcon = fixIsStale
+        ? Icons.location_disabled_rounded
+        : onTrip
+            ? Icons.navigation_rounded
+            : isTraveling
+                ? Icons.directions_walk_rounded
+                : atKnownPlace
+                    ? Icons.home_rounded
+                    : Icons.explore_off_rounded;
+    // A named destination beats "Traveling": it is the difference between a
+    // caregiver knowing to leave them to it and having to go and look.
+    final statusLabel = fixIsStale
+        ? 'No recent signal'
+        : onTrip
+            ? (trip.destinationName?.isNotEmpty == true
+                ? 'On a trip to ${trip.destinationName}'
+                : 'On a trip')
+            : isTraveling
+                ? 'Traveling'
+                : atKnownPlace
+                    ? 'At safe place'
+                    : 'Away from safe places';
     final homePlace = widget.patient['home'] as ParsedLocation?;
     double? distanceInMeters;
 
@@ -544,18 +650,21 @@ class _TrackScreenState extends State<TrackScreen>{
                 ),
                 const SizedBox(height: 16),
                 Semantics(
-                  label: _lastUpdated != null
-                      ? 'Location last updated at ${_formatTime(_lastUpdated!)}'
-                      : 'Waiting for location',
+                  label: _lastUpdatedLabel(),
                   child: Row(
                     children: [
-                      Icon(Icons.access_time_rounded, size: 18, color: Colors.grey[600]),
+                      Icon(Icons.access_time_rounded, size: 18,
+                          color: fixIsStale ? Colors.orange[800] : Colors.grey[600]),
                       const SizedBox(width: 6),
-                      Text(
-                        _lastUpdated != null
-                            ? 'Location last updated ${_formatTime(_lastUpdated!)}'
-                            : 'Waiting for location...',
-                        style: TextStyle(fontSize: 14, color: Colors.grey[600], fontWeight: FontWeight.w500),
+                      Expanded(
+                        child: Text(
+                          _lastUpdatedLabel(),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: fixIsStale ? Colors.orange[800] : Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ),
                     ],
                   ),
