@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
 from app.db.database import get_db
+from app.services import firebase
 from app.services.auth import (
     Caller, current_caller, signed_in_caller, verify_patient_access,
 )
@@ -218,6 +219,9 @@ async def create_patient(
         severity_level=payload.severity_level,
     )
     code, expires_at = await _issue_code(db, patient.id)
+    # Tell the Realtime Database who this patient's chat and trip requests
+    # belong to. Best-effort by design — see sync_patient_access.
+    await firebase.sync_patient_access(db, patient.id)
     logger.info("patient %s created by caregiver %s, pairing code issued",
                 patient.id, caregiver_id)
     return PatientOut(
@@ -511,6 +515,8 @@ async def redeem_caregiver_invite(
 
     patient = await crud.get_user(db, invite.patient_id)
     link = await crud.link_caregiver(db, invite.patient_id, caregiver_id)
+    # The new caregiver needs the family's chat room to open for them.
+    await firebase.sync_patient_access(db, invite.patient_id)
     # Spent either way. A code that stays live because the holder was already
     # linked is a code that can be passed on to somebody who is not.
     await crud.mark_caregiver_invite_used(db, invite, now)

@@ -104,6 +104,25 @@ async def create_user(
     return user
 
 
+async def get_patient_access_uids(db: AsyncSession, patient_id: int) -> list[str]:
+    """Every Firebase uid allowed to see this patient: them and their carers.
+
+    Exists so the Realtime Database can enforce the same answer. Its rules
+    cannot reach Postgres, where ``patient_caregivers`` lives, so without a
+    copy of this list over there "may this account read this chat" degrades to
+    "is this account signed in at all".
+    """
+    result = await db.execute(
+        select(User.firebase_uid)
+        .outerjoin(PatientCaregiver, PatientCaregiver.caregiver_id == User.id)
+        .where(
+            (User.id == patient_id)
+            | (PatientCaregiver.patient_id == patient_id)
+        )
+    )
+    return [uid for uid in result.scalars().all() if uid]
+
+
 async def link_caregiver(
     db: AsyncSession, patient_id: int, caregiver_id: int,
     is_primary: bool = False,

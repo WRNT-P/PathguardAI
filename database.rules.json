@@ -30,18 +30,24 @@
       ".write": false
     },
 
-    // The room a family coordinates in. Signed-in accounts only.
+    // Who may see a patient: the patient, and every caregiver linked to them
+    // in patient_caregivers. Written by the backend (services/firebase.py)
+    // whenever a link is made, because rules cannot reach Postgres to ask.
     //
-    // NOT yet scoped to this patient's own caregivers: rules cannot read
-    // Postgres, where patient_caregivers lives, so narrowing it needs the
-    // backend to mirror an access list into the database first (see the note
-    // at the end of this file). Any signed-in account can currently reach any
-    // room — well short of right, and a different order of wrong from the
-    // whole internet being able to.
+    // Readable so an account can see its own access; never client-writable,
+    // or granting yourself a family's chat would be a one-line curl.
+    "access": {
+      "$patient_id": {
+        ".read": "auth != null && data.child(auth.uid).exists()",
+        ".write": false
+      }
+    },
+
+    // The room a family coordinates in — theirs alone.
     "chats": {
       "$patient_id": {
-        ".read": "auth != null",
-        ".write": "auth != null",
+        ".read": "auth != null && root.child('access').child($patient_id).child(auth.uid).exists()",
+        ".write": "auth != null && root.child('access').child($patient_id).child(auth.uid).exists()",
         "messages": {
           "$message_id": {
             ".validate": "newData.hasChildren(['text', 'sender_name'])"
@@ -65,12 +71,14 @@
   }
 }
 
-// Still to do, to scope chats and trip_requests to the right family:
+// Before deploying this, run once against the same database:
 //
-//   1. The backend mirrors patient_caregivers into the database as
-//        access/{patient_id}/{firebase_uid}: true
-//      written wherever crud.link_caregiver runs, and when a patient pairs.
-//   2. Each path's rule becomes
-//        root.child('access').child($patient_id).child(auth.uid).exists()
-//   3. trip_requests moves under a patient id, and the app listens per
-//      patient rather than to the root node.
+//     cd backend && python -m scripts.sync_access_index
+//
+// It fills access/ for patients linked before the index existed. Without it
+// every existing family is locked out of their own chat the moment these
+// rules go live.
+//
+// Still to do: trip_requests is a flat root node that every caregiver app
+// listens to whole, so it cannot be scoped the way chats are until it moves
+// under a patient id and the app listens per patient. Signed-in only for now.
