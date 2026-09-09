@@ -450,7 +450,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
   /// Point the camera at the patient with whichever bearing [_northUp] calls
   /// for. Its own method so the toggle can apply immediately instead of
   /// waiting for the next GPS fix to move the camera.
-  void _updateCamera({double zoom = 17.5}) {
+  void _updateCamera({double zoom = 18.5}) {
     final current = _currentLocation;
     if (current == null) return;
     // newLatLngZoom cannot carry a bearing — newCameraPosition is the one
@@ -461,7 +461,11 @@ class _NavigationScreenState extends State<NavigationScreen> {
           target: gmaps.LatLng(current.latitude, current.longitude),
           zoom: zoom,
           bearing: _northUp ? 0 : (_travelBearing ?? 0),
-          tilt: 0,
+          // Matches the level 2 screen. The tilt stays put when north-up is
+          // switched on: that control answers "which way is the map facing",
+          // and pulling the perspective flat with it changes two things for
+          // one press.
+          tilt: 60,
         ),
       ),
     );
@@ -472,7 +476,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
     _updateCamera();
   }
 
-  void _recenterOnPatient() => _updateCamera(zoom: 18.5);
+  void _recenterOnPatient() => _updateCamera();
 
   void _showDirectionsList() {
     showModalBottomSheet(

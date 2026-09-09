@@ -209,15 +209,17 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
       gmaps.CameraUpdate.newCameraPosition(
         gmaps.CameraPosition(
           target: gmaps.LatLng(me.latitude, me.longitude),
-          zoom: 17.5,
-          tilt: _northUp ? 0 : 45,
+          zoom: 18.5,
+          // Same framing as both patient screens, and the tilt holds through
+          // a north-up switch for the same reason: one press, one change.
+          tilt: 60,
           bearing: _northUp ? 0 : (_travelBearing ?? 0),
         ),
       ),
     );
   }
 
-  /// Flat and north-up, or tilted and turned the way they are driving.
+  /// North-up, or turned the way they are driving.
   ///
   /// Also re-arms following: reaching for this control is asking the map to
   /// be about where you are, which is the opposite of the pan that turned
