@@ -4,25 +4,70 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import '../../services/api_client.dart';
 
-/// Module 4 — auto-activates when a patient's GPS signal is confirmed lost
-/// (an unresolved gps_lost alert), same trigger pattern as SosAlertScreen.
-/// No manual form: GET /api/search-area/{id} is called once with no query
-/// params, letting the backend use its own defaults (25 min missing, last
-/// recorded position) — a caregiver who just opened the app to a "we can't
-/// find them" screen shouldn't have to type anything before seeing a summary.
-/// Still never polled — one call on open, then just polls the *alert* to
-/// know when it's resolved (GPS came back), not the heavy search itself.
+/// Module 4 — the search area for a patient nobody can find.
+///
+/// Opens two ways, and the difference matters to everything below.
+///
+/// **Automatic**, off an unresolved `gps_loss` alert (same trigger pattern as
+/// SosAlertScreen): the system noticed first. GET /api/search-area/{id} is
+/// called with no query params, letting the backend use its own defaults —
+/// a caregiver who just opened the app to a "we can't find them" screen
+/// shouldn't have to type anything before seeing a summary.
+///
+/// **Manual**, from the track screen: the caregiver noticed first. That case
+/// was unreachable until now, and it is the commoner one — a phone reporting
+/// GPS perfectly well from the pocket of someone who is not answering their
+/// door raises no alert at all, so the automatic path never fires. Opening it
+/// by hand passes the last known coordinates and how long they have been
+/// gone, which is what the backend needs to search anyway (see
+/// `search_area.py`: supplied coordinates override the "GPS is active, no
+/// search needed" early return, and deliberately do NOT raise a false
+/// gps_loss alert the rest of the family would be woken by).
+///
+/// Never polled — one call on open. The 10 s poll is on the *alert*, to know
+/// when it's resolved, and only exists on the automatic path: a manual search
+/// has no alert to watch and must not close itself out from under the person
+/// using it.
 class MissingPatientScreen extends StatefulWidget {
   final Map<String, dynamic> patient;
-  final Map<String, dynamic> alert;
-  const MissingPatientScreen({super.key, required this.patient, required this.alert});
+
+  /// The `gps_loss` alert this screen was opened for, or null when a
+  /// caregiver opened it themselves.
+  final Map<String, dynamic>? alert;
+
+  /// Where the patient was last seen, sent only on the manual path — the
+  /// automatic one lets the backend read its own latest row.
+  final double? lastLat;
+  final double? lastLng;
+
+  /// How long they have been gone, as the caregiver reports it. Feeds the
+  /// search radius directly (speed × time), which is why it is asked rather
+  /// than assumed; the backend falls back to a cautious 25 minutes.
+  final int? minutesMissing;
+
+  const MissingPatientScreen({
+    super.key,
+    required this.patient,
+    required this.alert,
+  })  : lastLat = null,
+        lastLng = null,
+        minutesMissing = null;
+
+  /// Started by a caregiver, not by an alert.
+  const MissingPatientScreen.manual({
+    super.key,
+    required this.patient,
+    this.lastLat,
+    this.lastLng,
+    this.minutesMissing,
+  }) : alert = null;
 
   @override
   State<MissingPatientScreen> createState() => _MissingPatientScreenState();
 }
 
 class _MissingPatientScreenState extends State<MissingPatientScreen> {
-  late Map<String, dynamic> _alert = widget.alert;
+  late Map<String, dynamic>? _alert = widget.alert;
   bool _loading = true;
   String? _error;
   Map<String, dynamic>? _result;
@@ -32,11 +77,17 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
   /// leave a black screen.
   bool _leaving = false;
 
+  bool get _isManual => widget.alert == null;
+
   @override
   void initState() {
     super.initState();
     _search();
-    _alertPoll = Timer.periodic(const Duration(seconds: 10), (_) => _checkResolved());
+    // Nothing to watch on a manual search, and watching nothing would mean
+    // `firstWhere ... orElse: _alert` on a null alert.
+    if (!_isManual) {
+      _alertPoll = Timer.periodic(const Duration(seconds: 10), (_) => _checkResolved());
+    }
   }
 
   @override
@@ -55,11 +106,13 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
 
   Future<void> _checkResolved() async {
     if (_leaving) return;
+    final current = _alert;
+    if (current == null) return;
     try {
       final res = await apiGet('/api/patients/${widget.patient['id']}/alerts');
       if (res.statusCode != 200) return;
       final alerts = (jsonDecode(res.body)['alerts'] as List).cast<Map<String, dynamic>>();
-      final updated = alerts.firstWhere((a) => a['id'] == _alert['id'], orElse: () => _alert);
+      final updated = alerts.firstWhere((a) => a['id'] == current['id'], orElse: () => current);
       if (updated['resolved'] == true) {
         _close();
         return;
@@ -75,7 +128,20 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
       _error = null;
     });
     try {
-      final res = await apiGet('/api/search-area/${widget.patient['id']}');
+      // Sent only on the manual path. Coordinates are what let the search run
+      // at all while the phone is still reporting — without them the backend
+      // answers "GPS is active, no search needed", which is true of the phone
+      // and useless about the person.
+      final params = <String, String>{
+        if (widget.lastLat != null) 'last_lat': '${widget.lastLat}',
+        if (widget.lastLng != null) 'last_lng': '${widget.lastLng}',
+        if (widget.minutesMissing != null)
+          'time_missing_minutes': '${widget.minutesMissing}',
+      };
+      final res = await apiGet(
+        '/api/search-area/${widget.patient['id']}',
+        queryParams: params.isEmpty ? null : params,
+      );
       if (res.statusCode != 200) {
         setState(() => _error = 'Could not connect to the server');
         return;
@@ -95,7 +161,9 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
       appBar: AppBar(
         backgroundColor: Colors.red,
         foregroundColor: Colors.white,
-        title: Text('Missing — ${widget.patient['name']}'),
+        title: Text(_isManual
+            ? 'Search for ${widget.patient['name']}'
+            : 'Missing — ${widget.patient['name']}'),
         automaticallyImplyLeading: false,
         actions: [
           IconButton(icon: const Icon(Icons.close), onPressed: _close),
@@ -113,11 +181,40 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
     final status = result['status'] as String? ?? 'no_data';
 
     if (status == 'gps_active') {
-      // Shouldn't normally happen — this screen only opens off a gps_lost
-      // alert — but the signal may have come back between the alert firing
-      // and the caregiver opening the app.
-      return const Center(
-        child: Text("The patient's GPS is reporting again — no need to search", textAlign: TextAlign.center),
+      // On the automatic path this is good news: the signal came back between
+      // the alert firing and the caregiver opening the app.
+      //
+      // On the manual path it means the coordinates never got sent — the
+      // track screen had no fix to hand over yet. Saying "no need to search"
+      // to somebody who opened this screen because they cannot find a person
+      // would be answering about the phone, so it offers the retry instead.
+      if (!_isManual) {
+        return const Center(
+          child: Text("The patient's GPS is reporting again — no need to search", textAlign: TextAlign.center),
+        );
+      }
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "The phone is still reporting its position, so no last-seen "
+                "point was sent to search from.",
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Open the map, wait for a position to load, and start the '
+                'search again.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              FilledButton(onPressed: _search, child: const Text('Try again')),
+            ],
+          ),
+        ),
       );
     }
 
@@ -163,6 +260,12 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
             children: [
               Text('Search radius: ${adjustedRadius}m (from ${searchRadius}m)',
                   style: const TextStyle(fontWeight: FontWeight.w600)),
+              // The radius is speed × time, so the caregiver should be able to
+              // see the time it was worked out from — a radius quoted with no
+              // basis is a number they cannot sanity-check or correct.
+              if (widget.minutesMissing != null)
+                Text('Based on ${widget.minutesMissing} minutes missing',
+                    style: TextStyle(color: Colors.grey[600])),
               if (adjustmentReason != null)
                 Text(adjustmentReason, style: TextStyle(color: Colors.grey[600])),
               const SizedBox(height: 8),

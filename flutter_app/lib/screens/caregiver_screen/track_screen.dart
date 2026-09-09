@@ -1,6 +1,7 @@
 import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/active_trip_service.dart';
+import 'missing_patient_screen.dart';
 import '../../utils/patient_marker.dart';
 
 import 'package:flutter/material.dart';
@@ -201,6 +202,68 @@ class _TrackScreenState extends State<TrackScreen>{
     });
   }
 
+  /// How long the patient has been gone, as the caregiver reports it, then the
+  /// Module 4 search area for that answer.
+  ///
+  /// Asked rather than assumed because it sets the search radius directly
+  /// (speed × time): the difference between ten minutes and two hours is the
+  /// difference between searching one street and searching a district, and
+  /// nothing in the data can tell us which — only the person who last saw them
+  /// knows. Offered as four taps rather than a text field, because it is asked
+  /// of somebody who has just realised they cannot find their parent.
+  Future<void> _startManualSearch() async {
+    final minutes = await showModalBottomSheet<int>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
+              child: Text(
+                'When did you last see them?',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Text(
+                'This sets how far the search area reaches.',
+                style: TextStyle(fontSize: 14, color: Colors.black54),
+              ),
+            ),
+            for (final option in const [
+              (15, 'Within the last 15 minutes'),
+              (30, 'About half an hour ago'),
+              (60, 'About an hour ago'),
+              (180, 'More than two hours ago'),
+            ])
+              ListTile(
+                title: Text(option.$2, style: const TextStyle(fontSize: 16)),
+                onTap: () => Navigator.of(sheetContext).pop(option.$1),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (minutes == null || !mounted) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => MissingPatientScreen.manual(
+          patient: widget.patient,
+          // The position this screen is already showing. Sending it is what
+          // lets the backend search at all while the phone is still
+          // reporting — see the note on MissingPatientScreen.manual.
+          lastLat: _currentLocation?.latitude,
+          lastLng: _currentLocation?.longitude,
+          minutesMissing: minutes,
+        ),
+      ),
+    );
+  }
+
   /// Realtime, not polled: the point of this signal over the track-based one
   /// is that it lands the moment the patient sets off, and a 15 s poll would
   /// throw most of that away.
@@ -397,6 +460,12 @@ class _TrackScreenState extends State<TrackScreen>{
                 : atKnownPlace
                     ? 'At safe place'
                     : 'Away from safe places';
+    // The two states in which a caregiver is likely already reaching for the
+    // phone. Being on a named trip is not one of them: they know where the
+    // patient is going, and shouting "I can't find them" at them would be the
+    // screen disagreeing with itself.
+    final worrying = fixIsStale || (!onTrip && !atKnownPlace);
+
     final homePlace = widget.patient['home'] as ParsedLocation?;
     double? distanceInMeters;
 
@@ -668,6 +737,44 @@ class _TrackScreenState extends State<TrackScreen>{
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(height: 12),
+                // Module 4 had exactly one way in: an unresolved gps_loss
+                // alert. That covers the phone going dark and nothing else —
+                // a patient who cannot be found while their phone reports
+                // perfectly from their pocket raises no alert, so the
+                // caregiver who already knows something is wrong had no way
+                // to ask the question at all. This is that way.
+                //
+                // Always present, because "I can't find them" does not wait
+                // for the panel to agree; emphasised into a filled button
+                // once the panel does, so the two states it matters most in
+                // — no signal, and nowhere familiar — read as a prompt
+                // rather than something to hunt for.
+                SizedBox(
+                  width: double.infinity,
+                  child: worrying
+                      ? FilledButton.icon(
+                          onPressed: _startManualSearch,
+                          icon: const Icon(Icons.person_search_rounded),
+                          label: const Text("I can't find them"),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.red[700],
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            textStyle: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        )
+                      : OutlinedButton.icon(
+                          onPressed: _startManualSearch,
+                          icon: const Icon(Icons.person_search_rounded),
+                          label: const Text("I can't find them"),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red[700],
+                            side: BorderSide(color: Colors.red[200]!),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
                 ),
               ],
             ),
