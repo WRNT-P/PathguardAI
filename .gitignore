@@ -2,6 +2,12 @@ CLAUDE.md
 .env
 *.json
 serviceAccountKey.json
+# ...except config that carries no secrets and has to travel with the repo.
+# The blanket *.json above is aimed at credentials; it also silently swallowed
+# the database rules, which is the kind of quiet that leaves a database in test
+# mode for a month.
+!/database.rules.json
+!/firebase.json
 __pycache__/
 *.pyc
 .venv/

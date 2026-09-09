@@ -1,0 +1,76 @@
+// Realtime Database rules.
+//
+//   firebase deploy --only database --project pathguard-ai-2d047
+//
+// or paste into Firebase console -> Realtime Database -> Rules.
+//
+// Until this existed the database was in test mode: a bare curl against the
+// database URL returned every patient's live position, every chat message and
+// every trip request, to anyone at all. AUTH_ENABLED closed the FastAPI door
+// and left this one open — they are two separate products and only one of them
+// was ever behind the tunnel.
+//
+// None of this constrains the backend. firebase-admin authenticates as a
+// service account, and service accounts bypass rules entirely, which is why
+// live_positions can be shut to every client below and still be written.
+{
+  "rules": {
+    // Deny by default. Every reachable path says so itself.
+    ".read": false,
+    ".write": false,
+
+    // Written by the backend on GPS ingest (services/firebase.py) and read by
+    // nothing in the app — the caregiver's map polls the REST API for position
+    // instead. No client needs it, so the most sensitive data in the project
+    // stops being reachable by clients at all. Give this a read rule only when
+    // something actually reads it, and scope it to that patient's caregivers
+    // when you do.
+    "live_positions": {
+      ".read": false,
+      ".write": false
+    },
+
+    // The room a family coordinates in. Signed-in accounts only.
+    //
+    // NOT yet scoped to this patient's own caregivers: rules cannot read
+    // Postgres, where patient_caregivers lives, so narrowing it needs the
+    // backend to mirror an access list into the database first (see the note
+    // at the end of this file). Any signed-in account can currently reach any
+    // room — well short of right, and a different order of wrong from the
+    // whole internet being able to.
+    "chats": {
+      "$patient_id": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "messages": {
+          "$message_id": {
+            ".validate": "newData.hasChildren(['text', 'sender_name'])"
+          }
+        }
+      }
+    },
+
+    // A patient asking to go somewhere, and the caregiver's answer.
+    //
+    // Flat and shared: every caregiver app listens to this whole node, so it
+    // cannot be split per patient in rules without the app being restructured
+    // to listen per patient first. Signed-in only until then.
+    "trip_requests": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$request_id": {
+        ".validate": "newData.hasChildren(['status'])"
+      }
+    }
+  }
+}
+
+// Still to do, to scope chats and trip_requests to the right family:
+//
+//   1. The backend mirrors patient_caregivers into the database as
+//        access/{patient_id}/{firebase_uid}: true
+//      written wherever crud.link_caregiver runs, and when a patient pairs.
+//   2. Each path's rule becomes
+//        root.child('access').child($patient_id).child(auth.uid).exists()
+//   3. trip_requests moves under a patient id, and the app listens per
+//      patient rather than to the root node.
