@@ -589,6 +589,12 @@ class _NavigationScreenState extends State<NavigationScreen> {
               target: _destination,
               zoom: 17.5,
             ),
+            // Chase-camera only: pushes the camera's centre — where the
+            // marker sits — down the screen, so what is ahead fills the view
+            // instead of the ground already walked. North-up is a map being
+            // read rather than followed, and a map reads from its middle.
+            padding: EdgeInsets.only(
+                top: _northUp ? 0 : MediaQuery.of(context).size.height * 0.35),
             markers: markers,
             polylines: polylines,
             onMapCreated: (controller) {

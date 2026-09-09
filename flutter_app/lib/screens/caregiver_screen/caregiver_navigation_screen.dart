@@ -476,6 +476,12 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                       target: gmaps.LatLng(them.latitude, them.longitude),
                       zoom: 15,
                     ),
+                    // Chase-camera only: pushes the camera's centre — where the
+                    // marker sits — down the screen, so what is ahead fills the view
+                    // instead of the ground already walked. North-up is a map being
+                    // read rather than followed, and a map reads from its middle.
+                    padding: EdgeInsets.only(
+                        top: _northUp ? 0 : MediaQuery.of(context).size.height * 0.35),
                     onMapCreated: (c) {
                       _mapController = c;
                       _fitBothOnce();

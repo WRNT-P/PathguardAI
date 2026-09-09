@@ -557,7 +557,11 @@ class _NavigationScreenState extends State<NavigationScreen>{
               // of them (not behind) is visible under the arrow/status
               // overlay. Lower than 0.55 (was covering the marker with the
               // status caption/SOS button at the bottom of the screen).
-              padding: EdgeInsets.only(top: MediaQuery.of(context).size.height * 0.35),
+              //
+              // Chase-camera only. North-up is a map being read rather than
+              // followed, and a map reads from its middle.
+              padding: EdgeInsets.only(
+                  top: _northUp ? 0 : MediaQuery.of(context).size.height * 0.35),
               onMapCreated: (controller) => _mapController = controller,
             ),
           ),
