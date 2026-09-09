@@ -98,7 +98,7 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
 
   /// North-up, or turned the way the car is pointing. Same control both
   /// patient navigation screens carry.
-  bool _northUp = false;
+  bool _northUp = true;
 
   /// Whether the camera chases the caregiver. Turned off the moment they pan
   /// the map by hand — fighting a driver for control of their own map is
@@ -522,10 +522,10 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                           tooltip: _northUp
                               ? 'Switch to direction-up'
                               : 'Switch to north-up',
-                          backgroundColor: _northUp ? Colors.blue : Colors.white,
+                          backgroundColor: _northUp ? Colors.white : Colors.blue,
                           onPressed: _toggleNorthUp,
                           child: Icon(Icons.explore,
-                              color: _northUp ? Colors.white : Colors.blue),
+                              color: _northUp ? Colors.blue : Colors.white),
                         ),
                       ),
                     ),

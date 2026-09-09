@@ -46,7 +46,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
   /// screen carries: a map that rotates is easier to walk by, and a map that
   /// stays north-up is easier to read against street signs — which one helps
   /// is the patient's answer, not ours.
-  bool _northUp = false;
+  bool _northUp = true;
 
   bool _backtracking = false;
 
@@ -683,10 +683,10 @@ class _NavigationScreenState extends State<NavigationScreen> {
                 child: FloatingActionButton(
                   heroTag: 'northUpToggle',
                   tooltip: _northUp ? 'Switch to direction-up' : 'Switch to north-up',
-                  backgroundColor: _northUp ? Colors.blue : Colors.white,
+                  backgroundColor: _northUp ? Colors.white : Colors.blue,
                   onPressed: _toggleNorthUp,
                   child: Icon(Icons.explore,
-                      color: _northUp ? Colors.white : Colors.blue),
+                      color: _northUp ? Colors.blue : Colors.white),
                 ),
               ),
             ),

@@ -28,14 +28,17 @@ class _NavigationScreenState extends State<NavigationScreen>{
   gmaps.GoogleMapController? _mapController;
   gmaps.BitmapDescriptor? _navigationIcon;
   bool _sosSending = false;
-  /// false (default) = the camera rotates to keep the path ahead pointing
-  /// up, so the arrow always reads as "pointing forward" while the map turns
-  /// underneath it — a chase camera, not the arrow itself turning. true =
-  /// north-up: the map stays fixed with north at the top like a paper map,
-  /// and the arrow rotates in place to show which way the path actually
-  /// runs instead. Same toggle Google Maps' own compass button switches
-  /// between.
-  bool _northUp = false;
+  /// true (default) = north-up: flat, with north at the top like a paper
+  /// map, and the arrow rotating in place to show which way the path runs.
+  /// false = the camera tilts and rotates to keep the path ahead pointing up,
+  /// so the arrow always reads as "pointing forward" while the map turns
+  /// underneath it — a chase camera, not the arrow itself turning.
+  ///
+  /// North-up is the default because it is the view that does not move on
+  /// its own: a map that swings as the patient turns is the harder one to
+  /// recognise a street from, and recognising the street is the point.
+  /// Same toggle Google Maps' own compass button switches between.
+  bool _northUp = true;
   /// True once the magnetometer has actually produced a reading. Not every
   /// device has one — an emulator never does, and some budget handsets don't
   /// either — and until this flips we steer by the direction of travel
@@ -628,11 +631,11 @@ class _NavigationScreenState extends State<NavigationScreen>{
               child: FloatingActionButton(
                 heroTag: 'northUpToggle',
                 tooltip: _northUp ? 'Switch to direction-up' : 'Switch to north-up',
-                backgroundColor: _northUp ? Colors.blue : Colors.white,
+                backgroundColor: _northUp ? Colors.white : Colors.blue,
                 onPressed: _toggleNorthUp,
                 child: Icon(
                   Icons.explore,
-                  color: _northUp ? Colors.white : Colors.blue,
+                  color: _northUp ? Colors.blue : Colors.white,
                 ),
               ),
             ),
