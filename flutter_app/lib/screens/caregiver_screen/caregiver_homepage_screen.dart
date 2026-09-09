@@ -169,6 +169,10 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
 
       if (!mounted) return;
       setState(() => patients = loaded);
+      // Trip requests now live under the patient they belong to, so nothing
+      // arrives until this device says which patients it is entitled to.
+      TripRequestDirectory.instance
+          .watch(loaded.map((p) => p['id'] as int));
       await _refreshSosCount();
       await _checkForActiveAlerts();
     } catch (_) {
@@ -855,6 +859,9 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
               tooltip: 'Sign out',
               onPressed: () async {
                 await FirebaseAuth.instance.signOut();
+                // Drop the Firebase listeners with the session. The next account on
+                // this device must not inherit the last one's rooms.
+                TripRequestDirectory.instance.clear();
                 await CaregiverSession.instance.clear();
                 if (!context.mounted) return;
                 Navigator.of(context).pushAndRemoveUntil(

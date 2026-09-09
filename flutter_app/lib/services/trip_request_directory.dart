@@ -18,6 +18,11 @@ TripRequestStatus _statusFromString(String value) {
 
 class TripRequest {
   final String id;
+
+  /// Which patient asked. Carried so a decision knows which node to write
+  /// back to, now that requests live under the patient they belong to.
+  final int patientId;
+
   final String patientName;
   final Map<String, dynamic> place;
   final double? confidence;
@@ -27,6 +32,7 @@ class TripRequest {
 
   TripRequest({
     required this.id,
+    required this.patientId,
     required this.patientName,
     required this.place,
     this.confidence,
@@ -43,30 +49,78 @@ class TripRequest {
   }
 }
 
-/// Firebase-backed — syncs trip requests between a patient's device and a
-/// caregiver's device in real time. Path is deliberately flat
-/// (trip_requests/{requestId}), not scoped per patient/caregiver, since the
-/// app has no real pairing/login yet — see project memory for the reasoning.
+/// Firebase-backed — syncs trip requests between a patient's device and their
+/// caregivers' devices in real time.
+///
+/// Stored per patient at `trip_requests/{patientId}/{requestId}`. It was one
+/// flat node once, back when the app had no real login: every caregiver's app
+/// listened to the whole thing and so held every other family's requests, and
+/// the database rules could not do better than "is anybody signed in" because
+/// there was nothing in the path to check a name against.
+///
+/// Watching is therefore explicit — [watch] with the patients this device is
+/// entitled to. A caregiver app calls it with their patient list, a patient's
+/// app with its own id; nothing subscribes on its own, so no screen can
+/// quietly re-open the door by existing.
 class TripRequestDirectory extends ChangeNotifier {
-  TripRequestDirectory._() {
-    _ref.onValue.listen(_onSnapshot);
-  }
+  TripRequestDirectory._();
   static final TripRequestDirectory instance = TripRequestDirectory._();
 
-  final DatabaseReference _ref = FirebaseDatabase.instance.ref('trip_requests');
+  static DatabaseReference _refFor(int patientId) =>
+      FirebaseDatabase.instance.ref('trip_requests/$patientId');
 
-  List<TripRequest> requests = [];
+  final Map<int, StreamSubscription<DatabaseEvent>> _subscriptions = {};
+  final Map<int, List<TripRequest>> _byPatient = {};
+
+  /// Requests this device is locally waiting on a decision for, by id — see
+  /// the reuse note in [_onSnapshot].
   final Map<String, TripRequest> _liveRequests = {};
 
-  void _onSnapshot(DatabaseEvent event) {
+  List<TripRequest> requests = [];
+
+  /// Follow exactly these patients, and no others.
+  ///
+  /// Idempotent: called again with the same ids it does nothing, so a screen
+  /// may call it on every rebuild. Patients dropped from the list are
+  /// unsubscribed and their requests forgotten — a caregiver who loses access
+  /// should stop seeing them without waiting for a restart.
+  void watch(Iterable<int> patientIds) {
+    final wanted = patientIds.toSet();
+
+    for (final gone in _subscriptions.keys.toSet().difference(wanted)) {
+      _subscriptions.remove(gone)?.cancel();
+      _byPatient.remove(gone);
+    }
+
+    for (final id in wanted.difference(_subscriptions.keys.toSet())) {
+      _subscriptions[id] =
+          _refFor(id).onValue.listen((event) => _onSnapshot(id, event));
+    }
+
+    _rebuild();
+  }
+
+  /// Stop following everything. For sign-out: the next account on this device
+  /// must not inherit the last one's rooms.
+  void clear() {
+    for (final sub in _subscriptions.values) {
+      sub.cancel();
+    }
+    _subscriptions.clear();
+    _byPatient.clear();
+    _liveRequests.clear();
+    _rebuild();
+  }
+
+  void _onSnapshot(int patientId, DatabaseEvent event) {
     final data = event.snapshot.value;
     if (data is! Map) {
-      requests = [];
-      notifyListeners();
+      _byPatient[patientId] = [];
+      _rebuild();
       return;
     }
 
-    requests = data.entries.map((entry) {
+    _byPatient[patientId] = data.entries.map((entry) {
       final id = entry.key as String;
       final map = Map<String, dynamic>.from(entry.value as Map);
       final status = _statusFromString(map['status'] as String? ?? 'pending');
@@ -79,6 +133,7 @@ class TripRequestDirectory extends ChangeNotifier {
       final request = existing ??
           TripRequest(
             id: id,
+            patientId: patientId,
             patientName: map['patientName'] as String,
             place: Map<String, dynamic>.from(map['place'] as Map),
             confidence: (map['confidence'] as num?)?.toDouble(),
@@ -91,19 +146,33 @@ class TripRequestDirectory extends ChangeNotifier {
       return request;
     }).toList();
 
+    _rebuild();
+  }
+
+  void _rebuild() {
+    requests = [
+      for (final list in _byPatient.values) ...list,
+    ];
     notifyListeners();
   }
 
   Future<TripRequest> create({
+    required int patientId,
     required String patientName,
     required Map<String, dynamic> place,
     double? confidence,
     int? backendId,
   }) async {
-    final ref = _ref.push();
+    // The asking device has to be following its own node, or the answer
+    // arrives at a listener that does not exist and `decision` never
+    // completes — the patient waits on a caregiver who already replied.
+    watch({..._subscriptions.keys, patientId});
+
+    final ref = _refFor(patientId).push();
     final id = ref.key!;
     final request = TripRequest(
       id: id,
+      patientId: patientId,
       patientName: patientName,
       place: place,
       confidence: confidence,
@@ -122,10 +191,12 @@ class TripRequestDirectory extends ChangeNotifier {
     return request;
   }
 
-  Future<void> decide(String id, bool approved) async {
-    await _ref.child(id).update({'status': approved ? 'approved' : 'rejected'});
+  Future<void> decide(TripRequest request, bool approved) async {
+    await _refFor(request.patientId)
+        .child(request.id)
+        .update({'status': approved ? 'approved' : 'rejected'});
 
-    final backendId = _liveRequests[id]?.backendId;
+    final backendId = request.backendId;
     if (backendId == null) return;
 
     try {

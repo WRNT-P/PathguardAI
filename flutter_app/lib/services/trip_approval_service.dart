@@ -36,6 +36,7 @@ Future<bool> requestTripApproval({
   }
 
   final request = await TripRequestDirectory.instance.create(
+    patientId: patientId,
     patientName: patientName,
     place: place,
     confidence: confidence,

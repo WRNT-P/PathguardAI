@@ -56,16 +56,15 @@
       }
     },
 
-    // A patient asking to go somewhere, and the caregiver's answer.
-    //
-    // Flat and shared: every caregiver app listens to this whole node, so it
-    // cannot be split per patient in rules without the app being restructured
-    // to listen per patient first. Signed-in only until then.
+    // A patient asking to go somewhere, and their caregivers' answer.
+    // Same access list as the chat, for the same reason.
     "trip_requests": {
-      ".read": "auth != null",
-      ".write": "auth != null",
-      "$request_id": {
-        ".validate": "newData.hasChildren(['status'])"
+      "$patient_id": {
+        ".read": "auth != null && root.child('access').child($patient_id).child(auth.uid).exists()",
+        ".write": "auth != null && root.child('access').child($patient_id).child(auth.uid).exists()",
+        "$request_id": {
+          ".validate": "newData.hasChildren(['status'])"
+        }
       }
     }
   }
@@ -79,6 +78,8 @@
 // every existing family is locked out of their own chat the moment these
 // rules go live.
 //
-// Still to do: trip_requests is a flat root node that every caregiver app
-// listens to whole, so it cannot be scoped the way chats are until it moves
-// under a patient id and the app listens per patient. Signed-in only for now.
+// Requests written under the old flat trip_requests/{id} shape are
+// unreachable under these rules and unreadable by the current app. They were
+// pending asks that nobody answered; delete the node if any are left:
+//
+//     firebase database:remove /trip_requests --project pathguard-ai-2d047

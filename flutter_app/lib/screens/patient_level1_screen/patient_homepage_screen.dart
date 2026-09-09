@@ -11,6 +11,7 @@ import '../../services/gps_reporter.dart';
 import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/session.dart';
+import '../../services/trip_request_directory.dart';
 import '../login_screen.dart';
 
 enum _ScreenState { browsing, waitingApproval, rejected }
@@ -99,6 +100,9 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   Future<void> _handleLogout() async {
     await stopGpsReporting();
     await FirebaseAuth.instance.signOut();
+    // Drop the Firebase listeners with the session. The next account on
+    // this device must not inherit the last one's rooms.
+    TripRequestDirectory.instance.clear();
     await Session.instance.clear();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(

@@ -187,7 +187,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
               children: [
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: () => TripRequestDirectory.instance.decide(request.id, true),
+                    onPressed: () => TripRequestDirectory.instance.decide(request, true),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
@@ -198,7 +198,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: () => TripRequestDirectory.instance.decide(request.id, false),
+                    onPressed: () => TripRequestDirectory.instance.decide(request, false),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
