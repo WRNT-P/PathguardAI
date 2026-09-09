@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.module2_prediction.cluster_matcher import haversine_km
 from app.db import crud, rule_repository
 from app.db.database import get_db
+from app.services import firebase
 from app.services.auth import (
     Caller, current_caller, signed_in_caller, verified_uid,
     verify_patient_access,
@@ -63,6 +64,13 @@ async def register_user(
         caregiver_id=payload.caregiver_id,
         phone=payload.phone,
     )
+    # A caregiver_id here creates a patient_caregivers link, and the Realtime
+    # Database rules answer "may this account open that family's chat" from a
+    # mirror of that table — so a link made without a sync is a family locked
+    # out of their own room. Dormant today (the app registers caregivers and
+    # never passes this), which is exactly when a hole is cheapest to close.
+    if payload.caregiver_id is not None:
+        await firebase.sync_patient_access(db, user.id)
     # Built by hand rather than straight off the ORM row: ``caregiver_id`` stopped
     # being a column on ``users`` on 2026-08-28 and is now a patient_caregivers
     # link, so ``from_attributes`` has nothing to read. The response field stays —
