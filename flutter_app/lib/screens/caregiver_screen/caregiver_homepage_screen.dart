@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import 'dart:io';
@@ -369,11 +370,11 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
               width: 96,
               height: 96,
               decoration: BoxDecoration(
-                color: Colors.blue[50],
+                color: AppColors.lavender,
                 shape: BoxShape.circle,
               ),
               alignment: Alignment.center,
-              child: Icon(Icons.person_add_alt_1_rounded, size: 48, color: Colors.blue[700]),
+              child: Icon(Icons.person_add_alt_1_rounded, size: 48, color: AppColors.primaryDark),
             ),
             const SizedBox(height: 20),
             const Text(
@@ -494,7 +495,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
               }
             },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   elevation: 0,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -544,8 +545,8 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
     final label = _pairingCodeLabel(patient);
     if (label.isEmpty) return const SizedBox.shrink();
     final expired = _pairingCodeIsExpired(patient);
-    final color = expired ? Colors.red[700]! : Colors.blue[700]!;
-    final background = expired ? Colors.red[50]! : Colors.blue[50]!;
+    final color = expired ? Colors.red[700]! : AppColors.primaryDark;
+    final background = expired ? Colors.red[50]! : AppColors.lavender;
     return Container(
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -728,7 +729,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 height: 52,
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
+                    backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
                     elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -763,8 +764,11 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
         TripRequestDirectory.instance.pending.length + _sosAlertCount;
     return Container(
       width: double.infinity,
-      color: Colors.grey[200],
-      padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
+      decoration: const BoxDecoration(
+        gradient: AppColors.headerGradient,
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
+      ),
+      padding: EdgeInsets.fromLTRB(20, 20 + MediaQuery.of(context).padding.top, 12, 22),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -772,15 +776,15 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'Welcome back,',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                  style: TextStyle(fontSize: 14, color: Colors.white70),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   widget.caregiverName ?? 'Caregiver',
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.white),
                 ),
               ],
             ),
@@ -880,14 +884,14 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
       body: SafeArea(
+        top: false,
         child: Column(
           children: [
             _buildHeader(context),
             Expanded(
               child: _loadingPatients
-                  ? const Center(child: CircularProgressIndicator(color: Colors.blue))
+                  ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
                   : patients.isEmpty
                       ? _buildEmptyState()
                       : ListView(

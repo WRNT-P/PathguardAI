@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'dart:ui' as ui;
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
@@ -98,7 +99,7 @@ class _NavigationScreenState extends State<NavigationScreen>{
           fontSize: size * 0.75,
           fontFamily: Icons.navigation.fontFamily,
           package: Icons.navigation.fontPackage,
-          color: Colors.blue,
+          color: AppColors.primary,
         ),
       )
       ..layout();
@@ -635,11 +636,11 @@ class _NavigationScreenState extends State<NavigationScreen>{
               child: FloatingActionButton(
                 heroTag: 'northUpToggle',
                 tooltip: _northUp ? 'Switch to direction-up' : 'Switch to north-up',
-                backgroundColor: _northUp ? Colors.white : Colors.blue,
+                backgroundColor: _northUp ? Colors.white : AppColors.primary,
                 onPressed: _toggleNorthUp,
                 child: Icon(
                   Icons.explore,
-                  color: _northUp ? Colors.blue : Colors.white,
+                  color: _northUp ? AppColors.primary : Colors.white,
                 ),
               ),
             ),
@@ -799,9 +800,9 @@ class _RoutePainter extends CustomPainter {
   /// Where the patient is right now — the one thing on this preview that
   /// actually moves as they walk.
   void _drawLive(Canvas canvas, Offset center) {
-    canvas.drawCircle(center, 9, Paint()..color = Colors.blue.withValues(alpha: 0.25));
+    canvas.drawCircle(center, 9, Paint()..color = AppColors.primary.withValues(alpha: 0.25));
     canvas.drawCircle(center, 6, Paint()..color = Colors.white);
-    canvas.drawCircle(center, 5, Paint()..color = Colors.blue);
+    canvas.drawCircle(center, 5, Paint()..color = AppColors.primary);
   }
 
   @override

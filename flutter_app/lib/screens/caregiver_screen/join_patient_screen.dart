@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 
 import '../../services/api_client.dart';
 import '../../services/caregiver_session.dart';
@@ -158,7 +159,7 @@ class _JoinPatientScreenState extends State<JoinPatientScreen> {
             ElevatedButton(
               onPressed: _sending ? null : _redeem,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 minimumSize: const Size(0, 52),
               ),

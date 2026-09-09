@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/api_client.dart';
@@ -123,7 +124,7 @@ class _InviteCaregiverScreenState extends State<InviteCaregiverScreen> {
               ElevatedButton(
                 onPressed: _sending ? null : _createInvite,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   minimumSize: const Size(0, 52),
                 ),
@@ -141,9 +142,9 @@ class _InviteCaregiverScreenState extends State<InviteCaregiverScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 28),
                 decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
+                  color: AppColors.lavender,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue.shade200),
+                  border: Border.all(color: AppColors.lavenderDeep),
                 ),
                 child: Column(
                   children: [

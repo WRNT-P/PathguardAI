@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
@@ -218,7 +219,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
           fontSize: size * 0.75,
           fontFamily: Icons.navigation.fontFamily,
           package: Icons.navigation.fontPackage,
-          color: Colors.blue,
+          color: AppColors.primary,
         ),
       )
       ..layout();
@@ -540,7 +541,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
         gmaps.Polyline(
           polylineId: const gmaps.PolylineId('route'),
           points: _remainingRoute(),
-          color: Colors.blue,
+          color: AppColors.primary,
           width: 4,
         ),
     };
@@ -689,10 +690,10 @@ class _NavigationScreenState extends State<NavigationScreen> {
                 child: FloatingActionButton(
                   heroTag: 'northUpToggle',
                   tooltip: _northUp ? 'Switch to direction-up' : 'Switch to north-up',
-                  backgroundColor: _northUp ? Colors.white : Colors.blue,
+                  backgroundColor: _northUp ? Colors.white : AppColors.primary,
                   onPressed: _toggleNorthUp,
                   child: Icon(Icons.explore,
-                      color: _northUp ? Colors.blue : Colors.white),
+                      color: _northUp ? AppColors.primary : Colors.white),
                 ),
               ),
             ),

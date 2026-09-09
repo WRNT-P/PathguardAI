@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 
 /// The patient drawn as their own face in a circle, not a map pin.
@@ -47,7 +48,7 @@ Future<gmaps.BitmapDescriptor> buildPatientMarkerIcon(File? profileImage) async 
   }
 
   if (!drewPhoto) {
-    canvas.drawCircle(center, radius - 4, Paint()..color = Colors.blue);
+    canvas.drawCircle(center, radius - 4, Paint()..color = AppColors.primary);
     final iconPainter = TextPainter(textDirection: TextDirection.ltr)
       ..text = TextSpan(
         text: String.fromCharCode(Icons.person.codePoint),

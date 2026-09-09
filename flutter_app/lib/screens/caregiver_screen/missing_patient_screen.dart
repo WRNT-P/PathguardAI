@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import '../../services/api_client.dart';
 
@@ -280,7 +281,7 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
       polylines.add(gmaps.Polyline(
         polylineId: gmaps.PolylineId('path_$i'),
         points: waypoints,
-        color: Colors.blue,
+        color: AppColors.primary,
         width: 3,
       ));
     }

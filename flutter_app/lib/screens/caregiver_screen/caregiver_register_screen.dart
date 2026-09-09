@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'caregiver_register_state2_screen.dart';
 
 class PasswordTextField extends StatelessWidget {
@@ -129,7 +130,7 @@ class _CaregiverRegistrationScreenState extends State<CaregiverRegistrationScree
                         child: ElevatedButton(
                           onPressed: _handleNext,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
+                            backgroundColor: AppColors.primary,
                             minimumSize: const Size(0, 48),
                           ),
                           child: const Text(

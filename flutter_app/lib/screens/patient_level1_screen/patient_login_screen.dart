@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
@@ -162,7 +163,7 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
                         child: ElevatedButton(
                           onPressed: _loggingIn ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
+                            backgroundColor: AppColors.primary,
                             minimumSize: const Size(0, 48),
                           ),
                           child: _loggingIn

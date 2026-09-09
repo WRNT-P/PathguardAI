@@ -1,6 +1,7 @@
 import 'dart:convert';
 import '../../services/device_token_service.dart';
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/api_client.dart';
 import 'caregiver_homepage_screen.dart';
@@ -172,7 +173,7 @@ class _CaregiverRegistrationState2ScreenState extends State<CaregiverRegistratio
                         child: ElevatedButton(
                           onPressed: _handleRegister,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
+                            backgroundColor: AppColors.primary,
                             minimumSize: const Size(0, 48),
                           ),
                           child: const Text('Sign up', style: TextStyle(color: Colors.white)),

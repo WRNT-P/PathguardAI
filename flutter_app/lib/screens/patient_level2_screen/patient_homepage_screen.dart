@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'navigation_screen.dart';
@@ -204,7 +205,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.hourglass_top, size: 120, color: Colors.blue),
+          const Icon(Icons.hourglass_top, size: 120, color: AppColors.primary),
           const SizedBox(height: 24),
           Text(
             'Asking your caregiver about ${_selectedPlace?['name'] ?? 'this trip'}...',
@@ -237,7 +238,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
               });
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
+              backgroundColor: AppColors.primary,
               minimumSize: const Size(200, 56),
             ),
             child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 18)),
@@ -280,7 +281,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
           child: Row(
             children: [
               const SizedBox(width: 20),
-              const Icon(Icons.place, size: 48, color: Colors.blue),
+              const Icon(Icons.place, size: 48, color: AppColors.primary),
               const SizedBox(width: 20),
               Text(
                 place['name'],

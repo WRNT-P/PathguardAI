@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/sos_service.dart';
 import '../../services/api_client.dart';
@@ -42,7 +43,7 @@ class CaregiverTile extends StatelessWidget {
         children: [
           const CircleAvatar(
             radius: 28,
-            backgroundColor: Colors.blue,
+            backgroundColor: AppColors.primary,
             child: Icon(Icons.person, size: 32, color: Colors.white),
           ),
           const SizedBox(width: 16),

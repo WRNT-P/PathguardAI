@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'caregiver_homepage_screen.dart';
 import 'caregiver_register_screen.dart';
@@ -187,7 +188,7 @@ class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
                         child: ElevatedButton(
                           onPressed: _handleLogin,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
+                            backgroundColor: AppColors.primary,
                             minimumSize: const Size(0, 48),
                           ),
                           child: const Text(

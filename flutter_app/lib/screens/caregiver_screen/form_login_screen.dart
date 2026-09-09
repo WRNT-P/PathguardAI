@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'caregiver_homepage_screen.dart';
 
 class QuestionCard extends StatelessWidget{
@@ -87,7 +88,7 @@ class _FormLoginScreenState extends State<FormLoginScreen> {
                               );
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
+                              backgroundColor: AppColors.primary,
                               minimumSize: const Size(0, 48),
                             ),
                             child: const Text(

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
@@ -528,10 +529,10 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                           tooltip: _northUp
                               ? 'Switch to direction-up'
                               : 'Switch to north-up',
-                          backgroundColor: _northUp ? Colors.white : Colors.blue,
+                          backgroundColor: _northUp ? Colors.white : AppColors.primary,
                           onPressed: _toggleNorthUp,
                           child: Icon(Icons.explore,
-                              color: _northUp ? Colors.blue : Colors.white),
+                              color: _northUp ? AppColors.primary : Colors.white),
                         ),
                       ),
                     ),

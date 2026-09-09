@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import '../../services/location_service.dart';
 
 class QuestionCard extends StatelessWidget{
@@ -531,8 +532,8 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                             icon: const Icon(Icons.add, size: 18),
                             label: Text('Add a place (${_otherPlaceRowIds.length}/$_maxOtherPlaces)'),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.blue,
-                              side: BorderSide(color: Colors.blue[200]!),
+                              foregroundColor: AppColors.primary,
+                              side: BorderSide(color: AppColors.lavenderDeep),
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
@@ -574,7 +575,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                         }
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
+                        backgroundColor: AppColors.primary,
                         minimumSize: const Size(0, 48),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),

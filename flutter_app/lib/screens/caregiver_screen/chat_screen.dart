@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 
 import '../../services/api_client.dart';
 import '../../services/caregiver_session.dart';
@@ -195,7 +196,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     label,
                     style: TextStyle(
                       fontSize: 11.5,
-                      color: usable && distance != null ? Colors.blue[800] : Colors.grey[600],
+                      color: usable && distance != null ? AppColors.primaryDark : Colors.grey[600],
                     ),
                   ),
                 ],
@@ -263,7 +264,7 @@ class _ChatScreenState extends State<ChatScreen> {
             constraints: const BoxConstraints(maxWidth: 280),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: mine ? Colors.blue : Colors.grey[200],
+              color: mine ? AppColors.primary : Colors.grey[200],
               borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
@@ -393,7 +394,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.send_rounded),
-                      color: Colors.blue,
+                      color: AppColors.primary,
                       onPressed: _sending ? null : _send,
                     ),
                   ),

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/api_client.dart';
@@ -127,13 +128,13 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
         width: double.infinity,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.blue[50],
+          color: AppColors.lavender,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.blue[200]!),
+          border: Border.all(color: AppColors.lavenderDeep),
         ),
         child: Row(
           children: [
-            Icon(Icons.directions_walk, color: Colors.blue[700]),
+            Icon(Icons.directions_walk, color: AppColors.primaryDark),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
