@@ -11,7 +11,12 @@ class AppColors {
   AppColors._();
 
   /// Buttons, chips, links, the caregiver's own chat bubble.
-  static const Color primary = Color(0xFF7B5CF5);
+  ///
+  /// The deck's violet is nearer #7B5CF5, which puts white button labels at
+  /// 4.48:1 — just under WCAG AA's 4.5:1. This is the same hue nudged darker
+  /// until white on it reads at 5.2:1, because the people tapping these
+  /// buttons are elderly and the app is the thing between them and a road.
+  static const Color primary = Color(0xFF6E4FF0);
 
   /// Pressed / icon-badge shade of [primary].
   static const Color primaryDark = Color(0xFF5B3FD6);
@@ -55,6 +60,18 @@ class AppTheme {
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: AppColors.background,
+
+      // 16px body on a phone is the floor for readable text, and this app's
+      // patients are old. Screens that set their own size still can; this
+      // lifts everything that was riding on the 14px Material default.
+      textTheme: const TextTheme(
+        headlineSmall: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.ink),
+        titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.ink),
+        titleMedium: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: AppColors.ink),
+        bodyLarge: TextStyle(fontSize: 18, height: 1.5, color: AppColors.ink),
+        bodyMedium: TextStyle(fontSize: 16, height: 1.5, color: AppColors.ink),
+        labelLarge: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+      ),
 
       // The deck's headers are white type on the purple→black gradient. An
       // AppBar cannot take a gradient directly, so it takes the dark end and

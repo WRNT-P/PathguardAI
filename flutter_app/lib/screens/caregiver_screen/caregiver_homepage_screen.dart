@@ -778,7 +778,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
               children: [
                 const Text(
                   'Welcome back,',
-                  style: TextStyle(fontSize: 14, color: Colors.white70),
+                  style: TextStyle(fontSize: 15, color: Color(0xE6FFFFFF)),
                 ),
                 const SizedBox(height: 2),
                 Text(
