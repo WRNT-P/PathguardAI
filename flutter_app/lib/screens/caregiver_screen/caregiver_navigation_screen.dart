@@ -96,6 +96,10 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
 
   bool _resolving = false;
 
+  /// North-up, or turned the way the car is pointing. Same control both
+  /// patient navigation screens carry.
+  bool _northUp = false;
+
   /// Whether the camera chases the caregiver. Turned off the moment they pan
   /// the map by hand — fighting a driver for control of their own map is
   /// worse than showing them the wrong part of it.
@@ -206,11 +210,24 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
         gmaps.CameraPosition(
           target: gmaps.LatLng(me.latitude, me.longitude),
           zoom: 17.5,
-          tilt: 45,
-          bearing: _travelBearing ?? 0,
+          tilt: _northUp ? 0 : 45,
+          bearing: _northUp ? 0 : (_travelBearing ?? 0),
         ),
       ),
     );
+  }
+
+  /// Flat and north-up, or tilted and turned the way they are driving.
+  ///
+  /// Also re-arms following: reaching for this control is asking the map to
+  /// be about where you are, which is the opposite of the pan that turned
+  /// following off.
+  void _toggleNorthUp() {
+    setState(() {
+      _northUp = !_northUp;
+      _followCaregiver = true;
+    });
+    _followCamera();
   }
 
   Future<void> _pollPatient() async {
@@ -490,6 +507,24 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                           width: 5,
                         ),
                     },
+                    ),
+                    Positioned(
+                      top: 16,
+                      left: 16,
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: FloatingActionButton(
+                          heroTag: 'caregiverNorthUp',
+                          tooltip: _northUp
+                              ? 'Switch to direction-up'
+                              : 'Switch to north-up',
+                          backgroundColor: _northUp ? Colors.blue : Colors.white,
+                          onPressed: _toggleNorthUp,
+                          child: Icon(Icons.explore,
+                              color: _northUp ? Colors.white : Colors.blue),
+                        ),
+                      ),
                     ),
                     // Panning turns following off; this is the way back, and
                     // it only exists while it would do something.

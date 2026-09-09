@@ -42,6 +42,12 @@ class _NavigationScreenState extends State<NavigationScreen> {
   final List<LatLng> _trail = [];
   static const double _trailSpacingMeters = 15;
 
+  /// North-up, or turned the way they are walking. Same control the level 2
+  /// screen carries: a map that rotates is easier to walk by, and a map that
+  /// stays north-up is easier to read against street signs — which one helps
+  /// is the patient's answer, not ours.
+  bool _northUp = false;
+
   bool _backtracking = false;
 
   int _backtrackIndex = 0;
@@ -308,16 +314,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
       _currentLocation = updated;
     });
 
-    _mapController?.animateCamera(
-      gmaps.CameraUpdate.newCameraPosition(
-        gmaps.CameraPosition(
-          target: gmaps.LatLng(updated.latitude, updated.longitude),
-          zoom: 17.5,
-          bearing: _travelBearing ?? 0,
-          tilt: 0,
-        ),
-      ),
-    );
+    _updateCamera();
 
     if (isFirstFix) {
       _fetchRoute();
@@ -450,16 +447,32 @@ class _NavigationScreenState extends State<NavigationScreen> {
     }
   }
 
-  void _recenterOnPatient() {
-    if (_currentLocation == null || _mapController == null) return;
-
-    _mapController!.animateCamera(
-      gmaps.CameraUpdate.newLatLngZoom(
-        gmaps.LatLng(_currentLocation!.latitude, _currentLocation!.longitude),
-        18.5,
+  /// Point the camera at the patient with whichever bearing [_northUp] calls
+  /// for. Its own method so the toggle can apply immediately instead of
+  /// waiting for the next GPS fix to move the camera.
+  void _updateCamera({double zoom = 17.5}) {
+    final current = _currentLocation;
+    if (current == null) return;
+    // newLatLngZoom cannot carry a bearing — newCameraPosition is the one
+    // that keeps the rotation instead of snapping back to north-up.
+    _mapController?.animateCamera(
+      gmaps.CameraUpdate.newCameraPosition(
+        gmaps.CameraPosition(
+          target: gmaps.LatLng(current.latitude, current.longitude),
+          zoom: zoom,
+          bearing: _northUp ? 0 : (_travelBearing ?? 0),
+          tilt: 0,
+        ),
       ),
     );
   }
+
+  void _toggleNorthUp() {
+    setState(() => _northUp = !_northUp);
+    _updateCamera();
+  }
+
+  void _recenterOnPatient() => _updateCamera(zoom: 18.5);
 
   void _showDirectionsList() {
     showModalBottomSheet(
@@ -653,6 +666,22 @@ class _NavigationScreenState extends State<NavigationScreen> {
                       ),
                     ],
                   ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 16,
+              left: 16,
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child: FloatingActionButton(
+                  heroTag: 'northUpToggle',
+                  tooltip: _northUp ? 'Switch to direction-up' : 'Switch to north-up',
+                  backgroundColor: _northUp ? Colors.blue : Colors.white,
+                  onPressed: _toggleNorthUp,
+                  child: Icon(Icons.explore,
+                      color: _northUp ? Colors.white : Colors.blue),
                 ),
               ),
             ),
