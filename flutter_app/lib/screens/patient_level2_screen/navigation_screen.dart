@@ -193,7 +193,9 @@ class _NavigationScreenState extends State<NavigationScreen>{
         gmaps.CameraPosition(
           target: gmaps.LatLng(current.latitude, current.longitude),
           zoom: 18.5,
-          tilt: 60,
+          // Flattens with the bearing, so the button swaps the whole camera
+          // angle rather than spinning a view that stays tilted either way.
+          tilt: _northUp ? 0 : 60,
           bearing: _northUp ? 0 : (_bearingToTarget() ?? 0),
         ),
       ),

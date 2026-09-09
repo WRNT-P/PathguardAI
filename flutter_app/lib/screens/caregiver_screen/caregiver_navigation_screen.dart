@@ -210,9 +210,10 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
         gmaps.CameraPosition(
           target: gmaps.LatLng(me.latitude, me.longitude),
           zoom: 18.5,
-          // Same framing as both patient screens, and the tilt holds through
-          // a north-up switch for the same reason: one press, one change.
-          tilt: 60,
+          // One press swaps the whole camera angle, same as both patient
+          // screens: tilted and turned the way they are driving, or flat and
+          // north-up.
+          tilt: _northUp ? 0 : 60,
           bearing: _northUp ? 0 : (_travelBearing ?? 0),
         ),
       ),

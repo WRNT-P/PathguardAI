@@ -461,11 +461,12 @@ class _NavigationScreenState extends State<NavigationScreen> {
           target: gmaps.LatLng(current.latitude, current.longitude),
           zoom: zoom,
           bearing: _northUp ? 0 : (_travelBearing ?? 0),
-          // Matches the level 2 screen. The tilt stays put when north-up is
-          // switched on: that control answers "which way is the map facing",
-          // and pulling the perspective flat with it changes two things for
-          // one press.
-          tilt: 60,
+          // The button is the camera-angle control: one press swaps the whole
+          // view between tilted-and-turned (easier to walk by, the road ahead
+          // fills the screen) and flat north-up (easier to read against a
+          // street sign, and the only view that means anything to somebody
+          // who navigates by knowing where north is).
+          tilt: _northUp ? 0 : 60,
         ),
       ),
     );
