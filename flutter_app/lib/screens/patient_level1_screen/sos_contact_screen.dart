@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/sos_service.dart';
 import '../../services/api_client.dart';
 import '../../services/session.dart';
+import '../../theme/patient_theme.dart';
 
 Future<void> _callNumber(BuildContext context, String phone) async {
   final uri = Uri(scheme: 'tel', path: phone);
@@ -32,10 +33,11 @@ class CaregiverCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(25),
+        color: Colors.white,
+        border: Border.all(color: PatientColors.lavender, width: 1.5),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -44,18 +46,34 @@ class CaregiverCard extends StatelessWidget {
             children: [
               // null = never toggled it — not the same as "not available", so
               // it must not render as "Unavailable". A caregiver who hasn't set a
-              // status yet is still someone worth calling.
+              // status yet is still someone worth calling. Color is paired
+              // with a dot icon so status isn't conveyed by color alone.
               Expanded(
-                child: Text(
-                  isAvailable == null ? 'Unknown status' : (isAvailable! ? 'Available' : 'Unavailable'),
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: isAvailable == null
-                        ? Colors.black45
-                        : (isAvailable! ? Colors.green : Colors.red),
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.circle,
+                      size: 10,
+                      color: isAvailable == null
+                          ? Colors.black45
+                          : (isAvailable! ? PatientColors.safe : PatientColors.danger),
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        isAvailable == null ? 'Unknown status' : (isAvailable! ? 'Available' : 'Unavailable'),
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isAvailable == null
+                              ? Colors.black45
+                              : (isAvailable! ? PatientColors.safe : PatientColors.danger),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 4),
@@ -71,28 +89,36 @@ class CaregiverCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
 
-          Center(
-            child: Icon(Icons.person, size: 40),
+          const Center(
+            child: CircleAvatar(
+              radius: 24,
+              backgroundColor: PatientColors.lavenderLight,
+              child: Icon(Icons.person, size: 32, color: PatientColors.charcoal),
+            ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
 
           Center(
-            child: Text(name, style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 6),
 
           Center(
-            child: ElevatedButton.icon(
-              onPressed: phone == null ? null : () => _callNumber(context, phone!),
-              icon: const Icon(Icons.phone, size: 16),
-              label: const Text('Phone'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(0, 32),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Semantics(
+              button: true,
+              label: 'Call $name',
+              child: ElevatedButton.icon(
+                onPressed: phone == null ? null : () => _callNumber(context, phone!),
+                icon: const Icon(Icons.phone, size: 20),
+                label: const Text('Phone', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: PatientColors.safe,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(0, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                ),
               ),
-            )
+            ),
           )
         ],
       ),
@@ -166,7 +192,10 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
 
 
   Widget _buildSosButton(){
-    return GestureDetector(
+    return Semantics(
+      button: true,
+      label: 'Call for help now',
+      child: GestureDetector(
       onTap: _sosSending ? null : _handleSOS,
       child: SizedBox(
         width: 220,
@@ -179,7 +208,7 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
               height: 220,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.red.withOpacity(0.15),
+                color: Colors.red.withValues(alpha: 0.15),
               ),
             ),
             Container(
@@ -187,7 +216,7 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
               height: 160,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.red.withOpacity(0.35),
+                color: Colors.red.withValues(alpha: 0.35),
               ),
             ),
             Container(
@@ -211,6 +240,7 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
           ],
         ),
       ),
+      ),
     );
   }
 
@@ -231,7 +261,7 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
                     alignment: Alignment.centerLeft,
                     child: Text(
                       'Contact your caregiver',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: PatientColors.charcoal),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -265,25 +295,10 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
                 ],
               ),
             ),
-            Positioned(
+            const Positioned(
               top: 16,
               left: 16,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  shape: BoxShape.circle,
-                ),
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.arrow_back,
-                    color: Colors.black,
-                    size: 20,
-                  ),
-                  onPressed: () {
-                    Navigator.pop(context);
-                  },
-                ),
-              ),
+              child: PatientBackButton(),
             ),
           ],
         ),

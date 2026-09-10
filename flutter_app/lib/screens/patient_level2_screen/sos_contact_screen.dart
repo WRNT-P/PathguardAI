@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/sos_service.dart';
 import '../../services/api_client.dart';
 import '../../services/session.dart';
+import '../../theme/patient_theme.dart';
 
 Future<void> _callNumber(BuildContext context, String phone) async {
   final uri = Uri(scheme: 'tel', path: phone);
@@ -35,14 +36,15 @@ class CaregiverTile extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: Colors.grey[200],
+        color: Colors.white,
+        border: Border.all(color: PatientColors.lavender, width: 1.5),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [
           const CircleAvatar(
             radius: 28,
-            backgroundColor: Colors.blue,
+            backgroundColor: PatientColors.lavenderDark,
             child: Icon(Icons.person, size: 32, color: Colors.white),
           ),
           const SizedBox(width: 16),
@@ -53,31 +55,49 @@ class CaregiverTile extends StatelessWidget {
               children: [
                 Text(
                   name,
-                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: PatientColors.charcoal),
                 ),
                 // null = never toggled a status — must not read as "Unavailable".
-                Text(
-                  isAvailable == null ? 'Unknown status' : (isAvailable! ? 'Available' : 'Unavailable'),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: isAvailable == null
-                        ? Colors.black45
-                        : (isAvailable! ? Colors.green : Colors.red),
-                  ),
+                // Color is paired with a dot icon so status isn't conveyed by
+                // color alone.
+                Row(
+                  children: [
+                    Icon(
+                      Icons.circle,
+                      size: 10,
+                      color: isAvailable == null
+                          ? Colors.black45
+                          : (isAvailable! ? PatientColors.safe : PatientColors.danger),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      isAvailable == null ? 'Unknown status' : (isAvailable! ? 'Available' : 'Unavailable'),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: isAvailable == null
+                            ? Colors.black45
+                            : (isAvailable! ? PatientColors.safe : PatientColors.danger),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          ElevatedButton.icon(
-            onPressed: phone == null ? null : () => _callNumber(context, phone!),
-            icon: const Icon(Icons.phone, size: 24),
-            label: const Text('Call', style: TextStyle(fontSize: 18)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-              minimumSize: const Size(20, 56),
-            )
+          Semantics(
+            button: true,
+            label: 'Call $name',
+            child: ElevatedButton.icon(
+              onPressed: phone == null ? null : () => _callNumber(context, phone!),
+              icon: const Icon(Icons.phone, size: 24),
+              label: const Text('Call', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: PatientColors.safe,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(20, 56),
+              )
+            ),
           )
         ],
       ),
@@ -144,7 +164,10 @@ class SosContactScreen extends StatefulWidget {
   }
 
   Widget _buildSosButton(){
-    return GestureDetector(
+    return Semantics(
+      button: true,
+      label: 'Send SOS, alert your caregiver now',
+      child: GestureDetector(
       onTap: _sosSending ? null : _handleSOS,
       child: SizedBox(
         width: 220,
@@ -157,7 +180,7 @@ class SosContactScreen extends StatefulWidget {
               height: 220,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.red.withOpacity(0.15),
+                color: Colors.red.withValues(alpha: 0.15),
               ),
             ),
             Container(
@@ -165,7 +188,7 @@ class SosContactScreen extends StatefulWidget {
               height: 160,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.red.withOpacity(0.35),
+                color: Colors.red.withValues(alpha: 0.35),
               ),
             ),
             Container(
@@ -185,9 +208,10 @@ class SosContactScreen extends StatefulWidget {
           ],
         ),
       ),
+      ),
     );
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -204,7 +228,7 @@ class SosContactScreen extends StatefulWidget {
                   const SizedBox(height: 32),
                   const Text(
                     'Your contacts',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: PatientColors.charcoal),
                   ),
                   const SizedBox(height: 16),
                   ...caregivers.map((c) => CaregiverTile(
@@ -215,25 +239,10 @@ class SosContactScreen extends StatefulWidget {
                 ],
               ),
             ),
-            Positioned(
+            const Positioned(
               top: 16,
               left: 16,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  shape: BoxShape.circle,
-                ),
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.arrow_back,
-                    color: Colors.black,
-                    size: 20,
-                  ),
-                  onPressed: () {
-                    Navigator.pop(context);
-                  },
-                ),
-              ),
+              child: PatientBackButton(),
             ),
           ],
         ),

@@ -12,6 +12,7 @@ import '../../utils/bearing.dart';
 import '../../services/directions_service.dart';
 import '../../services/trip_event_reporter.dart';
 import '../../utils/route_deviation.dart';
+import '../../theme/patient_theme.dart';
 import 'dart:ui' as ui;
 
 import 'dart:async';
@@ -48,8 +49,6 @@ class _NavigationScreenState extends State<NavigationScreen> {
   /// Guards against reporting "arrived" more than once per trip —
   /// [_handlePosition] fires on every GPS update, and the distance check
   /// alone would re-fire for as long as the patient stands near the place.
-  /// Not set while backtracking: "Take me back" heads for home, not
-  /// [widget.place], so arrival there means nothing here.
   bool _arrivalReported = false;
 
   /// Off-route is reported once per continuous episode: set the moment the
@@ -62,11 +61,9 @@ class _NavigationScreenState extends State<NavigationScreen> {
   static const Duration _offRouteSustainedFor = Duration(seconds: 30);
 
   /// The patient's own last-known risk score, polled read-only from
-  /// `/risk/latest` (never `/risk` — that recomputes and can push). Drives
-  /// whether "Take me back" gets suggested more insistently below.
+  /// `/risk/latest` (never `/risk` — that recomputes and can push).
   double? _riskScore;
   Timer? _riskPoll;
-  static const double _riskSuggestBacktrackThreshold = 50;
   static const double _riskRescueThreshold = 80;
 
   /// Name of whoever claimed this patient's open "emergency" alert, if any —
@@ -76,18 +73,11 @@ class _NavigationScreenState extends State<NavigationScreen> {
   /// go would be a promise the app cannot back up.
   String? _claimedByName;
 
-  final List<LatLng> _trail = [];
-  static const double _trailSpacingMeters = 15;
-
   /// North-up, or turned the way they are walking. Same control the level 2
   /// screen carries: a map that rotates is easier to walk by, and a map that
   /// stays north-up is easier to read against street signs — which one helps
   /// is the patient's answer, not ours.
   bool _northUp = true;
-
-  bool _backtracking = false;
-
-  int _backtrackIndex = 0;
 
   Future<void> _handleSOS() async {
     setState(() {
@@ -265,11 +255,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
 
   /// Checks the just-updated position against [_destination] (arrival) and
   /// the fetched route (off-route), reporting each at most once per episode.
-  /// Skipped entirely while retracing: "Take me back" isn't heading for
-  /// [_destination], and re-walking the trail isn't "off route" from itself.
   void _checkTripProgress(LatLng updated) {
-    if (_backtracking) return;
-
     if (!_arrivalReported) {
       final toDestination = const Distance().as(
         LengthUnit.Meter, updated, LatLng(_destination.latitude, _destination.longitude));
@@ -391,25 +377,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
         }
       }
 
-      // Not while retracing. The trail is the record of the way *out*;
-      // appending the way back would mean a second press of "Take me back"
-      // retraces the retrace and walks the patient out again.
-      if (!_backtracking &&
-          (_trail.isEmpty ||
-              distance.as(LengthUnit.Meter, _trail.last, updated) >= _trailSpacingMeters)) {
-        _trail.add(updated);
-      }
-
-      if (_backtracking) {
-        // Walk the recorded points off the end of the list. Arriving at one
-        // means the next target is the one before it, and index 0 is where
-        // the walk began.
-        while (_backtrackIndex > 0 &&
-            distance.as(LengthUnit.Meter, updated, _trail[_backtrackIndex]) <
-                _stepAdvanceThresholdMeters) {
-          _backtrackIndex--;
-        }
-      } else if (_routeSteps != null && _currentStepIndex < _routeSteps!.length - 1) {
+      if (_routeSteps != null && _currentStepIndex < _routeSteps!.length - 1) {
         final stepEnd = _routeSteps![_currentStepIndex].endLocation;
         final stepEndLatLng = LatLng(stepEnd.latitude, stepEnd.longitude);
         if (distance.as(LengthUnit.Meter, updated, stepEndLatLng) <
@@ -498,44 +466,6 @@ class _NavigationScreenState extends State<NavigationScreen> {
     if (_travelBearing! < 0) _travelBearing = _travelBearing! + 360;
   }
 
-  /// Start retracing, or stop and go back to heading for the destination.
-  void _toggleBacktrack() {
-    final wasBacktracking = _backtracking;
-    setState(() {
-      _backtracking = !_backtracking;
-      if (_backtracking) _backtrackIndex = _nearestTrailIndex();
-    });
-    if (wasBacktracking) _fetchRoute();
-  }
-
-  int _nearestTrailIndex() {
-    if (_currentLocation == null || _trail.isEmpty) return 0;
-    const distance = Distance();
-    var nearest = 0;
-    var nearestMeters = double.infinity;
-    for (var i = 0; i < _trail.length; i++) {
-      final d = distance.as(LengthUnit.Meter, _currentLocation!, _trail[i]);
-      if (d < nearestMeters) {
-        nearestMeters = d;
-        nearest = i;
-      }
-    }
-    // Standing on it already: the thing to walk toward is the one before.
-    if (nearest > 0 && nearestMeters < _stepAdvanceThresholdMeters) nearest--;
-    return nearest;
-  }
-
-  /// Metres still to walk along the recorded trail to reach the start.
-  double _distanceRemainingOnTrail() {
-    if (_currentLocation == null || _trail.isEmpty) return 0;
-    const distance = Distance();
-    var total = distance.as(LengthUnit.Meter, _currentLocation!, _trail[_backtrackIndex]);
-    for (var i = _backtrackIndex; i > 0; i--) {
-      total += distance.as(LengthUnit.Meter, _trail[i], _trail[i - 1]);
-    }
-    return total;
-  }
-
   /// The part of the route still ahead, drawn from where the patient is now.
   ///
   /// Anchoring it to the live position is what makes the line follow them:
@@ -607,20 +537,37 @@ class _NavigationScreenState extends State<NavigationScreen> {
     }
   }
 
+  /// How far ahead of the patient (in metres) the tilted camera looks —
+  /// this is what actually pushes their marker down toward the bottom of
+  /// the screen. Maps' own `padding` property was tried for this first (it
+  /// only repositions on-screen controls and affects bounds-fitting camera
+  /// moves, not where a plain lat/lng target renders — a real screenshot
+  /// showed the marker still dead-centre at padding fractions up to 0.48)
+  /// and replaced with this: centre the camera on a point projected ahead
+  /// along the direction of travel instead of on the patient's own
+  /// position, so the patient's real position renders behind that point —
+  /// i.e. toward the bottom of the screen — the same way any chase camera
+  /// looks ahead of what it's following.
+  static const double _tiltedLookaheadMeters = 80;
+
   /// Point the camera at the patient with whichever bearing [_northUp] calls
   /// for. Its own method so the toggle can apply immediately instead of
   /// waiting for the next GPS fix to move the camera.
   void _updateCamera({double zoom = 18.5}) {
     final current = _currentLocation;
     if (current == null) return;
+    final bearing = _travelBearing ?? 0;
+    final cameraTarget = _northUp
+        ? current
+        : const Distance().offset(current, _tiltedLookaheadMeters, bearing);
     // newLatLngZoom cannot carry a bearing — newCameraPosition is the one
     // that keeps the rotation instead of snapping back to north-up.
     _mapController?.animateCamera(
       gmaps.CameraUpdate.newCameraPosition(
         gmaps.CameraPosition(
-          target: gmaps.LatLng(current.latitude, current.longitude),
+          target: gmaps.LatLng(cameraTarget.latitude, cameraTarget.longitude),
           zoom: zoom,
-          bearing: _northUp ? 0 : (_travelBearing ?? 0),
+          bearing: _northUp ? 0 : bearing,
           // The button is the camera-angle control: one press swaps the whole
           // view between tilted-and-turned (easier to walk by, the road ahead
           // fills the screen) and flat north-up (easier to read against a
@@ -685,25 +632,12 @@ class _NavigationScreenState extends State<NavigationScreen> {
           icon: _navigationIcon!,
           anchor: const Offset(0.5, 0.5), 
           flat: true,                     
-          rotation: _travelBearing ?? 0,  
-          zIndex: 1,
+          rotation: _travelBearing ?? 0,
+          zIndexInt: 1,
         )
     };
     final polylines = <gmaps.Polyline>{
-      if (_backtracking && _trail.length >= 2)
-        gmaps.Polyline(
-          polylineId: const gmaps.PolylineId('backtrack'),
-          points: [
-            gmaps.LatLng(_currentLocation!.latitude,
-            _currentLocation!.longitude),
-            ..._trail
-              .sublist(0, _backtrackIndex + 1)
-              .map((p)=>gmaps.LatLng(p.latitude, p.longitude)),
-          ],
-          color: Colors.deepOrange,
-          width: 5,
-        )
-      else if (_routePoints != null)
+      if (_routePoints != null)
         gmaps.Polyline(
           polylineId: const gmaps.PolylineId('route'),
           points: _remainingRoute(),
@@ -714,14 +648,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
 
     String? instructionText;
     double? distanceToTurn;
-    if (_backtracking) {
-      final remaining = _distanceRemainingOnTrail();
-      // Without this the feature has no ending — it would sit on "0m,
-      // retracing" once the patient is standing where they set out.
-      final backAtStart = _backtrackIndex == 0 && remaining < _stepAdvanceThresholdMeters;
-      instructionText = backAtStart ? 'Back where you started' : 'Retracing your steps';
-      distanceToTurn = backAtStart ? null : remaining;
-    } else if (_routeSteps != null && _currentLocation != null && _currentStepIndex < _routeSteps!.length) {
+    if (_routeSteps != null && _currentLocation != null && _currentStepIndex < _routeSteps!.length) {
       final currentStepEnd = _routeSteps![_currentStepIndex].endLocation;
       final currentStepEndLatLng = LatLng(currentStepEnd.latitude, currentStepEnd.longitude);
       distanceToTurn = const Distance().as(LengthUnit.Meter, _currentLocation!, currentStepEndLatLng);
@@ -731,21 +658,6 @@ class _NavigationScreenState extends State<NavigationScreen> {
           ? _routeSteps![nextIndex].instruction
           : 'Arriving at destination';
     }
-
-    // Two points is the shortest thing that is a path rather than a dot. Below
-    // that there is nothing to retrace and the button says so by being dead
-    // rather than by producing a route to where the patient already stands.
-    final canBacktrack = _trail.length >= 2;
-
-    // Suggested, not forced — item 5's decision was to leave navigation
-    // entirely to the patient's own SOS press, so risk never opens a screen
-    // by itself. This just makes the control that's already there easier to
-    // notice once risk is elevated at all; there's no upper bound, because a
-    // button that stops being suggested past 80 would read as "calmer now"
-    // exactly when it should not.
-    final suggestBacktrack = canBacktrack &&
-        !_backtracking &&
-        (_riskScore ?? 0) > _riskSuggestBacktrackThreshold;
 
     // Only once risk is genuinely high AND a real caregiver has claimed the
     // alert — see [_claimedByName]'s doc for why the second half is required.
@@ -758,6 +670,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.list),
+            tooltip: 'Show all directions',
             onPressed: (_routeSteps == null || _routeSteps!.isEmpty)
               ? null
               : _showDirectionsList,
@@ -771,14 +684,13 @@ class _NavigationScreenState extends State<NavigationScreen> {
               target: _destination,
               zoom: 17.5,
             ),
-            // Chase-camera only: pushes the camera's centre — where the
-            // marker sits — down the screen, so what is ahead fills the view
-            // instead of the ground already walked. North-up is a map being
-            // read rather than followed, and a map reads from its middle.
-            padding: EdgeInsets.only(
-                top: _northUp ? 0 : MediaQuery.of(context).size.height * 0.35),
             markers: markers,
             polylines: polylines,
+            // Both of Maps' own bottom-right controls are replaced by our
+            // custom recenter FAB below — leaving either enabled put a
+            // second, unlabeled tap target in the exact same corner as ours.
+            zoomControlsEnabled: false,
+            myLocationButtonEnabled: false,
             onMapCreated: (controller) {
               _mapController = controller;
             },
@@ -849,12 +761,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
                       margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                       decoration: BoxDecoration(
-                        // Retracing is a different mode, not a different turn, and
-                        // the banner carries that so a glance says which line on
-                        // the map is the one being walked.
-                        color: _backtracking
-                            ? Colors.deepOrange.shade800
-                            : const Color.fromARGB(255, 50, 95, 68),
+                        color: const Color.fromARGB(255, 50, 95, 68),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(
@@ -888,108 +795,155 @@ class _NavigationScreenState extends State<NavigationScreen> {
               ),
             ),
           ),
-            Positioned(
-              top: 16,
-              left: 16,
-              child: SizedBox(
-                width: 48,
-                height: 48,
-                child: FloatingActionButton(
-                  heroTag: 'northUpToggle',
-                  tooltip: _northUp ? 'Switch to direction-up' : 'Switch to north-up',
-                  backgroundColor: _northUp ? Colors.white : Colors.blue,
-                  onPressed: _toggleNorthUp,
-                  child: Icon(Icons.explore,
-                      color: _northUp ? Colors.blue : Colors.white),
-                ),
-              ),
-            ),
-            // Bottom left, so it balances the controls on the right without
-            // reaching the SOS circle in the middle. Ringing a person the
-            // patient knows is a different kind of help from the red button —
-            // quieter, and sometimes all they actually want.
-            Positioned(
-              bottom: 30,
-              left: 16,
-              child: FloatingActionButton.extended(
-                heroTag: 'contacts',
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SosContactsScreen()),
-                ),
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black87,
-                icon: const Icon(Icons.call),
-                label: const Text('Call'),
-              ),
-            ),
-            Positioned(
-              bottom: 30,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: SizedBox(
-                  width: 96,
-                  height: 96,
-                  child: FloatingActionButton(
-                    onPressed: _sosSending ? null : _handleSOS,
-                    backgroundColor: Colors.red,
-                    shape: const CircleBorder(),
-                    // Stays "SOS". This screen is reached far more often by
-                    // picking somewhere to go than by pressing SOS, and on an
-                    // ordinary walk this is a first, plain emergency button —
-                    // the word everyone already knows beats naming a step
-                    // that, on that path, was never outstanding.
-                    child: const Text(
-                      'SOS',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+          // Whole bottom control cluster lives in one Positioned so its two
+          // bands — the right-hand "take me back"/recenter stack, and the
+          // call/SOS row below it — are laid out relative to each other
+          // instead of as independent `bottom:` Positioneds that used to land
+          // on the same strip of screen and overlap. SafeArea keeps all of it
+          // clear of a gesture-nav bar on the physical devices this was
+          // screenshotted on.
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Bottom row: Call (left) and SOS (center) laid out in a
+                    // Stack sized to SOS's own footprint, so Call is anchored
+                    // to the far left edge and can never drift into SOS's
+                    // circle regardless of screen width.
+                    SizedBox(
+                      // Tall enough for the left column (recenter + compass +
+                      // Call, 176 total) with SOS still anchored to the same
+                      // bottom edge — Stack clips to its own box by default,
+                      // so this has to fit the tallest child or the top
+                      // button gets silently cut off.
+                      height: 176,
+                      child: Stack(
+                        children: [
+                          // Bottom left: recenter, north-up, then Call,
+                          // stacked so none of them ever share a tap zone
+                          // with each other, with SOS, or with Maps' own
+                          // (now-disabled) zoom controls. Recenter and
+                          // north-up match each other's size/shape/elevation
+                          // on purpose — a matched pair of map controls,
+                          // both acting on the map itself, distinct from
+                          // Call below.
+                          Align(
+                            alignment: Alignment.bottomLeft,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Semantics(
+                                  button: true,
+                                  label: 'Re-center map on my location',
+                                  child: SizedBox(
+                                    width: 48,
+                                    height: 48,
+                                    child: FloatingActionButton(
+                                      heroTag: 'recenter',
+                                      tooltip: 'Re-center map on me',
+                                      backgroundColor: Colors.white,
+                                      elevation: 3,
+                                      onPressed: _recenterOnPatient,
+                                      child: const Icon(Icons.my_location,
+                                          color: PatientColors.berry),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Semantics(
+                                  button: true,
+                                  label: _northUp
+                                      ? 'Switch to direction-up map'
+                                      : 'Switch to north-up map',
+                                  child: SizedBox(
+                                    width: 48,
+                                    height: 48,
+                                    child: FloatingActionButton(
+                                      heroTag: 'northUpToggle',
+                                      tooltip: _northUp
+                                          ? 'Switch to direction-up'
+                                          : 'Switch to north-up',
+                                      backgroundColor:
+                                          _northUp ? Colors.white : PatientColors.berry,
+                                      elevation: 3,
+                                      onPressed: _toggleNorthUp,
+                                      child: Icon(Icons.explore,
+                                          color: _northUp ? PatientColors.berry : Colors.white),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                // Ringing a person the patient knows is a
+                                // different kind of help from the red button —
+                                // quieter, and sometimes all they actually want.
+                                FloatingActionButton.extended(
+                                  heroTag: 'contacts',
+                                  onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (context) => const SosContactsScreen()),
+                                  ),
+                                  backgroundColor: Colors.white,
+                                  foregroundColor: PatientColors.charcoal,
+                                  elevation: 3,
+                                  icon: const Icon(Icons.call),
+                                  label: const Text(
+                                    'Call',
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.bottomCenter,
+                            child: Semantics(
+                              button: true,
+                              label:
+                                  'Emergency SOS, press to alert your caregiver and get walked to safety',
+                              child: SizedBox(
+                                width: 96,
+                                height: 96,
+                                child: FloatingActionButton(
+                                  heroTag: 'sos',
+                                  onPressed: _sosSending ? null : _handleSOS,
+                                  backgroundColor: Colors.red,
+                                  elevation: 4,
+                                  shape: const CircleBorder(),
+                                  // Stays "SOS". This screen is reached far
+                                  // more often by picking somewhere to go
+                                  // than by pressing SOS, and on an ordinary
+                                  // walk this is a first, plain emergency
+                                  // button — the word everyone already knows
+                                  // beats naming a step that, on that path,
+                                  // was never outstanding.
+                                  child: const Text(
+                                    'SOS',
+                                    style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 20),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  )
-                )
-              )
-            )
-        ],
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (suggestBacktrack)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.orange[800],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'Risk is elevated — consider heading back',
-                  style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                  ],
                 ),
               ),
             ),
-          FloatingActionButton.extended(
-            heroTag: 'backtrack',
-            // Disabled rather than hidden: a control that appears partway
-            // through a walk is a control nobody finds. Greyed out it can be
-            // seen, pressed, and understood before it is needed.
-            onPressed: canBacktrack ? _toggleBacktrack : null,
-            backgroundColor: canBacktrack
-                ? (_backtracking
-                    ? Colors.deepOrange
-                    : (suggestBacktrack ? Colors.orange : null))
-                : Colors.grey.shade400,
-            icon: Icon(_backtracking ? Icons.close : Icons.u_turn_left),
-            label: Text(_backtracking
-                ? 'Stop'
-                : (suggestBacktrack ? 'Take me back now' : 'Take me back')),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton(
-            heroTag: 'recenter',
-            onPressed: _recenterOnPatient,
-            child: const Icon(Icons.my_location),
           ),
         ],
       ),

@@ -6,6 +6,7 @@ import 'patient_homepage_screen.dart';
 import '../patient_level2_screen/patient_homepage_screen.dart' as level2;
 import '../../services/api_client.dart';
 import '../../services/session.dart';
+import '../../theme/patient_theme.dart';
 class PatientLoginScreen extends StatefulWidget {
   const PatientLoginScreen({super.key});
 
@@ -120,88 +121,124 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Stack(
           children: [
-            Center(
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'Patient login',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    FractionallySizedBox(
-                      widthFactor: 0.7,
-                      child: TextField(
-                        controller: _idController,
-                        keyboardType: TextInputType.text,
-                        textCapitalization: TextCapitalization.characters,
-                        style: const TextStyle(fontSize: 20),
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Patient ID',
-                          hintText: 'Enter your pairing code',
+            Column(
+              children: [
+                // Calm berry-to-white header — the one accent-color area on
+                // this screen, fading into the plain white form below it so
+                // the input and button (the actual task) stay the highest
+                // contrast, lowest-clutter thing on screen.
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(24, 72, 24, 40),
+                  decoration: BoxDecoration(gradient: PatientColors.berryHeaderGradient()),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.favorite, color: Colors.white, size: 48),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Patient login',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
                         ),
                       ),
-                    ),
-                    if (_errorMessage != null) ...[
-                      const SizedBox(height: 8),
-                      Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 14)),
                     ],
-                    const SizedBox(height: 16),
-                    FractionallySizedBox(
-                      widthFactor: 0.7,
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _loggingIn ? null : _handleLogin,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            minimumSize: const Size(0, 48),
+                  ),
+                ),
+                Expanded(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'Ask your caregiver for your pairing code',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 16, color: PatientColors.charcoal),
                           ),
-                          child: _loggingIn
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                                )
-                              : const Text(
-                                  'Login',
-                                  style: TextStyle(color: Colors.white),
+                          const SizedBox(height: 20),
+                          Semantics(
+                            textField: true,
+                            label: 'Patient ID, enter your pairing code',
+                            child: TextField(
+                              controller: _idController,
+                              keyboardType: TextInputType.text,
+                              textCapitalization: TextCapitalization.characters,
+                              style: const TextStyle(fontSize: 24),
+                              textAlign: TextAlign.center,
+                              decoration: InputDecoration(
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
-                        ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(color: PatientColors.berry, width: 2),
+                                ),
+                                labelText: 'Patient ID',
+                                hintText: 'Pairing code',
+                                contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                              ),
+                            ),
+                          ),
+                          if (_errorMessage != null) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              _errorMessage!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.red,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 24),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: _loggingIn ? null : _handleLogin,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: PatientColors.berry,
+                                minimumSize: const Size(0, 60),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: _loggingIn
+                                  ? const SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                                    )
+                                  : const Text(
+                                      'Login',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(height: 15),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 15),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
-            Positioned(
+            const Positioned(
               top: 16,
               left: 16,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  shape: BoxShape.circle,
-                ),
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.arrow_back,
-                    color: Colors.black,
-                    size: 20,
-                  ),
-                  onPressed: () {
-                    Navigator.pop(context);
-                  },
-                ),
-              ),
+              child: PatientBackButton(),
             ),
           ],
         ),

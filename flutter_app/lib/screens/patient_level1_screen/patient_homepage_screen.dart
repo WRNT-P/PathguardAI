@@ -13,6 +13,7 @@ import '../../services/api_client.dart';
 import '../../services/session.dart';
 import '../../services/trip_request_directory.dart';
 import '../login_screen.dart';
+import '../../theme/patient_theme.dart';
 
 enum _ScreenState { browsing, waitingApproval, rejected }
 
@@ -219,7 +220,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.hourglass_top, size: 120, color: Colors.blue),
+          const Icon(Icons.hourglass_top, size: 120, color: PatientColors.berry),
           const SizedBox(height: 24),
           Text(
             'Asking your caregiver about ${_selectedPlace?['name'] ?? 'this trip'}...',
@@ -236,7 +237,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.info_outline, size: 120, color: Colors.orange),
+          const Icon(Icons.info_outline, size: 120, color: PatientColors.charcoal),
           const SizedBox(height: 24),
           const Text(
             'Let\'s pick something else',
@@ -252,10 +253,11 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
               });
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              minimumSize: const Size(200, 56),
+              backgroundColor: PatientColors.berry,
+              minimumSize: const Size(200, 60),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 18)),
+            child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -292,31 +294,44 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     .toLowerCase()
     .contains(_searchQuery.toLowerCase()))
     .toList();
-    return Padding(
+    return Container(
+        // Soft lavender-to-white backdrop for the whole home screen — the
+        // one calm accent surface this screen gets, kept behind the content
+        // so the search field and place cards stay the highest-contrast
+        // things in view.
+        decoration: BoxDecoration(gradient: PatientColors.lavenderCardGradient()),
+        child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Text(
-                   'Hello!\n${widget.patientName ?? "Friend"}',
-                   style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold),
+                Expanded(
+                  child: Text(
+                     'Hello!\n${widget.patientName ?? "Friend"}',
+                     style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.bold,
+                      color: PatientColors.charcoal,
+                      height: 1.2),
+                  ),
                 ),
-                const Spacer(),
-                const Icon(Icons.directions_walk, size: 32),
+                const Icon(Icons.directions_walk, size: 40, color: PatientColors.berry),
               ],
             ),
             const SizedBox(height: 8),
             Text (
               'Choose your destination',
-              style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+              style: TextStyle(fontSize: 17, color: Colors.grey[800]),
             ),
             const SizedBox(height: 16),
-            TextField(
+            Semantics(
+              textField: true,
+              label: 'Search for a place to go',
+              child: TextField(
               controller: _searchController,
+              style: const TextStyle(fontSize: 18),
               onChanged: (value) {
                 setState(() {
                   _searchQuery = value;
@@ -344,16 +359,31 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                 });
               },
               decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: Colors.white,
+                prefixIcon: const Icon(Icons.search, size: 26),
                 hintText: 'Search',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(100)),
+                contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(100),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(100),
+                  borderSide: const BorderSide(color: PatientColors.berry, width: 2),
+                ),
               ),
+            ),
             ),
             const SizedBox(height: 16),
             
             Expanded(
               child: _predictions.isNotEmpty
                   ? ListView.builder(
+                      // Keeps the last search result clear of the centered
+                      // SOS FAB, which otherwise sits on top of it and can
+                      // steal the tap.
+                      padding: const EdgeInsets.only(bottom: 110),
                       itemCount: _predictions.length,
                       itemBuilder: (context, index) => _buildPredictionTile(_predictions[index]),
                     )
@@ -369,30 +399,48 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Places you may like:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 2),
+                            const Text('Places you may like:', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: PatientColors.charcoal)),
+                            const SizedBox(height: 4),
                             Expanded(
                               child: ListView.builder(
+                                // Same reason as the predictions list above:
+                                // clears the last card from underneath the
+                                // centered SOS FAB.
+                                padding: const EdgeInsets.only(bottom: 110),
                                 itemCount: filteredPlaces.length,
                                 itemBuilder: (context, index) {
                                   final place = filteredPlaces[index];
                                   return Card(
-                                    color: Colors.grey[200],
+                                    color: Colors.white,
+                                    elevation: 1,
                                     margin: const EdgeInsets.symmetric(vertical: 6),
-                                    child: ListTile(
-                                      title: Text(place['name']),
-                                      subtitle: const Text('Often visited'),
-                                      trailing: ElevatedButton(
-                                        onPressed: _startingTrip
-                                            ? null
-                                            : () => _requestTrip(place),
-                                        child: _startingTrip && _selectedPlace == place
-                                            ? const SizedBox(
-                                                width: 18,
-                                                height: 18,
-                                                child: CircularProgressIndicator(strokeWidth: 2),
-                                              )
-                                            : const Text('Start'),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                                      child: ListTile(
+                                        title: Text(place['name'], style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
+                                        subtitle: const Text('Often visited', style: TextStyle(fontSize: 14)),
+                                        trailing: SizedBox(
+                                          height: 48,
+                                          child: ElevatedButton(
+                                            onPressed: _startingTrip
+                                                ? null
+                                                : () => _requestTrip(place),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: PatientColors.berry,
+                                              foregroundColor: Colors.white,
+                                              minimumSize: const Size(88, 48),
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                            ),
+                                            child: _startingTrip && _selectedPlace == place
+                                                ? const SizedBox(
+                                                    width: 18,
+                                                    height: 18,
+                                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                                  )
+                                                : const Text('Start', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   );
@@ -404,6 +452,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
             )
           ],
         ),
+      ),
       );
   }
 
@@ -426,32 +475,43 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       appBar: AppBar(
         title: const Text('Patient Home'),
         actions: [
-          IconButton(
-            onPressed: _handleLogout,
-            icon: const Icon(Icons.logout),
+          Semantics(
+            button: true,
+            label: 'Log out',
+            child: IconButton(
+              onPressed: _handleLogout,
+              tooltip: 'Log out',
+              icon: const Icon(Icons.logout),
+            ),
           ),
         ],
       ),
       body: content,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: SizedBox(
-        width: 80,
-        height: 80,
-        child: FloatingActionButton(
-          onPressed: _sosSending ? null : _handleSOS,
-          backgroundColor: Colors.red,
-          shape: const CircleBorder(),
-          child: _sosSending
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : const Text(
-                  'SOS',
-                  style: TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-                ),
+      // The single most important control on this screen — always the
+      // biggest, reddest, least-buried thing in view, on purpose.
+      floatingActionButton: Semantics(
+        button: true,
+        label: 'Emergency SOS, press to alert your caregiver now',
+        child: SizedBox(
+          width: 88,
+          height: 88,
+          child: FloatingActionButton(
+            onPressed: _sosSending ? null : _handleSOS,
+            backgroundColor: PatientColors.danger,
+            shape: const CircleBorder(),
+            child: _sosSending
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Text(
+                    'SOS',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+                  ),
+          ),
         ),
       ),
     );

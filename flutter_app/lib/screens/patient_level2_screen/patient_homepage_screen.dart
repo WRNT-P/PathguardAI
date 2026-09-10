@@ -10,6 +10,7 @@ import '../../services/api_client.dart';
 import '../../services/session.dart';
 import '../../services/trip_request_directory.dart';
 import '../login_screen.dart';
+import '../../theme/patient_theme.dart';
 
 enum _ScreenState { picking, waitingApproval, rejected, sosActive }
 
@@ -184,16 +185,22 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   }
 
   Widget _buildSosButton() {
-    return SizedBox(
-      width: 96,
-      height: 96,
-      child: FloatingActionButton(
-        onPressed: _sosSending ? null : _handleSOS,
-        backgroundColor: Colors.red,
-        shape: const CircleBorder(),
-        child: const Text(
-          'SOS',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+    // The single most important control on this screen — always the
+    // biggest, reddest, least-buried thing in view, on purpose.
+    return Semantics(
+      button: true,
+      label: 'Emergency SOS, press to alert your caregiver now',
+      child: SizedBox(
+        width: 96,
+        height: 96,
+        child: FloatingActionButton(
+          onPressed: _sosSending ? null : _handleSOS,
+          backgroundColor: PatientColors.danger,
+          shape: const CircleBorder(),
+          child: const Text(
+            'SOS',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+          ),
         ),
       ),
     );
@@ -204,7 +211,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.hourglass_top, size: 120, color: Colors.blue),
+          const Icon(Icons.hourglass_top, size: 120, color: PatientColors.berry),
           const SizedBox(height: 24),
           Text(
             'Asking your caregiver about ${_selectedPlace?['name'] ?? 'this trip'}...',
@@ -221,7 +228,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.info_outline, size: 120, color: Colors.orange),
+          const Icon(Icons.info_outline, size: 120, color: PatientColors.charcoal),
           const SizedBox(height: 24),
           const Text(
             'Let\'s pick something else',
@@ -237,10 +244,11 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
               });
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              minimumSize: const Size(200, 56),
+              backgroundColor: PatientColors.berry,
+              minimumSize: const Size(200, 60),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 18)),
+            child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -267,26 +275,33 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   Widget _buildPlaceTile(Map<String, dynamic> place) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
-      child: InkWell(
-        onTap: () => _handleSelectPlace(place),
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          height: 120,
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: Colors.grey[200],
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
-            children: [
-              const SizedBox(width: 20),
-              const Icon(Icons.place, size: 48, color: Colors.blue),
-              const SizedBox(width: 20),
-              Text(
-                place['name'],
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-            ],
+      child: Semantics(
+        button: true,
+        label: 'Go to ${place['name']}',
+        child: InkWell(
+          onTap: () => _handleSelectPlace(place),
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            height: 120,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              gradient: PatientColors.lavenderCardGradient(),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: PatientColors.lavender, width: 1.5),
+            ),
+            child: Row(
+              children: [
+                const SizedBox(width: 20),
+                const Icon(Icons.place, size: 48, color: PatientColors.berry),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Text(
+                    place['name'],
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: PatientColors.charcoal),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -306,6 +321,12 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     // overflow stripes, but a release build just clips the overflow off the
     // bottom with no warning at all.
     return SingleChildScrollView(
+      // Bottom padding equal to the SOS FAB's own footprint (96 tall + its
+      // ~16 default margin) plus a little breathing room — without it the
+      // centered floating SOS button sits directly on top of (and can
+      // intercept taps meant for) the last place tile once the list is long
+      // enough to reach the bottom of the screen.
+      padding: const EdgeInsets.only(bottom: 132),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -344,6 +365,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
         actions: [
           IconButton(
             onPressed: _handleLogout,
+            tooltip: 'Log out',
             icon: const Icon(Icons.logout),
           ),
         ],

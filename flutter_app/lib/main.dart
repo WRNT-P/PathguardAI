@@ -13,6 +13,7 @@ import 'screens/caregiver_screen/caregiver_homepage_screen.dart';
 import 'services/device_token_service.dart';
 import 'services/alert_navigation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'theme/patient_theme.dart';
 
 // Lets the FCM foreground listener show something even though it isn't
 // inside any screen's widget tree — there was previously no code at all
@@ -94,6 +95,42 @@ class MyApp extends StatelessWidget {
     }
     return MaterialApp(
       navigatorKey: navigatorKey,
+      // App-wide accent theme: charcoal headers, berry as the primary brand
+      // color, lavender as the secondary/calm accent. This only sets
+      // defaults — screens that already pick explicit colors for
+      // safety-critical UI (SOS/red, warnings/orange, safe-state/green)
+      // are untouched, since those are set directly on the widget, not
+      // inherited from here.
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: PatientColors.berry,
+          secondary: PatientColors.lavenderDark,
+          brightness: Brightness.light,
+        ),
+        scaffoldBackgroundColor: Colors.white,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: PatientColors.charcoal,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: false,
+          titleTextStyle: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            minimumSize: const Size(64, 52),
+            textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          ),
+        ),
+        iconButtonTheme: IconButtonThemeData(
+          style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+        ),
+        textTheme: Typography.material2021().black.apply(fontSizeFactor: 1.0),
+      ),
       home: home,
     );
   }

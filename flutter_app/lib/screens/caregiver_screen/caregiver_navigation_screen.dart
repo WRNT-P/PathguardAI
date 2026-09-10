@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,6 +10,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../services/api_client.dart';
 import '../../services/directions_service.dart';
+import '../../theme/patient_theme.dart';
 import '../../utils/bearing.dart';
 import '../../utils/patient_marker.dart';
 
@@ -88,6 +90,13 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
 
   gmaps.BitmapDescriptor? _patientIcon;
 
+  /// The caregiver's own marker — a rotating arrow, same as both patient
+  /// navigation screens use for the person the screen is following, instead
+  /// of Maps' own plain blue dot (which the patient screens don't use
+  /// either, for the same reason: one consistent "this is you, facing this
+  /// way" glyph across every navigation screen in the app).
+  gmaps.BitmapDescriptor? _caregiverIcon;
+
   /// Which way the car is pointing, smoothed. Taken from movement between
   /// fixes rather than the magnetometer: a phone on a passenger seat faces
   /// whichever way it was put down, while the direction of travel at road
@@ -112,6 +121,7 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
       _patientLocation = LatLng(widget.initialLatitude!, widget.initialLongitude!);
     }
     _loadPatientIcon();
+    _loadCaregiverIcon();
     _startCaregiverUpdates();
     _pollPatient();
     _patientPoll = Timer.periodic(_patientPollInterval, (_) => _pollPatient());
@@ -120,6 +130,38 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
   Future<void> _loadPatientIcon() async {
     final icon = await buildPatientMarkerIcon(widget.profileImage);
     if (mounted) setState(() => _patientIcon = icon);
+  }
+
+  /// Draws the same navigation-arrow glyph the patient screens use, once, so
+  /// it can be reused as a bitmap marker icon instead of a giant `Icon`
+  /// floating in screen-space.
+  Future<void> _loadCaregiverIcon() async {
+    const double size = 96;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
+    const center = Offset(size / 2, size / 2);
+
+    final painter = TextPainter(textDirection: TextDirection.ltr)
+      ..text = TextSpan(
+        text: String.fromCharCode(Icons.navigation.codePoint),
+        style: TextStyle(
+          fontSize: size * 0.75,
+          fontFamily: Icons.navigation.fontFamily,
+          package: Icons.navigation.fontPackage,
+          color: Colors.blue,
+        ),
+      )
+      ..layout();
+    painter.paint(canvas, center - Offset(painter.width / 2, painter.height / 2));
+
+    final image = await recorder.endRecording().toImage(size.toInt(), size.toInt());
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    final icon = gmaps.BitmapDescriptor.bytes(
+      byteData!.buffer.asUint8List(),
+      width: 48,
+      height: 48,
+    );
+    if (mounted) setState(() => _caregiverIcon = icon);
   }
 
   @override
@@ -199,22 +241,38 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
   /// screens' 15 m: a car passes a junction faster than a fix arrives.
   static const double _stepAdvanceThresholdMeters = 30;
 
+  /// How far ahead of the caregiver (in metres) the tilted camera looks —
+  /// this is what pushes their marker down toward the bottom of the screen.
+  /// Maps' own `padding` was tried for this first and does not work: it only
+  /// repositions on-screen controls and affects bounds-fitting camera moves,
+  /// not where a plain lat/lng target renders (confirmed on a real device —
+  /// the marker stayed dead-centre at every padding fraction tried). Fixed
+  /// the same way as both patient navigation screens: centre the camera on a
+  /// point projected ahead along the direction of travel instead of on the
+  /// caregiver's own position, so their real position renders behind that
+  /// point — toward the bottom of the screen — like any chase camera.
+  static const double _tiltedLookaheadMeters = 40;
+
   /// Keep the caregiver centred and the map turned the way they are driving,
   /// which is the whole difference between a map and a navigation screen.
   void _followCamera() {
     if (!_followCaregiver || !_fittedOnce) return;
     final me = _caregiverLocation;
     if (me == null) return;
+    final bearing = _travelBearing ?? 0;
+    final cameraTarget = _northUp
+        ? me
+        : const Distance().offset(me, _tiltedLookaheadMeters, bearing);
     _mapController?.animateCamera(
       gmaps.CameraUpdate.newCameraPosition(
         gmaps.CameraPosition(
-          target: gmaps.LatLng(me.latitude, me.longitude),
+          target: gmaps.LatLng(cameraTarget.latitude, cameraTarget.longitude),
           zoom: 18.5,
           // One press swaps the whole camera angle, same as both patient
           // screens: tilted and turned the way they are driving, or flat and
           // north-up.
           tilt: _northUp ? 0 : 60,
-          bearing: _northUp ? 0 : (_travelBearing ?? 0),
+          bearing: _northUp ? 0 : bearing,
         ),
       ),
     );
@@ -442,33 +500,6 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                if (_currentStep != null)
-                  Container(
-                    width: double.infinity,
-                    color: Colors.red[700],
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                    child: Row(
-                      children: [
-                        Icon(_instructionIcon(_currentStep!.instruction),
-                            color: Colors.white, size: 34),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('${_currentStep!.distanceMeters.round()} m',
-                                  style: TextStyle(color: Colors.red[100], fontSize: 13)),
-                              Text(_currentStep!.instruction,
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 Expanded(
                   child: Stack(children: [
                     gmaps.GoogleMap(
@@ -476,12 +507,6 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                       target: gmaps.LatLng(them.latitude, them.longitude),
                       zoom: 15,
                     ),
-                    // Chase-camera only: pushes the camera's centre — where the
-                    // marker sits — down the screen, so what is ahead fills the view
-                    // instead of the ground already walked. North-up is a map being
-                    // read rather than followed, and a map reads from its middle.
-                    padding: EdgeInsets.only(
-                        top: _northUp ? 0 : MediaQuery.of(context).size.height * 0.35),
                     onMapCreated: (c) {
                       _mapController = c;
                       _fitBothOnce();
@@ -492,7 +517,13 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                     onCameraMoveStarted: () {
                       if (_followCaregiver) setState(() => _followCaregiver = false);
                     },
-                    myLocationEnabled: true,
+                    // The custom arrow marker below replaces Maps' own blue
+                    // dot — myLocationButtonEnabled/zoomControlsEnabled are
+                    // already off, replaced by the custom recenter/compass
+                    // FABs, so nothing native is left drawing over the map.
+                    myLocationEnabled: false,
+                    myLocationButtonEnabled: false,
+                    zoomControlsEnabled: false,
                     markers: {
                       gmaps.Marker(
                         markerId: const gmaps.MarkerId('patient'),
@@ -506,6 +537,17 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                                 gmaps.BitmapDescriptor.hueRed),
                         anchor: const Offset(0.5, 0.5),
                       ),
+                      if (_caregiverLocation != null && _caregiverIcon != null)
+                        gmaps.Marker(
+                          markerId: const gmaps.MarkerId('caregiver'),
+                          position: gmaps.LatLng(
+                              _caregiverLocation!.latitude, _caregiverLocation!.longitude),
+                          icon: _caregiverIcon!,
+                          anchor: const Offset(0.5, 0.5),
+                          flat: true,
+                          rotation: _travelBearing ?? 0,
+                          zIndexInt: 1,
+                        ),
                     },
                     polylines: {
                       if (_routePoints != null)
@@ -517,39 +559,108 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                         ),
                     },
                     ),
-                    Positioned(
-                      top: 16,
-                      left: 16,
-                      child: SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: FloatingActionButton(
-                          heroTag: 'caregiverNorthUp',
-                          tooltip: _northUp
-                              ? 'Switch to direction-up'
-                              : 'Switch to north-up',
-                          backgroundColor: _northUp ? Colors.white : Colors.blue,
-                          onPressed: _toggleNorthUp,
-                          child: Icon(Icons.explore,
-                              color: _northUp ? Colors.blue : Colors.white),
+                    // Floating pop-up over the map, matching both patient
+                    // navigation screens' turn-instruction banner — this used
+                    // to be a full-width bar fixed above the map (stealing a
+                    // permanent strip of it), rather than an overlay that
+                    // only appears while there's an actual instruction.
+                    if (_currentStep != null)
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: SafeArea(
+                          child: Container(
+                            margin: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            decoration: BoxDecoration(
+                              color: Colors.red[700],
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(_instructionIcon(_currentStep!.instruction),
+                                    color: Colors.white, size: 34),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('${_currentStep!.distanceMeters.round()} m',
+                                          style: TextStyle(color: Colors.red[100], fontSize: 13)),
+                                      Text(_currentStep!.instruction,
+                                          style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
+                      ),
+                    // Bottom-left, matching both patient navigation screens'
+                    // map-control cluster: recenter above north-up, same
+                    // size/shape/colours, so a caregiver who has also seen the
+                    // patient's screen (or a designer reviewing both) reads
+                    // them as the same control. Recenter replaces the old
+                    // conditional "re-follow" FAB that only appeared once
+                    // panning turned following off — always visible now, same
+                    // as the patient screens' recenter, rather than a control
+                    // that only exists sometimes.
+                    Positioned(
+                      left: 16,
+                      bottom: 16,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Semantics(
+                            button: true,
+                            label: 'Re-centre map on me',
+                            child: SizedBox(
+                              width: 48,
+                              height: 48,
+                              child: FloatingActionButton(
+                                heroTag: 'caregiverRecenter',
+                                tooltip: 'Re-centre on me',
+                                backgroundColor: Colors.white,
+                                elevation: 3,
+                                onPressed: () {
+                                  setState(() => _followCaregiver = true);
+                                  _followCamera();
+                                },
+                                child: const Icon(Icons.my_location, color: PatientColors.berry),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Semantics(
+                            button: true,
+                            label: _northUp
+                                ? 'Switch to direction-up map'
+                                : 'Switch to north-up map',
+                            child: SizedBox(
+                              width: 48,
+                              height: 48,
+                              child: FloatingActionButton(
+                                heroTag: 'caregiverNorthUp',
+                                tooltip: _northUp
+                                    ? 'Switch to direction-up'
+                                    : 'Switch to north-up',
+                                backgroundColor:
+                                    _northUp ? Colors.white : PatientColors.berry,
+                                elevation: 3,
+                                onPressed: _toggleNorthUp,
+                                child: Icon(Icons.explore,
+                                    color: _northUp ? PatientColors.berry : Colors.white),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    // Panning turns following off; this is the way back, and
-                    // it only exists while it would do something.
-                    if (!_followCaregiver)
-                      Positioned(
-                        right: 16,
-                        bottom: 16,
-                        child: FloatingActionButton.small(
-                          onPressed: () {
-                            setState(() => _followCaregiver = true);
-                            _followCamera();
-                          },
-                          backgroundColor: Colors.white,
-                          child: const Icon(Icons.navigation, color: Colors.red),
-                        ),
-                      ),
                   ]),
                 ),
                 SafeArea(

@@ -10,6 +10,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import '../../services/location_service.dart';
+import '../../theme/patient_theme.dart';
 
 class TrackScreen extends StatefulWidget{
   final Map<String, dynamic> patient;
@@ -557,6 +558,15 @@ class _TrackScreenState extends State<TrackScreen>{
                     _mapController = controller;
                     _fitCameraToPatientAndNearestPlace();
                   },
+                  // The map area shrinks to make room for the fixed bottom
+                  // info panel below it, so Maps' own zoom +/- buttons — which
+                  // it plants bottom-right of whatever bounds it's given —
+                  // end up squeezed right against the panel's rounded top
+                  // edge instead of sitting comfortably inside the map. This
+                  // screen has no pinch-zoom substitute to add back, so
+                  // disabling is simpler than trying to reposition a control
+                  // Maps doesn't expose a position for.
+                  zoomControlsEnabled: false,
                   initialCameraPosition: gmaps.CameraPosition(
                     target: _currentLocation != null
                         ? gmaps.LatLng(_currentLocation!.latitude, _currentLocation!.longitude)
@@ -620,6 +630,34 @@ class _TrackScreenState extends State<TrackScreen>{
                       ),
                     ),
                   ),
+                // Recenters on the patient (and the nearest safe place, when
+                // one's close enough to fit both) — same camera move the map
+                // already does once on load, just replayable on demand after
+                // a caregiver has panned or zoomed away from it. Squircle
+                // shape/size matches the recenter+compass cluster on the
+                // patient navigation screens, minus compass: this map never
+                // tilts, so there's no direction to switch between.
+                Positioned(
+                  left: 16,
+                  bottom: 16,
+                  child: Semantics(
+                    button: true,
+                    label: 'Re-centre map on patient',
+                    child: Material(
+                      color: Colors.white,
+                      elevation: 3,
+                      borderRadius: BorderRadius.circular(16),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: _fitCameraToPatientAndNearestPlace,
+                        child: const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Icon(Icons.my_location, color: PatientColors.berry, size: 24),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

@@ -12,6 +12,7 @@ import '../../services/session.dart';
 import '../../services/active_trip_service.dart';
 import '../../services/trip_event_reporter.dart';
 import '../../utils/route_deviation.dart';
+import '../../theme/patient_theme.dart';
 
 class NavigationScreen extends StatefulWidget{
   final Map<String, dynamic> place;
@@ -255,6 +256,17 @@ class _NavigationScreenState extends State<NavigationScreen>{
     }
   }
 
+  /// How far ahead of the patient (in metres) the tilted camera looks — this
+  /// is what actually pushes their marker down toward the bottom of the
+  /// screen. Maps' own `padding` was tried for this first (still set on the
+  /// `GoogleMap` widget below) and confirmed on a real device not to work:
+  /// it only repositions on-screen controls and affects bounds-fitting
+  /// camera moves, not where a plain lat/lng target renders. Fixed the same
+  /// way as both other navigation screens: centre the camera on a point
+  /// projected ahead along the route instead of on the patient's own
+  /// position, so their real position renders behind that point.
+  static const double _tiltedLookaheadMeters = 40;
+
   /// Re-centres the camera on the current position with whichever bearing
   /// [_northUp] calls for. Its own method (not inlined in _handlePosition)
   /// because toggling the compass button needs the exact same camera move
@@ -262,18 +274,22 @@ class _NavigationScreenState extends State<NavigationScreen>{
   void _updateCamera() {
     final current = _currentLocation;
     if (current == null) return;
+    final bearing = _bearingToTarget() ?? 0;
+    final cameraTarget = _northUp
+        ? current
+        : const Distance().offset(current, _tiltedLookaheadMeters, bearing);
     // newLatLngZoom can't carry tilt/bearing — newCameraPosition is the one
     // that keeps the 3D perspective on every move instead of snapping back
     // to flat/north-up.
     _mapController?.animateCamera(
       gmaps.CameraUpdate.newCameraPosition(
         gmaps.CameraPosition(
-          target: gmaps.LatLng(current.latitude, current.longitude),
+          target: gmaps.LatLng(cameraTarget.latitude, cameraTarget.longitude),
           zoom: 18.5,
           // Flattens with the bearing, so the button swaps the whole camera
           // angle rather than spinning a view that stays tilted either way.
           tilt: _northUp ? 0 : 60,
-          bearing: _northUp ? 0 : (_bearingToTarget() ?? 0),
+          bearing: _northUp ? 0 : bearing,
         ),
       ),
     );
@@ -608,6 +624,7 @@ class _NavigationScreenState extends State<NavigationScreen>{
       actions: [
         IconButton(
           icon: const Icon(Icons.list),
+          tooltip: 'Show all directions',
           onPressed: _routeSteps == null || _routeSteps!.isEmpty
           ? null
           : _showDirectionsList,
@@ -632,16 +649,6 @@ class _NavigationScreenState extends State<NavigationScreen>{
               polylines: polylines,
               myLocationButtonEnabled: false,
               zoomControlsEnabled: false,
-              // Pushes the camera's centre — where the patient marker sits —
-              // down from the middle of the screen, so more of the map ahead
-              // of them (not behind) is visible under the arrow/status
-              // overlay. Lower than 0.55 (was covering the marker with the
-              // status caption/SOS button at the bottom of the screen).
-              //
-              // Chase-camera only. North-up is a map being read rather than
-              // followed, and a map reads from its middle.
-              padding: EdgeInsets.only(
-                  top: _northUp ? 0 : MediaQuery.of(context).size.height * 0.35),
               onMapCreated: (controller) => _mapController = controller,
             ),
           ),
@@ -657,6 +664,27 @@ class _NavigationScreenState extends State<NavigationScreen>{
                   textAlign: TextAlign.center,
                 ),
               ),
+              // Directly under the destination text now, not floating over
+              // it top-right — it used to sit on its own Positioned in that
+              // corner and overlap the title on narrower phones/long place
+              // names.
+              if (_routePoints != null && _routePoints!.length >= 2)
+                Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 12, right: 16),
+                    child: Card(
+                      elevation: 3,
+                      color: Colors.white.withValues(alpha: 0.9),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: SizedBox(
+                        width: 140,
+                        height: 120,
+                        child: _RouteLinePreview(points: _routePoints!, currentLocation: _currentLocation),
+                      ),
+                    ),
+                  ),
+                ),
               Expanded(
                 child: Builder(builder: (context) {
                   final indicator = _indicator(arrived);
@@ -690,16 +718,22 @@ class _NavigationScreenState extends State<NavigationScreen>{
               ),
               Padding(
                 padding: const EdgeInsets.only(top: 16.0, bottom: 30.0),
-                child: SizedBox(
-                  width: 96,
-                  height: 96,
-                  child: FloatingActionButton(
-                    onPressed: _sosSending ? null : _handleSOS,
-                    backgroundColor: Colors.red,
-                    shape: const CircleBorder(),
-                    child: const Text(
-                      'SOS',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                // The single most important control on this screen — always
+                // the biggest, reddest, least-buried thing in view.
+                child: Semantics(
+                  button: true,
+                  label: 'Emergency SOS, press to alert your caregiver now',
+                  child: SizedBox(
+                    width: 96,
+                    height: 96,
+                    child: FloatingActionButton(
+                      onPressed: _sosSending ? null : _handleSOS,
+                      backgroundColor: PatientColors.danger,
+                      shape: const CircleBorder(),
+                      child: const Text(
+                        'SOS',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                      ),
                     ),
                   ),
                 ),
@@ -707,38 +741,26 @@ class _NavigationScreenState extends State<NavigationScreen>{
             ],
           ),
           Positioned(
-            top: 16,
             left: 16,
-            child: SizedBox(
-              width: 48,
-              height: 48,
-              child: FloatingActionButton(
-                heroTag: 'northUpToggle',
-                tooltip: _northUp ? 'Switch to direction-up' : 'Switch to north-up',
-                backgroundColor: _northUp ? Colors.white : Colors.blue,
-                onPressed: _toggleNorthUp,
-                child: Icon(
-                  Icons.explore,
-                  color: _northUp ? Colors.blue : Colors.white,
+            bottom: 16,
+            child: SafeArea(
+              top: false,
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child: FloatingActionButton(
+                  heroTag: 'northUpToggle',
+                  tooltip: _northUp ? 'Switch to direction-up' : 'Switch to north-up',
+                  backgroundColor: _northUp ? Colors.white : PatientColors.berry,
+                  onPressed: _toggleNorthUp,
+                  child: Icon(
+                    Icons.explore,
+                    color: _northUp ? PatientColors.berry : Colors.white,
+                  ),
                 ),
               ),
             ),
           ),
-          if (_routePoints != null && _routePoints!.length >= 2)
-            Positioned(
-              top: 16,
-              right: 16,
-              child: Card(
-                elevation: 3,
-                color: Colors.white.withValues(alpha: 0.9),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: SizedBox(
-                  width: 140,
-                  height: 120,
-                  child: _RouteLinePreview(points: _routePoints!, currentLocation: _currentLocation),
-                ),
-              ),
-            ),
         ],
       ),
     );
