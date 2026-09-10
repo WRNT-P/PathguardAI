@@ -49,6 +49,10 @@ _TITLES = {
     # Pressed from the home screen rather than mid-journey — the caregiver app
     # lists this one instead of taking over the screen with it.
     "sos_home": "PathGuard — ผู้ป่วยกดขอความช่วยเหลือที่บ้าน",
+    "risk_medium": "PathGuard — ความเสี่ยงเริ่มสูงขึ้น",
+    "off_route": "PathGuard — ผู้ป่วยออกนอกเส้นทาง",
+    "trip_started": "PathGuard — ผู้ป่วยเริ่มออกเดินทาง",
+    "trip_arrived": "PathGuard — ผู้ป่วยถึงที่หมายแล้ว",
 }
 
 

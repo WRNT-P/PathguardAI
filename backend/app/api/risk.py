@@ -288,6 +288,27 @@ async def evaluate_risk(
     if decision["reason"] not in ("high_score", "sustained_risk"):
         await _resolve_stale(db, patient_id, "emergency")
 
+    # ── 9a2. Risk-elevated alert — the family asked to know once risk crosses
+    #         into "medium" (LOW_CEILING), not only at the emergency threshold.
+    #         Same self-resolving STATUS shape as geofence/emergency, and
+    #         suppressed while an emergency is already open for this score so
+    #         the two don't both page for the same reading.
+    if adj_score > thresholds[rule_repository.LOW_CEILING] and not decision["emergency"]:
+        alert = await crud.save_alert(
+            db,
+            patient_id,
+            alert_type="risk_medium",
+            severity="medium",
+            message=f"Risk elevated to {adj_score}% — keep an eye on them.",
+            latitude=lat,
+            longitude=lng,
+        )
+        await notify_alert(
+            db, alert, thresholds[rule_repository.PUSH_COOLDOWN_SECONDS]
+        )
+    else:
+        await _resolve_stale(db, patient_id, "risk_medium")
+
     # ── 9b. Safe-zone-exit alert — independent of the weighted score, mirrors
     #        the GPS-loss check: "outside every known place" is a binary
     #        geofence event to report, not a magnitude to blend into the score.

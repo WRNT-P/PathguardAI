@@ -10,6 +10,8 @@ import '../../services/sos_service.dart';
 import '../../services/directions_service.dart';
 import '../../services/session.dart';
 import '../../services/active_trip_service.dart';
+import '../../services/trip_event_reporter.dart';
+import '../../utils/route_deviation.dart';
 
 class NavigationScreen extends StatefulWidget{
   final Map<String, dynamic> place;
@@ -33,6 +35,21 @@ class _NavigationScreenState extends State<NavigationScreen>{
 
   /// This screen's claim on `active_trips/{patientId}` — see [dispose].
   ActiveTripHandle? _tripHandle;
+
+  /// Guards against reporting "arrived" (or the initial "started") more than
+  /// once per trip — [_handlePosition] fires on every GPS update, and the
+  /// distance check alone would re-fire for as long as the patient stands
+  /// near the destination.
+  bool _arrivalReported = false;
+
+  /// Off-route is reported once per continuous episode: set the moment the
+  /// patient first strays past [_offRouteThresholdMeters], cleared the moment
+  /// they're back within it, so straying twice on the same walk is two
+  /// notifications, not zero after the first.
+  DateTime? _offRouteSince;
+  bool _offRouteReported = false;
+  static const double _offRouteThresholdMeters = 80;
+  static const Duration _offRouteSustainedFor = Duration(seconds: 30);
 
   /// true (default) = north-up: flat, with north at the top like a paper
   /// map, and the arrow rotating in place to show which way the path runs.
@@ -93,6 +110,45 @@ class _NavigationScreenState extends State<NavigationScreen>{
     if (patientId == null) return;
     _tripHandle =
         ActiveTripService.instance.start(patientId: patientId, place: widget.place);
+    reportTripEvent(
+      'started',
+      destinationName: widget.place['name'] as String?,
+      latitude: (widget.place['lat'] as num?)?.toDouble(),
+      longitude: (widget.place['lng'] as num?)?.toDouble(),
+    );
+  }
+
+  /// Checks the just-updated position against the destination (arrival) and
+  /// the fetched route (off-route), reporting each at most once per episode.
+  void _checkTripProgress(LatLng updated) {
+    if (!_arrivalReported) {
+      final destination = LatLng(widget.place['lat'], widget.place['lng']);
+      final toDestination = const Distance().as(LengthUnit.Meter, updated, destination);
+      if (toDestination < 20) {
+        _arrivalReported = true;
+        reportTripEvent(
+          'arrived',
+          destinationName: widget.place['name'] as String?,
+          latitude: updated.latitude,
+          longitude: updated.longitude,
+        );
+      }
+    }
+
+    final route = _routePoints;
+    if (route == null || route.length < 2) return;
+    final offRoute = distanceToRoute(updated, route) > _offRouteThresholdMeters;
+    if (!offRoute) {
+      _offRouteSince = null;
+      _offRouteReported = false;
+      return;
+    }
+    _offRouteSince ??= DateTime.now();
+    if (!_offRouteReported &&
+        DateTime.now().difference(_offRouteSince!) >= _offRouteSustainedFor) {
+      _offRouteReported = true;
+      reportTripEvent('off_route', latitude: updated.latitude, longitude: updated.longitude);
+    }
   }
 
   /// Draws Material's navigation-arrow glyph to a bitmap once, so it can be
@@ -191,6 +247,7 @@ class _NavigationScreenState extends State<NavigationScreen>{
       }
     });
 
+    _checkTripProgress(updated);
     _updateCamera();
 
     if (isFirstFix) {

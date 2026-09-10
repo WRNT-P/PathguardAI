@@ -190,7 +190,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
     try {
       var count = 0;
       for (final patient in patients) {
-        final res = await apiGet('/api/patients/${patient['id']}/alerts');
+        final res = await apiGet('/api/patients/${patient['id']}/alerts?limit=100');
         if (res.statusCode != 200) continue;
         final alerts = (jsonDecode(res.body)['alerts'] as List).cast<Map<String, dynamic>>();
         count += alerts
@@ -267,7 +267,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   Future<void> _checkForActiveAlerts() async {
     for (final patient in patients) {
       try {
-        final res = await apiGet('/api/patients/${patient['id']}/alerts');
+        final res = await apiGet('/api/patients/${patient['id']}/alerts?limit=100');
         if (res.statusCode != 200) continue;
         final alerts = (jsonDecode(res.body)['alerts'] as List).cast<Map<String, dynamic>>();
         final unresolved = alerts.where((a) => a['resolved'] == false);
@@ -410,87 +410,100 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
               );
 
               if (result != null) {
-                final severityLevel = (result['state'] as String).startsWith('2') ? 2 : 1;
+                try {
+                  final severityLevel = (result['state'] as String).startsWith('2') ? 2 : 1;
 
-                final response = await apiPost('/api/patients', body: {
-                  'name': result['name'],
-                  'severity_level': severityLevel,
-                  'caregiver_id': CaregiverSession.instance.caregiverId,
-                });
-
-                 if (!mounted) return;
-
-                if (response.statusCode != 201) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Could not add patient, try again')),
-                  );
-                  return;
-                }
-
-                final data = jsonDecode(response.body);
-                final patientId = data['patient_id'] as int;
-                final places = <Map<String, dynamic>>[];
-
-                final home = result['home'] as ParsedLocation?;
-
-                if (home != null) {
-                  places.add({
-                    'place_name': 'Home',
-                    'latitude': home.latitude,
-                    'longitude': home.longitude,
-                    'visit_rank': 'daily_live',
-                    'stay_rank': 'all_day',
-                    'is_home': true,
+                  final response = await apiPost('/api/patients', body: {
+                    'name': result['name'],
+                    'severity_level': severityLevel,
+                    'caregiver_id': CaregiverSession.instance.caregiverId,
                   });
-                }
-                for (final place in (result['otherPlaces'] as List)) {
-                  final loc = place['location'] as ParsedLocation;
-                  places.add({
-                    'place_name': place['name'] as String,
-                    'latitude': loc.latitude,
-                    'longitude': loc.longitude,
-                    'visit_rank': 'most_days',
-                    'stay_rank': 'few_hours',
-                    'is_home': false,
-                  });
-                }
 
-                if (places.isNotEmpty) {
-                   final placesResponse = await apiPost('/api/patients/$patientId/places', body: {'places': places});
-                   if (placesResponse.statusCode != 201 && mounted) {
+                  if (!mounted) return;
+
+                  if (response.statusCode != 201) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Patient added, but saving places failed')),
+                      const SnackBar(content: Text('Could not add patient, try again')),
                     );
-                   }
-                }
+                    return;
+                  }
 
-                if (!mounted) return;
+                  final data = jsonDecode(response.body);
+                  final patientId = data['patient_id'] as int;
+                  final places = <Map<String, dynamic>>[];
 
-                setState(() {
-                  patients.add({
-                    ...result,
-                    'id': data['patient_id'],
-                    'pairingCode': data['pairing_code'],
-                    'pairingExpiresAt': DateTime.parse(data['expires_at'] as String),
+                  final home = result['home'] as ParsedLocation?;
+
+                  if (home != null) {
+                    places.add({
+                      'place_name': 'Home',
+                      'latitude': home.latitude,
+                      'longitude': home.longitude,
+                      'visit_rank': 'daily_live',
+                      'stay_rank': 'all_day',
+                      'is_home': true,
+                    });
+                  }
+                  for (final place in (result['otherPlaces'] as List)) {
+                    final loc = place['location'] as ParsedLocation;
+                    places.add({
+                      'place_name': place['name'] as String,
+                      'latitude': loc.latitude,
+                      'longitude': loc.longitude,
+                      'visit_rank': 'most_days',
+                      'stay_rank': 'few_hours',
+                      'is_home': false,
+                    });
+                  }
+
+                  if (places.isNotEmpty) {
+                    final placesResponse = await apiPost('/api/patients/$patientId/places', body: {'places': places});
+                    if (placesResponse.statusCode != 201 && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Patient added, but saving places failed')),
+                      );
+                    }
+                  }
+
+                  if (!mounted) return;
+
+                  setState(() {
+                    patients.add({
+                      ...result,
+                      'id': data['patient_id'],
+                      'pairingCode': data['pairing_code'],
+                      'pairingExpiresAt': DateTime.parse(data['expires_at'] as String),
+                    });
                   });
-                });
 
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('Patient Added'),
-                    content: Text(
-                      'Give this code to the patient to log in:\n\n${data['pairing_code']}',
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('OK'),
+                  // Without this, a patient added mid-session never gets its
+                  // trip_requests/SOS node subscribed — watch() only ever ran
+                  // in initState, against the list as it was before this add.
+                  TripRequestDirectory.instance
+                      .watch(patients.map((p) => p['id'] as int));
+
+                  showDialog(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Patient Added'),
+                      content: Text(
+                        'Give this code to the patient to log in:\n\n${data['pairing_code']}',
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                       ),
-                    ],
-                  ),
-                );
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('OK'),
+                        ),
+                      ],
+                    ),
+                  );
+                } catch (_) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Network error — check your connection and try again.')),
+                  );
+                }
               }
             },
                 style: ElevatedButton.styleFrom(

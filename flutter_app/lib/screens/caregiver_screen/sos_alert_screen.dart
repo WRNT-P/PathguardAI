@@ -240,7 +240,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
   Future<void> _refresh() async {
     if (_leaving) return;
     try {
-      final alertsRes = await apiGet('/api/patients/${widget.patientId}/alerts');
+      final alertsRes = await apiGet('/api/patients/${widget.patientId}/alerts?limit=100');
       if (alertsRes.statusCode == 200) {
         final alerts = jsonDecode(alertsRes.body)['alerts'] as List;
         final updated = alerts.cast<Map<String, dynamic>>().firstWhere(

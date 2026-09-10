@@ -6,20 +6,22 @@ import 'package:flutter/material.dart';
 import '../../services/api_client.dart';
 import '../../services/caregiver_session.dart';
 import '../../services/chat_directory.dart';
+import 'notification_screen.dart';
 
 /// C-6, the family chat for one patient's caregivers.
 ///
 /// Three things the report asks of this screen, and only one of them is chat:
-/// a group conversation, automatic system messages when something important
-/// happens, and each caregiver's live distance from the patient across the top.
+/// a group conversation, a way to know something important happened, and
+/// each caregiver's live distance from the patient across the top.
 ///
-/// The system messages are *read*, never written. Every caregiver's phone would
-/// otherwise race to write the same "went off route at 10:32" line into the
-/// room and the family would see it two or three times; worse, the alert would
-/// then exist in two places that can disagree. `alerts` in Postgres is already
-/// the record of what happened, so this screen folds that feed into the
-/// timeline and writes nothing. Nothing has to stay in sync because there is
-/// only one copy.
+/// The "something happened" part used to render the full `alerts` feed
+/// inline, one red bubble per DB row — a wandering episode logs a row roughly
+/// every poll cycle while it holds, so the conversation filled up with
+/// repeats of the same warning. It now shows only a single small banner for
+/// whichever alert is most recently unresolved; the full history (and where
+/// to resolve one) lives on [NotificationScreen], one tap away. Alerts are
+/// still *read*, never written, here — `alerts` in Postgres is the one copy
+/// of what happened, this screen just points at it.
 class ChatScreen extends StatefulWidget {
   final int patientId;
   final String patientName;
@@ -32,17 +34,6 @@ class ChatScreen extends StatefulWidget {
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
-}
-
-/// One row in the merged timeline: either something a person typed, or
-/// something the system recorded.
-class _Entry {
-  final DateTime at;
-  final ChatMessage? message;
-  final Map<String, dynamic>? alert;
-
-  const _Entry.chat(this.message, this.at) : alert = null;
-  const _Entry.system(this.alert, this.at) : message = null;
 }
 
 class _ChatScreenState extends State<ChatScreen> {
@@ -75,7 +66,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _loadContext() async {
     try {
       final results = await Future.wait([
-        apiGet('/api/patients/${widget.patientId}/alerts'),
+        apiGet('/api/patients/${widget.patientId}/alerts?limit=100'),
         apiGet('/api/patients/${widget.patientId}/caregivers'),
       ]);
       if (!mounted) return;
@@ -131,20 +122,22 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  /// Merge the two sources into one time-ordered list.
-  List<_Entry> _timeline(List<ChatMessage> messages) {
-    final entries = <_Entry>[
-      for (final m in messages) _Entry.chat(m, m.sentAt),
-    ];
+  List<ChatMessage> _sortedMessages(List<ChatMessage> messages) {
+    final sorted = [...messages];
+    sorted.sort((a, b) => a.sentAt.compareTo(b.sentAt));
+    return sorted;
+  }
 
-    for (final alert in _alerts) {
-      final raw = alert['created_at'] as String?;
-      final at = raw == null ? null : DateTime.tryParse(raw)?.toLocal();
-      if (at != null) entries.add(_Entry.system(alert, at));
-    }
-
-    entries.sort((a, b) => a.at.compareTo(b.at));
-    return entries;
+  /// The most recently unresolved alert, or null when nothing is active.
+  Map<String, dynamic>? _activeAlert() {
+    final unresolved = _alerts.where((a) => a['resolved'] != true).toList();
+    if (unresolved.isEmpty) return null;
+    unresolved.sort((a, b) {
+      final at = DateTime.tryParse(a['created_at'] as String? ?? '') ?? DateTime(0);
+      final bt = DateTime.tryParse(b['created_at'] as String? ?? '') ?? DateTime(0);
+      return bt.compareTo(at);
+    });
+    return unresolved.first;
   }
 
   String _clock(DateTime at) =>
@@ -207,34 +200,45 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildSystemRow(Map<String, dynamic> alert, DateTime at) {
-    final critical = alert['severity'] == 'critical' || alert['severity'] == 'high';
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: critical ? Colors.red[50] : Colors.grey[200],
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              critical ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
-              size: 16,
-              color: critical ? Colors.red[700] : Colors.grey[700],
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                '${alert['message'] ?? alert['alert_type']} - ${_clock(at)}',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  color: critical ? Colors.red[900] : Colors.grey[800],
+  /// A single small pill for whichever alert is most recently unresolved.
+  /// Tapping it goes to [NotificationScreen], which has the rest and the
+  /// resolve button -- this banner is a heads-up, not the place to act on it.
+  Widget _buildActiveAlertBanner() {
+    final alert = _activeAlert();
+    if (alert == null) return const SizedBox.shrink();
+    final at = DateTime.tryParse(alert['created_at'] as String? ?? '')?.toLocal();
+    final label = at == null
+        ? '${alert['message'] ?? alert['alert_type']}'
+        : '${alert['message'] ?? alert['alert_type']} ${_clock(at)}';
+
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const NotificationScreen()),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.amber[50],
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.amber[200]!),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, size: 16, color: Colors.amber[800]),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12.5, color: Colors.amber[900]),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -317,12 +321,13 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Column(
         children: [
           _buildDistanceStrip(),
+          _buildActiveAlertBanner(),
           Expanded(
             child: StreamBuilder<List<ChatMessage>>(
               stream: ChatDirectory.stream(widget.patientId),
               builder: (context, snapshot) {
-                final entries = _timeline(snapshot.data ?? const []);
-                if (entries.isEmpty) {
+                final messages = _sortedMessages(snapshot.data ?? const []);
+                if (messages.isEmpty) {
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(32),
@@ -342,13 +347,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 return ListView.builder(
                   controller: _scroll,
                   padding: const EdgeInsets.symmetric(vertical: 12),
-                  itemCount: entries.length,
-                  itemBuilder: (context, i) {
-                    final entry = entries[i];
-                    return entry.message != null
-                        ? _buildMessageRow(entry.message!)
-                        : _buildSystemRow(entry.alert!, entry.at);
-                  },
+                  itemCount: messages.length,
+                  itemBuilder: (context, i) => _buildMessageRow(messages[i]),
                 );
               },
             ),

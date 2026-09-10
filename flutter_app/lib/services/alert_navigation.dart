@@ -34,7 +34,33 @@ const urgentAlertTypes = {'sos', 'emergency', 'geofence', 'safe_zone_exit'};
 /// behind the bell, with a badge on it, and a bar sliding over the bottom of
 /// whatever the caregiver was doing only says the same thing louder and then
 /// takes it away again after eight seconds.
-const notificationListAlertTypes = {'sos', 'sos_home'};
+///
+/// `emergency`/`geofence`/`safe_zone_exit`/`gps_loss` were added so the family
+/// chat screen could stop rendering the full unresolved-alert history inline —
+/// it now shows only a small "something is active" banner and points here for
+/// the rest, so this list has to cover everything that used to live in chat.
+///
+/// `risk_medium`/`off_route` are actionable the same way (unresolved, need a
+/// caregiver's attention); `trip_started`/`trip_arrived` are not — they're a
+/// point-in-time feed entry, always written already resolved, and
+/// [informationalAlertTypes] is what tells the notifications screen to list
+/// them regardless of that resolved flag.
+const notificationListAlertTypes = {
+  'sos',
+  'sos_home',
+  'emergency',
+  'geofence',
+  'safe_zone_exit',
+  'gps_loss',
+  'risk_medium',
+  'off_route',
+  'trip_started',
+  'trip_arrived',
+};
+
+/// Alert types that are a feed entry, not an open condition — shown on the
+/// notifications screen however `resolved` reads, and with no resolve button.
+const informationalAlertTypes = {'trip_started', 'trip_arrived'};
 
 /// The patient has gone quiet — Module 4's search, not the SOS screen.
 ///

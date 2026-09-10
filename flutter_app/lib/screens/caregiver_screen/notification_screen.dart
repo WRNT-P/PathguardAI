@@ -15,13 +15,15 @@ class NotificationScreen extends StatefulWidget {
 }
 
 class _NotificationScreenState extends State<NotificationScreen> {
-  /// Unresolved SOS presses across every patient this caregiver looks after.
+  /// Unresolved alerts (SOS plus everything the family chat used to show
+  /// inline — emergency/geofence/safe_zone_exit/gps_loss) across every
+  /// patient this caregiver looks after.
   ///
-  /// An "sos" alert never closes itself — a person pressed the button, so a
-  /// person decides when it is over — so it belongs on a list the caregiver
-  /// can come back to, not only in a full-screen takeover they may have
-  /// dismissed while driving.
-  List<Map<String, dynamic>> _sosAlerts = [];
+  /// None of these close themselves — something happened, so a person
+  /// decides when it is over — so they belong on a list the caregiver can
+  /// come back to, not only in a full-screen takeover or a chat bubble they
+  /// may have scrolled past.
+  List<Map<String, dynamic>> _alerts = [];
   bool _loadingAlerts = true;
   Timer? _poll;
 
@@ -29,8 +31,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
   void initState() {
     super.initState();
     TripRequestDirectory.instance.addListener(_onRequestsChanged);
-    _loadSosAlerts();
-    _poll = Timer.periodic(const Duration(seconds: 20), (_) => _loadSosAlerts());
+    _loadAlerts();
+    _poll = Timer.periodic(const Duration(seconds: 20), (_) => _loadAlerts());
   }
 
   @override
@@ -40,7 +42,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     super.dispose();
   }
 
-  Future<void> _loadSosAlerts() async {
+  Future<void> _loadAlerts() async {
     try {
       final res = await apiGet('/api/patients');
       if (res.statusCode != 200) return;
@@ -50,21 +52,41 @@ class _NotificationScreenState extends State<NotificationScreen> {
       final found = <Map<String, dynamic>>[];
       for (final patient in patients) {
         final id = patient['patient_id'] as int;
-        final alertsRes = await apiGet('/api/patients/$id/alerts');
+        final alertsRes = await apiGet('/api/patients/$id/alerts?limit=100');
         if (alertsRes.statusCode != 200) continue;
         final alerts = (jsonDecode(alertsRes.body)['alerts'] as List)
             .cast<Map<String, dynamic>>();
         for (final alert in alerts) {
-          if (alert['resolved'] == false &&
-              notificationListAlertTypes.contains(alert['alert_type'])) {
-            found.add({...alert, '_patient': patient});
+          final type = alert['alert_type'];
+          if (!notificationListAlertTypes.contains(type)) continue;
+          final informational = informationalAlertTypes.contains(type);
+          // Informational rows (trip started/arrived) are written already
+          // resolved — they're a feed entry, not an open condition — so they
+          // need their own recency cutoff instead of the resolved==false
+          // filter everything else uses, or the feed would grow forever.
+          if (informational) {
+            final at = DateTime.tryParse(alert['created_at'] as String? ?? '');
+            if (at == null ||
+                DateTime.now().toUtc().difference(at.toUtc()) >
+                    const Duration(hours: 24)) {
+              continue;
+            }
+          } else if (alert['resolved'] != false) {
+            continue;
           }
+          found.add({...alert, '_patient': patient});
         }
       }
 
+      found.sort((a, b) {
+        final at = DateTime.tryParse(a['created_at'] as String? ?? '') ?? DateTime(0);
+        final bt = DateTime.tryParse(b['created_at'] as String? ?? '') ?? DateTime(0);
+        return bt.compareTo(at);
+      });
+
       if (!mounted) return;
       setState(() {
-        _sosAlerts = found;
+        _alerts = found;
         _loadingAlerts = false;
       });
     } catch (_) {
@@ -116,7 +138,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
         const SnackBar(content: Text('Could not reach the server')),
       );
     }
-    _loadSosAlerts();
+    _loadAlerts();
   }
 
   Widget _buildSosTile(Map<String, dynamic> alert) {
@@ -155,10 +177,95 @@ class _NotificationScreenState extends State<NotificationScreen> {
               alert: alert,
             ),
           );
-          _loadSosAlerts();
+          _loadAlerts();
         },
       ),
     );
+  }
+
+  /// Everything that isn't SOS: emergency/geofence/safe_zone_exit/gps_loss.
+  /// These used to render inline in the family chat as a repeating red row
+  /// per DB record; here they collapse into one card each, resolvable the
+  /// same way as an SOS, but without SOS's "claim and go" flow — nobody is
+  /// driving to a location for a risk-score alert.
+  Widget _buildAlertTile(Map<String, dynamic> alert) {
+    final patient = alert['_patient'] as Map<String, dynamic>;
+    final createdAt = DateTime.tryParse(alert['created_at'] as String? ?? '')?.toLocal();
+    final severity = alert['severity'] as String?;
+    final critical = severity == 'critical' || severity == 'high';
+    // Same claim a caregiver makes from SosAlertScreen ("I'll go get them")
+    // reaches this row too — "emergency" is claimable the same way "sos" is,
+    // it just isn't the type that takes over the screen on its own. Without
+    // this a caregiver who already claimed it sees no sign of that here.
+    final claimedByName = alert['claimed_by_name'] as String?;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: critical ? Colors.red[50] : Colors.orange[50],
+      child: ListTile(
+        leading: Icon(
+          Icons.warning_amber_rounded,
+          color: critical ? Colors.red : Colors.orange[800],
+          size: 32,
+        ),
+        title: Text(
+          '${patient['name']}: ${alert['message'] ?? alert['alert_type']}',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text([
+          if (createdAt != null)
+            '${createdAt.hour.toString().padLeft(2, '0')}:'
+                '${createdAt.minute.toString().padLeft(2, '0')}',
+          if (claimedByName != null) '$claimedByName is on their way',
+        ].join(' · ')),
+        trailing: IconButton(
+          icon: const Icon(Icons.check_circle_outline, color: Colors.green),
+          tooltip: 'Mark as resolved',
+          onPressed: () => _resolve(alert),
+        ),
+      ),
+    );
+  }
+
+  /// trip_started/trip_arrived — a feed entry, not a problem. No resolve
+  /// button (there's nothing to resolve) and a calmer colour than every other
+  /// tile here, so a caregiver's eye still goes to an actual alert first.
+  Widget _buildInfoTile(Map<String, dynamic> alert) {
+    final patient = alert['_patient'] as Map<String, dynamic>;
+    final createdAt = DateTime.tryParse(alert['created_at'] as String? ?? '')?.toLocal();
+    final arrived = alert['alert_type'] == 'trip_arrived';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: Colors.blue[50],
+      child: ListTile(
+        leading: Icon(
+          arrived ? Icons.flag_rounded : Icons.directions_walk_rounded,
+          color: Colors.blue[700],
+          size: 32,
+        ),
+        title: Text(
+          '${patient['name']}: ${alert['message'] ?? alert['alert_type']}',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: createdAt == null
+            ? null
+            : Text(
+                '${createdAt.hour.toString().padLeft(2, '0')}:'
+                '${createdAt.minute.toString().padLeft(2, '0')}',
+              ),
+      ),
+    );
+  }
+
+  /// SOS keeps its own full-screen takeover and claim flow; trip lifecycle
+  /// events are informational only; everything else gets the plainer
+  /// resolvable card.
+  Widget _buildAnyAlertTile(Map<String, dynamic> alert) {
+    final type = alert['alert_type'];
+    if (type == 'sos' || type == 'sos_home') return _buildSosTile(alert);
+    if (informationalAlertTypes.contains(type)) return _buildInfoTile(alert);
+    return _buildAlertTile(alert);
   }
 
   void _onRequestsChanged() {
@@ -218,7 +325,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
   Widget build(BuildContext context) {
     final pending = TripRequestDirectory.instance.pending;
     final nothingAtAll =
-        pending.isEmpty && _sosAlerts.isEmpty && !_loadingAlerts;
+        pending.isEmpty && _alerts.isEmpty && !_loadingAlerts;
 
     return Scaffold(
       appBar: AppBar(
@@ -227,12 +334,12 @@ class _NotificationScreenState extends State<NotificationScreen> {
       body: nothingAtAll
           ? const Center(child: Text('No notifications'))
           : RefreshIndicator(
-              onRefresh: _loadSosAlerts,
+              onRefresh: _loadAlerts,
               child: ListView(
                 children: [
                   // Emergencies first. A trip request can wait for the length
                   // of a scroll; somebody who pressed SOS cannot.
-                  ..._sosAlerts.map(_buildSosTile),
+                  ..._alerts.map(_buildAnyAlertTile),
                   ...pending.map(_buildTripRequestTile),
                 ],
               ),

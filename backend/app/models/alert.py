@@ -15,6 +15,20 @@ AlertType = Literal[
     # keyed on (patient, alert_type): sharing one would let a press from the
     # sofa silently swallow the push for a press made lost in the street.
     "sos_home",
+    # Fired by risk.py once the adjusted score crosses LOW_CEILING (50) but
+    # hasn't reached EMERGENCY_SCORE (80) yet — a STATUS alert, same
+    # self-resolving shape as "emergency"/"geofence", suppressed while an
+    # emergency is already open so the two don't both page for one score.
+    "risk_medium",
+    # Client-reported, not scored: the patient's own phone measured its
+    # distance from the planned route and decided it's too far. Never
+    # auto-resolves (the server has no route to re-check), same as "sos".
+    "off_route",
+    # Informational trip-lifecycle events from POST /api/patients/{id}/trip-events
+    # — written already resolved, since neither is an ongoing condition a
+    # caregiver needs to close.
+    "trip_started",
+    "trip_arrived",
 ]
 ALERT_TYPES: tuple[str, ...] = get_args(AlertType)
 

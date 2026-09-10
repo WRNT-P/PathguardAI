@@ -109,7 +109,7 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
     final current = _alert;
     if (current == null) return;
     try {
-      final res = await apiGet('/api/patients/${widget.patient['id']}/alerts');
+      final res = await apiGet('/api/patients/${widget.patient['id']}/alerts?limit=100');
       if (res.statusCode != 200) return;
       final alerts = (jsonDecode(res.body)['alerts'] as List).cast<Map<String, dynamic>>();
       final updated = alerts.firstWhere((a) => a['id'] == current['id'], orElse: () => current);

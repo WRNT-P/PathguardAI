@@ -10,6 +10,8 @@ import '../../services/session.dart';
 import '../../services/active_trip_service.dart';
 import '../../utils/bearing.dart';
 import '../../services/directions_service.dart';
+import '../../services/trip_event_reporter.dart';
+import '../../utils/route_deviation.dart';
 import 'dart:ui' as ui;
 
 import 'dart:async';
@@ -42,6 +44,37 @@ class _NavigationScreenState extends State<NavigationScreen> {
 
   /// This screen's claim on `active_trips/{patientId}` — see [dispose].
   ActiveTripHandle? _tripHandle;
+
+  /// Guards against reporting "arrived" more than once per trip —
+  /// [_handlePosition] fires on every GPS update, and the distance check
+  /// alone would re-fire for as long as the patient stands near the place.
+  /// Not set while backtracking: "Take me back" heads for home, not
+  /// [widget.place], so arrival there means nothing here.
+  bool _arrivalReported = false;
+
+  /// Off-route is reported once per continuous episode: set the moment the
+  /// patient first strays past [_offRouteThresholdMeters], cleared the
+  /// moment they're back within it, so straying twice on one walk is two
+  /// notifications, not zero after the first.
+  DateTime? _offRouteSince;
+  bool _offRouteReported = false;
+  static const double _offRouteThresholdMeters = 80;
+  static const Duration _offRouteSustainedFor = Duration(seconds: 30);
+
+  /// The patient's own last-known risk score, polled read-only from
+  /// `/risk/latest` (never `/risk` — that recomputes and can push). Drives
+  /// whether "Take me back" gets suggested more insistently below.
+  double? _riskScore;
+  Timer? _riskPoll;
+  static const double _riskSuggestBacktrackThreshold = 50;
+  static const double _riskRescueThreshold = 80;
+
+  /// Name of whoever claimed this patient's open "emergency" alert, if any —
+  /// read from the same `alerts` row a caregiver's `SosAlertScreen` claims
+  /// through. Only ever set when a real person has actually claimed it, on
+  /// purpose: telling a patient "help is coming" before anyone has agreed to
+  /// go would be a promise the app cannot back up.
+  String? _claimedByName;
 
   final List<LatLng> _trail = [];
   static const double _trailSpacingMeters = 15;
@@ -175,6 +208,42 @@ class _NavigationScreenState extends State<NavigationScreen> {
     _startLocationUpdates();
     _loadNavigationIcon();
     _publishActiveTrip();
+    _pollRisk();
+    _riskPoll = Timer.periodic(const Duration(seconds: 30), (_) => _pollRisk());
+  }
+
+  /// Read-only, safe to poll — unlike `GET /api/risk/{id}` this never
+  /// recomputes or pushes. A missed poll just means the button doesn't light
+  /// up a little late; never worth surfacing as an error to the patient.
+  Future<void> _pollRisk() async {
+    final patientId = Session.instance.patientId;
+    if (patientId == null) return;
+    try {
+      final res = await apiGet('/api/patients/$patientId/risk/latest');
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final score = (body['risk_score'] as num?)?.toDouble();
+        if (mounted) setState(() => _riskScore = score);
+      }
+    } catch (_) {}
+
+    // Same poll cycle, not its own timer: this only matters while risk is
+    // already elevated, and a stale claimed-by name for a few extra seconds
+    // costs nothing a patient would notice.
+    try {
+      final alertsRes = await apiGet('/api/patients/$patientId/alerts?limit=100');
+      if (alertsRes.statusCode == 200) {
+        final alerts = (jsonDecode(alertsRes.body)['alerts'] as List)
+            .cast<Map<String, dynamic>>();
+        final emergency = alerts.cast<Map<String, dynamic>?>().firstWhere(
+              (a) => a?['alert_type'] == 'emergency' && a?['resolved'] == false,
+              orElse: () => null,
+            );
+        if (mounted) {
+          setState(() => _claimedByName = emergency?['claimed_by_name'] as String?);
+        }
+      }
+    } catch (_) {}
   }
 
   /// Tell the caregiver's screen a trip is under way, for as long as this
@@ -186,6 +255,50 @@ class _NavigationScreenState extends State<NavigationScreen> {
     if (patientId == null) return;
     _tripHandle =
         ActiveTripService.instance.start(patientId: patientId, place: widget.place);
+    reportTripEvent(
+      'started',
+      destinationName: widget.place['name'] as String?,
+      latitude: (widget.place['lat'] as num?)?.toDouble(),
+      longitude: (widget.place['lng'] as num?)?.toDouble(),
+    );
+  }
+
+  /// Checks the just-updated position against [_destination] (arrival) and
+  /// the fetched route (off-route), reporting each at most once per episode.
+  /// Skipped entirely while retracing: "Take me back" isn't heading for
+  /// [_destination], and re-walking the trail isn't "off route" from itself.
+  void _checkTripProgress(LatLng updated) {
+    if (_backtracking) return;
+
+    if (!_arrivalReported) {
+      final toDestination = const Distance().as(
+        LengthUnit.Meter, updated, LatLng(_destination.latitude, _destination.longitude));
+      if (toDestination < 20) {
+        _arrivalReported = true;
+        reportTripEvent(
+          'arrived',
+          destinationName: widget.place['name'] as String?,
+          latitude: updated.latitude,
+          longitude: updated.longitude,
+        );
+      }
+    }
+
+    final route = _routePoints;
+    if (route == null || route.length < 2) return;
+    final routeLatLng = route.map((p) => LatLng(p.latitude, p.longitude)).toList();
+    final offRoute = distanceToRoute(updated, routeLatLng) > _offRouteThresholdMeters;
+    if (!offRoute) {
+      _offRouteSince = null;
+      _offRouteReported = false;
+      return;
+    }
+    _offRouteSince ??= DateTime.now();
+    if (!_offRouteReported &&
+        DateTime.now().difference(_offRouteSince!) >= _offRouteSustainedFor) {
+      _offRouteReported = true;
+      reportTripEvent('off_route', latitude: updated.latitude, longitude: updated.longitude);
+    }
   }
 
   Future<void> _startLocationUpdates() async {
@@ -309,27 +422,58 @@ class _NavigationScreenState extends State<NavigationScreen> {
       // fetched once and never re-fetched (Directions is billed per call), so
       // without this the drawn line stays pinned to wherever the walk started
       // and the patient watches a path they are no longer on.
-      //
-      // Forward-only, and only while the next point is genuinely nearer than
-      // the current one, so a route that doubles back near itself cannot snap
-      // the line onto the wrong leg.
       final route = _routePoints;
-      if (route != null) {
-        while (_routeProgressIndex < route.length - 1) {
-          final here = route[_routeProgressIndex];
-          final next = route[_routeProgressIndex + 1];
-          final toHere = distance.as(
-              LengthUnit.Meter, updated, LatLng(here.latitude, here.longitude));
-          final toNext = distance.as(
-              LengthUnit.Meter, updated, LatLng(next.latitude, next.longitude));
-          if (toNext >= toHere) break;
-          _routeProgressIndex++;
+      if (route != null && route.isNotEmpty) {
+        final claimed = route[_routeProgressIndex.clamp(0, route.length - 1)];
+        final distanceFromClaimed = distance.as(
+            LengthUnit.Meter, updated, LatLng(claimed.latitude, claimed.longitude));
+
+        if (distanceFromClaimed > _offRouteThresholdMeters) {
+          // The point this index claims to be "here" is nowhere near the
+          // patient right now. A GPS jump — emulator location teleporting for
+          // testing, or a real signal drop that resumes somewhere else — used
+          // to walk this index forward against wherever that stray fix
+          // landed, and since the loop below only ever advances, the index
+          // stayed stuck far ahead once the real position came back: the
+          // drawn line jumped from here straight out to that stale point
+          // before continuing normally. Re-anchor to whichever point is
+          // actually nearest, but only if that point is itself close enough
+          // to trust — otherwise leave the index alone rather than snapping
+          // the line onto an unrelated leg of the route.
+          var nearestIndex = _routeProgressIndex;
+          var nearestMeters = distanceFromClaimed;
+          for (var i = 0; i < route.length; i++) {
+            final d = distance.as(
+                LengthUnit.Meter, updated, LatLng(route[i].latitude, route[i].longitude));
+            if (d < nearestMeters) {
+              nearestMeters = d;
+              nearestIndex = i;
+            }
+          }
+          if (nearestMeters <= _offRouteThresholdMeters) {
+            _routeProgressIndex = nearestIndex;
+          }
+        } else {
+          // Forward-only, and only while the next point is genuinely nearer
+          // than the current one, so a route that doubles back near itself
+          // cannot snap the line onto the wrong leg.
+          while (_routeProgressIndex < route.length - 1) {
+            final here = route[_routeProgressIndex];
+            final next = route[_routeProgressIndex + 1];
+            final toHere = distance.as(
+                LengthUnit.Meter, updated, LatLng(here.latitude, here.longitude));
+            final toNext = distance.as(
+                LengthUnit.Meter, updated, LatLng(next.latitude, next.longitude));
+            if (toNext >= toHere) break;
+            _routeProgressIndex++;
+          }
         }
       }
 
       _currentLocation = updated;
     });
 
+    _checkTripProgress(updated);
     _updateCamera();
 
     if (isFirstFix) {
@@ -515,6 +659,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
   @override
   void dispose() {
     _positionSubscription?.cancel();
+    _riskPoll?.cancel();
     // Not awaited — dispose cannot be async — and it does not need to be:
     // if the write never lands, the heartbeat has already stopped and the
     // trip ages out on the reader's side within staleAfter. Ending through
@@ -592,6 +737,21 @@ class _NavigationScreenState extends State<NavigationScreen> {
     // rather than by producing a route to where the patient already stands.
     final canBacktrack = _trail.length >= 2;
 
+    // Suggested, not forced — item 5's decision was to leave navigation
+    // entirely to the patient's own SOS press, so risk never opens a screen
+    // by itself. This just makes the control that's already there easier to
+    // notice once risk is elevated at all; there's no upper bound, because a
+    // button that stops being suggested past 80 would read as "calmer now"
+    // exactly when it should not.
+    final suggestBacktrack = canBacktrack &&
+        !_backtracking &&
+        (_riskScore ?? 0) > _riskSuggestBacktrackThreshold;
+
+    // Only once risk is genuinely high AND a real caregiver has claimed the
+    // alert — see [_claimedByName]'s doc for why the second half is required.
+    final beingRescued =
+        (_riskScore ?? 0) > _riskRescueThreshold && _claimedByName != null;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.place['name']),
@@ -623,85 +783,111 @@ class _NavigationScreenState extends State<NavigationScreen> {
               _mapController = controller;
             },
           ),
-          if (_locationUnavailable)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                child: Container(
-                  margin: const EdgeInsets.all(12),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade800,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.location_off, color: Colors.white, size: 40),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Turn on location to start navigating',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+          // Stacked in one Column, highest-priority first, instead of three
+          // independent `top: 0` Positioneds — those overlapped whenever more
+          // than one condition held at once (a real case now: high risk plus
+          // mid-turn instructions), each banner painting over the last.
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              child: Column(
+                children: [
+                  if (beingRescued)
+                    Container(
+                      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade700,
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          if (instructionText != null)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                child: Container(
-                  margin: const EdgeInsets.all(12),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    // Retracing is a different mode, not a different turn, and
-                    // the banner carries that so a glance says which line on
-                    // the map is the one being walked.
-                    color: _backtracking
-                        ? Colors.deepOrange.shade800
-                        : const Color.fromARGB(255, 50, 95, 68),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(_instructionIcon(instructionText), color: Colors.white, size: 50),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (distanceToTurn != null)
-                              Text(
-                                '${distanceToTurn.toStringAsFixed(0)}m',
-                                style: const TextStyle(color: Colors.white70, fontSize: 20),
-                              ),
-                            Text(
-                              instructionText,
+                      child: Row(
+                        children: [
+                          const Icon(Icons.favorite, color: Colors.white, size: 40),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Stay where you are — $_claimedByName is coming to get you.',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                  if (_locationUnavailable)
+                    Container(
+                      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade800,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.location_off, color: Colors.white, size: 40),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Turn on location to start navigating',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (instructionText != null)
+                    Container(
+                      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        // Retracing is a different mode, not a different turn, and
+                        // the banner carries that so a glance says which line on
+                        // the map is the one being walked.
+                        color: _backtracking
+                            ? Colors.deepOrange.shade800
+                            : const Color.fromARGB(255, 50, 95, 68),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(_instructionIcon(instructionText), color: Colors.white, size: 50),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (distanceToTurn != null)
+                                  Text(
+                                    '${distanceToTurn.toStringAsFixed(0)}m',
+                                    style: const TextStyle(color: Colors.white70, fontSize: 20),
+                                  ),
+                                Text(
+                                  instructionText,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
+          ),
             Positioned(
               top: 16,
               left: 16,
@@ -768,6 +954,21 @@ class _NavigationScreenState extends State<NavigationScreen> {
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (suggestBacktrack)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.orange[800],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Risk is elevated — consider heading back',
+                  style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
           FloatingActionButton.extended(
             heroTag: 'backtrack',
             // Disabled rather than hidden: a control that appears partway
@@ -775,10 +976,14 @@ class _NavigationScreenState extends State<NavigationScreen> {
             // seen, pressed, and understood before it is needed.
             onPressed: canBacktrack ? _toggleBacktrack : null,
             backgroundColor: canBacktrack
-                ? (_backtracking ? Colors.deepOrange : null)
+                ? (_backtracking
+                    ? Colors.deepOrange
+                    : (suggestBacktrack ? Colors.orange : null))
                 : Colors.grey.shade400,
             icon: Icon(_backtracking ? Icons.close : Icons.u_turn_left),
-            label: Text(_backtracking ? 'Stop' : 'Take me back'),
+            label: Text(_backtracking
+                ? 'Stop'
+                : (suggestBacktrack ? 'Take me back now' : 'Take me back')),
           ),
           const SizedBox(height: 12),
           FloatingActionButton(
