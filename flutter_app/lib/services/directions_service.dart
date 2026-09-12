@@ -62,10 +62,30 @@ Future<RouteResult?> fetchRoute(
   }
 
   final route = data['routes'][0];
-  final overviewPoints = route['overview_polyline']['points'] as String;
-  final points = _decodePolyline(overviewPoints);
-
   final legSteps = route['legs'][0]['steps'] as List<dynamic>;
+
+  // Stitched from the per-step polylines, not `overview_polyline`. The
+  // overview is deliberately simplified for drawing a whole country on one
+  // screen; at the zoom a walking patient sees, its straightened corners sit
+  // off the road — and route_deviation measures against this same line, so a
+  // smoothed one reports a patient as off-route while they walk down the
+  // middle of the pavement.
+  final points = <LatLng>[];
+  for (final step in legSteps) {
+    final encoded = step['polyline']?['points'] as String?;
+    if (encoded == null) continue;
+    final leg = _decodePolyline(encoded);
+    // Each step repeats the previous step's last point.
+    if (points.isNotEmpty && leg.isNotEmpty && points.last == leg.first) {
+      points.addAll(leg.skip(1));
+    } else {
+      points.addAll(leg);
+    }
+  }
+  if (points.isEmpty) {
+    points.addAll(_decodePolyline(route['overview_polyline']['points'] as String));
+  }
+
   final steps = legSteps.map((step) {
     final instruction = _maneuverText(step['maneuver'] as String?);
     final distanceMeters = (step['distance']['value'] as num).toDouble();

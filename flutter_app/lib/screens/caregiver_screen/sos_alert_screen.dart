@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:url_launcher/url_launcher.dart';
+import '../../services/active_trip_service.dart';
 import '../../services/api_client.dart';
 import '../../services/caregiver_session.dart';
 import 'caregiver_navigation_screen.dart';
@@ -42,6 +43,14 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
   bool _acting = false;
   Timer? _refreshTimer;
 
+  /// Where the patient's own app is walking them, live.
+  ///
+  /// The SOS itself no longer waits for that answer before leaving the phone —
+  /// telling the family is the urgent part — so the destination arrives here a
+  /// moment later, from the node the walk publishes when it starts.
+  ActiveTrip? _activeTrip;
+  StreamSubscription<ActiveTrip?>? _activeTripSubscription;
+
   /// Set the instant this screen starts going away, by any of its four exits.
   ///
   /// They can race: marking an alert resolved pops immediately, and the 8s
@@ -64,6 +73,10 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
       const Duration(seconds: 8),
       (_) => _refresh(),
     );
+    _activeTripSubscription =
+        ActiveTripService.instance.watch(widget.patientId).listen((trip) {
+      if (mounted) setState(() => _activeTrip = trip);
+    });
   }
 
   /// Module 2 — where this patient usually goes next, off the Markov
@@ -232,6 +245,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _activeTripSubscription?.cancel();
     super.dispose();
   }
 
@@ -412,6 +426,10 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
     final claimedByName = _alert['claimed_by_name'] as String?;
     final lat = (_alert['latitude'] as num?)?.toDouble();
     final lng = (_alert['longitude'] as num?)?.toDouble();
+    final alertDestination = _alert['destination_name'] as String?;
+    final destination = (alertDestination?.isNotEmpty ?? false)
+        ? alertDestination
+        : _activeTrip?.destinationName;
 
     return Scaffold(
       backgroundColor: Colors.red[50],
@@ -430,10 +448,11 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
-          // The real destination when the patient's app told us one, and only
-          // otherwise the guess.
-          if ((_alert['destination_name'] as String?)?.isNotEmpty ?? false)
-            _destinationCard(_alert['destination_name'] as String)
+          // The real destination when the patient's app told us one — on the
+          // alert if it carried one, otherwise off the live trip — and only
+          // failing both, the guess.
+          if ((destination ?? '').isNotEmpty)
+            _destinationCard(destination!)
           else if (_prediction != null)
             _predictionCard(),
           if (lat != null && lng != null)

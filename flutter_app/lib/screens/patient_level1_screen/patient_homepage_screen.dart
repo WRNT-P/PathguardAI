@@ -34,6 +34,9 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   Timer? _debounce;
   String? _sessionToken;
   List<PlacePrediction> _predictions = [];
+  /// Which search result is being opened, so its row can say so and the rest
+  /// stop responding until it is done.
+  String? _loadingPlaceId;
 
   _ScreenState _state = _ScreenState.browsing;
   Map<String, dynamic>? _selectedPlace;
@@ -265,14 +268,39 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   }
 
   Widget _buildPredictionTile(PlacePrediction prediction) {
+    final loading = _loadingPlaceId == prediction.placeId;
     return ListTile(
+      // The row the patient pressed goes darker and stays darker until it
+      // opens. A ripple alone is gone in 300 ms, which is no answer at all to
+      // "did that work" when the next thing takes a couple of seconds.
+      tileColor: loading ? PatientColors.lavender : null,
+      splashColor: PatientColors.lavender,
       leading: const Icon(Icons.location_on_outlined),
       title: Text(prediction.description),
-      onTap: () async {
-        final details = await fetchPlaceDetails(prediction.placeId, _sessionToken!);
+      // Looking the place up is a round trip to Google and then one to our own
+      // backend. Nothing on screen used to change while that ran, so a patient
+      // who tapped once sat looking at an unchanged list and tapped again.
+      trailing: loading
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : null,
+      onTap: _loadingPlaceId != null
+          ? null
+          : () async {
+        setState(() => _loadingPlaceId = prediction.placeId);
+        // A session token is a billing optimisation, not a credential: it is
+        // cleared after each pick, and `_sessionToken!` then threw on the next
+        // tap — inside an async callback, so the row simply never responded
+        // again. A fresh token is always valid.
+        final token = _sessionToken ?? const Uuid().v4();
+        final details = await fetchPlaceDetails(prediction.placeId, token);
         _sessionToken = null;
 
         if (!mounted) return;
+        setState(() => _loadingPlaceId = null);
 
         if (details == null) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -410,8 +438,12 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                                 itemCount: filteredPlaces.length,
                                 itemBuilder: (context, index) {
                                   final place = filteredPlaces[index];
+                                  // Same rule as the search results: the card
+                                  // being acted on stays visibly pressed for
+                                  // as long as the trip takes to start.
+                                  final starting = _startingTrip && _selectedPlace == place;
                                   return Card(
-                                    color: Colors.white,
+                                    color: starting ? PatientColors.lavender : Colors.white,
                                     elevation: 1,
                                     margin: const EdgeInsets.symmetric(vertical: 6),
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),

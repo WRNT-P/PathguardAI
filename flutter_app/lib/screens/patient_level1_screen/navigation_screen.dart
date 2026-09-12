@@ -119,15 +119,16 @@ class _NavigationScreenState extends State<NavigationScreen> {
       }
     }();
 
-    // Capped: telling the family is the part that must not wait on Google.
-    // Past three seconds the SOS goes without a destination, and the walk
-    // still starts when the lookup lands.
-    final placeForAlert = await placeLookup
-        .timeout(const Duration(seconds: 3), onTimeout: () => null);
-    await triggerSOS(destinationName: placeForAlert?['name'] as String?)
-        .catchError((_) => false);
+    // The press leaves for the server first, before anything else is known.
+    // It used to wait up to three seconds for Google to name a safe place so
+    // the alert could carry a destination, which put Google's latency between
+    // a patient in trouble and their family. The destination is not lost by
+    // going first: the walk publishes it to `active_trips` the moment it
+    // starts, and the caregiver's SOS screen reads it from there.
+    final sosSent = triggerSOS().catchError((_) => false);
 
-    final safePlace = placeForAlert ?? await placeLookup.catchError((_) => null);
+    final safePlace = await placeLookup.catchError((_) => null);
+    await sosSent;
     await nameLookup;
 
     if (!mounted) return;
