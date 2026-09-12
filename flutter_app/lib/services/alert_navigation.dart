@@ -123,25 +123,38 @@ Future<bool> openAlertFromPush(
   // called only on the caregiver paths), so this should not fire there — but
   // if a phone is ever shared between roles, opening a caregiver's alert
   // screen on a patient's app would be worse than showing nothing.
-  if (!CaregiverSession.instance.isSignedIn) return false;
+  debugPrint('alert push: received $data');
+  if (!CaregiverSession.instance.isSignedIn) {
+    debugPrint('alert push: skipped — no caregiver signed in');
+    return false;
+  }
 
   final alertType = data['alert_type'] as String?;
   if (alertType == null) return false;
 
   final isUrgent = urgentAlertTypes.contains(alertType);
   final isMissing = alertType == missingAlertType;
-  if (!isUrgent && !isMissing) return false;
+  if (!isUrgent && !isMissing) {
+    debugPrint('alert push: skipped — $alertType is not a full-screen type');
+    return false;
+  }
 
   // FCM data values are always strings — `notification.py` stringifies every
   // one of them, including the numbers.
   final patientId = int.tryParse(data['patient_id'] as String? ?? '');
   final alertId = int.tryParse(data['alert_id'] as String? ?? '');
-  if (patientId == null || alertId == null) return false;
+  if (patientId == null || alertId == null) {
+    debugPrint('alert push: skipped — bad ids');
+    return false;
+  }
 
   // One alert screen at a time, same rule as pushAlertScreen — including
   // when the one already up is a different alert. Returning true says
   // "handled", which keeps a SnackBar from doubling up on it too.
-  if (openAlertId != null) return true;
+  if (openAlertId != null) {
+    debugPrint('alert push: skipped — alert $openAlertId already on screen');
+    return true;
+  }
 
   final alert = <String, dynamic>{
     'id': alertId,
@@ -159,8 +172,12 @@ Future<bool> openAlertFromPush(
   final patientName = await _patientName(patientId);
 
   final navigator = navigatorKey.currentState;
-  if (navigator == null) return false;
+  if (navigator == null) {
+    debugPrint('alert push: skipped — navigator not ready');
+    return false;
+  }
 
+  debugPrint('alert push: opening $alertType $alertId');
   openAlertId = alertId;
   try {
     await navigator.push(
@@ -199,5 +216,5 @@ Future<String> _patientName(int patientId) async {
   } catch (_) {
     // Falls through to the placeholder.
   }
-  return 'Your patient';
+  return 'ผู้ป่วยของคุณ';
 }

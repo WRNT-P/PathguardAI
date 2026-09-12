@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geolocator/geolocator.dart';
 import '../firebase_options.dart';
 import 'api_client.dart';
@@ -19,6 +20,10 @@ class GpsTaskHandler extends TaskHandler {
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     WidgetsFlutterBinding.ensureInitialized();
+    // apiPost reads BACKEND_BASE_URL from here. Without it every send in this
+    // isolate threw inside the try below and was swallowed, so a patient
+    // sitting still was never reported again after the app's first fix.
+    await dotenv.load(fileName: ".env");
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     await Session.instance.load();
   }
@@ -48,7 +53,8 @@ class GpsTaskHandler extends TaskHandler {
         'direction': heading,
         'recorded_at': position.timestamp.toUtc().toIso8601String(),
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('background gps: send failed — $e');
     }
   }
 

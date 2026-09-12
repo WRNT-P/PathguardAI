@@ -80,21 +80,29 @@ async def _push_to_tokens(
     is that a token Firebase rejects has to be deleted, or every future push to
     that family keeps failing on it forever.
     """
+    # firebase-admin is synchronous HTTP; each send goes off-thread so a slow
+    # FCM call can't stall the event loop mid-GPS-ingest. All devices at once,
+    # not in turn: one family's SOS reached the last phone only after every
+    # phone before it had finished its own round trip.
+    results = await asyncio.gather(
+        *(asyncio.to_thread(_send_one, token, title, body, data) for token in tokens),
+        return_exceptions=True,
+    )
     delivered = 0
-    for token in tokens:
-        try:
-            # firebase-admin is synchronous HTTP; off-thread so a slow FCM call
-            # can't stall the event loop mid-GPS-ingest.
-            await asyncio.to_thread(_send_one, token, title, body, data)
+    # The session is not safe to share between concurrent tasks, so cleanup
+    # waits until every send is back.
+    for token, result in zip(tokens, results):
+        if result is None:
             delivered += 1
-        except messaging.UnregisteredError:
+        elif isinstance(result, messaging.UnregisteredError):
             # App uninstalled or token rotated — drop it, or every future push
             # fails on it forever.
             logger.info("dropping unregistered device token for patient=%s",
                         patient_id)
             await crud.delete_device_token(db, token)
-        except Exception:
-            logger.exception("FCM send failed for patient=%s", patient_id)
+        else:
+            logger.error("FCM send failed for patient=%s", patient_id,
+                         exc_info=result)
     return delivered
 
 
@@ -192,7 +200,7 @@ async def _notify_alert(db: AsyncSession, alert: Alert, cooldown_s: float) -> di
     # own thing; the push has only one line, so it gets it appended.
     body = alert.message
     if alert.destination_name:
-        body = f"{body} Heading to {alert.destination_name}."
+        body = f"{body} กำลังไป {alert.destination_name}"
 
     delivered = await _push_to_tokens(
         db, alert.patient_id, tokens, title, body, data)

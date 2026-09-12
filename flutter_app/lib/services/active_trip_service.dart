@@ -160,16 +160,19 @@ class ActiveTrip {
   final double? latitude;
   final double? longitude;
   final DateTime? heartbeatAt;
+  final DateTime? startedAt;
 
   const ActiveTrip({
     this.destinationName,
     this.latitude,
     this.longitude,
     this.heartbeatAt,
+    this.startedAt,
   });
 
   factory ActiveTrip.fromMap(Map<String, dynamic> map) {
     final beat = map['heartbeat'];
+    final started = map['started_at'];
     return ActiveTrip(
       destinationName: map['destination_name'] as String?,
       latitude: (map['latitude'] as num?)?.toDouble(),
@@ -180,6 +183,9 @@ class ActiveTrip {
       // whether the same trip is still alive.
       heartbeatAt: beat is num
           ? DateTime.fromMillisecondsSinceEpoch(beat.toInt())
+          : null,
+      startedAt: started is num
+          ? DateTime.fromMillisecondsSinceEpoch(started.toInt())
           : null,
     );
   }
