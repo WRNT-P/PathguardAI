@@ -70,7 +70,10 @@ _PARTIAL_FACTORS = ("wandering", "danger_zone")
 # Recompute risk at most this often per patient. One /api/risk pass loads 30 days
 # of GPS and fits IsolationForest + RoutePredictor, so running it on every 30 s
 # reading would mean ~2,880 fits a day over a table that grows to ~86k rows.
-RISK_RECOMPUTE_INTERVAL_S = 60
+# ⚠️ DEMO VALUE — restore to 60 after the presentation. The temporal rules
+# (sustained_high_risk window=5, trend_escalation window=3) count scoring rounds,
+# so at 20 s "sustained for 5 rounds" means 100 s instead of the intended 5 min.
+RISK_RECOMPUTE_INTERVAL_S = 20
 
 
 def _renormalize(weights: dict, keep: tuple[str, ...]) -> dict:
@@ -256,11 +259,11 @@ async def evaluate_risk(
                     "severity": "high", "alert_type": "emergency"}
     if decision["emergency"]:
         if decision["reason"] == "danger_zone":
-            message = f"Patient entered a danger zone — risk {adj_score}%."
+            message = f"ผู้ป่วยเข้าไปในพื้นที่อันตราย — ความเสี่ยง {adj_score}%"
         elif decision["reason"] == "sustained_risk":
-            message = f"Sustained elevated risk ({adj_score}%) over recent readings — escalating."
+            message = f"ความเสี่ยงสูงต่อเนื่อง ({adj_score}%) หลายรอบติดกัน — ยกระดับการแจ้งเตือน"
         else:
-            message = f"High risk ({adj_score}%) — {decision['reason']}."
+            message = f"ความเสี่ยงสูง ({adj_score}%)"
         alert = await crud.save_alert(
             db,
             patient_id,
@@ -299,7 +302,7 @@ async def evaluate_risk(
             patient_id,
             alert_type="risk_medium",
             severity="medium",
-            message=f"Risk elevated to {adj_score}% — keep an eye on them.",
+            message=f"ความเสี่ยงเพิ่มขึ้นเป็น {adj_score}% — คอยดูผู้ป่วยไว้",
             latitude=lat,
             longitude=lng,
         )
@@ -318,7 +321,7 @@ async def evaluate_risk(
             patient_id,
             alert_type="safe_zone_exit",
             severity="high",
-            message=f"Patient is outside all known safe areas — risk {adj_score}%.",
+            message=f"ผู้ป่วยอยู่นอกพื้นที่ปลอดภัยที่รู้จักทั้งหมด — ความเสี่ยง {adj_score}%",
             latitude=lat,
             longitude=lng,
         )
@@ -355,7 +358,7 @@ async def evaluate_risk(
             patient_id,
             alert_type="gps_loss",
             severity="high",
-            message=f"GPS signal lost (gap {gap['gap_seconds']}s) — last known location forwarded",
+            message=f"สัญญาณ GPS ขาดหาย ({gap['gap_seconds']} วินาที) — ส่งตำแหน่งล่าสุดที่ทราบให้แล้ว",
             latitude=last_known.get("latitude"),
             longitude=last_known.get("longitude"),
         )
