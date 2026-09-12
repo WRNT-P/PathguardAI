@@ -88,7 +88,11 @@ def normalize_learned(learned: list[dict]) -> list[dict]:
             # than "never been here", which is what a 0 would claim.
             "visit_frequency": max(1, round(scaled)),
             "avg_stay_time": round(stay_min * _MINUTES_TO_SECONDS, 1),
-            "source": "learned",
+            # "learned_trip" when it came from completed navigated trips and
+            # "learned" when it came from clustering the raw track. The two are
+            # not equally trustworthy — only the first is evidence the patient
+            # meant to be there — and the risk path keeps them apart.
+            "source": place.get("source", "learned"),
         })
     return out
 
@@ -100,9 +104,11 @@ def merge_learned(existing: list[dict], learned: list[dict]) -> list[dict]:
     side keeps the learned entries, this side keeps the manual ones. Neither
     writer may delete the other's rows.
     """
-    # Anything not explicitly learned is kept. Rows written before `source`
-    # existed carry no marker at all, and now that ingestion trains on its own
-    # (gps.py::_train_profile_after_ingest) a stricter test would delete those
-    # patients' places the first time their phone reported a position.
-    manual = [p for p in existing if p.get("source") != "learned"]
-    return renumber(manual + normalize_learned(learned))
+    # Every flavour of learned row is dropped and rebuilt from this pass;
+    # anything else is kept. Both halves matter. Keeping a learned row would
+    # pile up a fresh copy of the same place on every run until the pins were
+    # buried by sheer count — and testing for `== "manual"` instead would
+    # delete the places of every patient whose profile predates the `source`
+    # field, the first time their phone reported a position.
+    kept = [p for p in existing if p.get("source") not in ("learned", "learned_trip")]
+    return renumber(kept + normalize_learned(learned))

@@ -125,15 +125,39 @@ class RiskResponse(BaseModel):
     temporal_rules_triggered: list[str] = []
 
 
-async def _resolve_stale(db: AsyncSession, patient_id: int, alert_type: str) -> None:
+# An "sos" is not closed by the condition that raised it, because a person
+# raised it. It is closed when the episode is over — and an episode needs time
+# to be over. Without this floor, a patient who presses SOS while standing
+# inside a place they know (their own garden, walking past the market) has the
+# alert resolved by the very next scoring round, seconds later: the caregiver's
+# full-screen alert opens and vanishes while they are looking at it.
+SOS_AUTO_RESOLVE_GRACE_S = 5 * 60
+
+
+async def _resolve_stale(db: AsyncSession, patient_id: int, alert_type: str, *,
+                         min_age_s: float = 0.0,
+                         skip_claimed: bool = False) -> None:
     """Close every unresolved alert of one STATUS type for a patient.
 
     Only for types whose truth is re-derived every scoring round (danger
-    zone, over-threshold score, GPS gap, outside every known place) — never
-    for "sos", which a human pressed and only a human should close.
+    zone, over-threshold score, GPS gap, outside every known place) — and for
+    "sos" under the two guards its caller passes: it is the one type here a
+    human raised, so it is never closed while it is fresh, nor once somebody
+    has said they are on their way.
     """
     stale = await crud.get_unresolved_alerts_by_type(db, patient_id, alert_type)
+    now = datetime.now(timezone.utc)
     for alert in stale:
+        # Claimed means a caregiver is walking to this patient right now. The
+        # scoring round does not get to tell them it is over.
+        if skip_claimed and alert.claimed_by is not None:
+            continue
+        if min_age_s:
+            created = alert.created_at
+            if created.tzinfo is None:   # SQLite hands back naive timestamps
+                created = created.replace(tzinfo=timezone.utc)
+            if (now - created).total_seconds() < min_age_s:
+                continue
         await crud.set_alert_resolved(db, alert.id, True)
 
 
@@ -348,7 +372,9 @@ async def evaluate_risk(
         # Without this the row outlived the emergency for ever: it kept
         # seizing the caregiver's screen on every app open until a human ran
         # SQL, which is not a thing an app may ask of anyone.
-        await _resolve_stale(db, patient_id, "sos")
+        await _resolve_stale(db, patient_id, "sos",
+                             min_age_s=SOS_AUTO_RESOLVE_GRACE_S,
+                             skip_claimed=True)
 
     # ── 10. GPS-loss alert ────────────────────────────────────────────────────
     if gap["gps_lost"]:

@@ -19,8 +19,10 @@ from app.db import crud
 from app.db.models import GPSData
 from app.ai.module1_behavior.data_preprocessing import preprocess_gps
 from app.ai.module1_behavior.known_places import decode, merge_learned
-from app.ai.module1_behavior.place_clustering import cluster_places
 from app.ai.module1_behavior.routine_patterns import build_routine_patterns
+from app.ai.module1_behavior.trip_learning import (
+    learn_places_from_trips, qualifying_visits,
+)
 
 # A fix slower than this is somebody standing still with GPS noise around them;
 # faster than this is a vehicle. Averaging either into "how fast do they walk"
@@ -72,8 +74,17 @@ async def analyze_behavior(
 
     1. read the last ``days`` of GPS history from PostgreSQL
     2. preprocess (clean + Kalman smooth)
-    3. cluster frequent places (DBSCAN)
+    3. learn places from COMPLETED NAVIGATED TRIPS (DBSCAN over their arrivals)
     4. merge with the caregiver's pins and persist to the behavioral profile
+
+    Step 3 used to cluster the whole GPS track. It no longer does, and the
+    reason is a safety one rather than an accuracy one: stopping somewhere
+    twice is what a patient does when they keep getting lost in the same
+    place, and a place learned that way would have gone on to silence the
+    alerts that fire there. ``trip_learning`` starts from the one thing the
+    track cannot show — that the patient chose the destination themselves and
+    the app walked them to it — and uses the GPS history only to check they
+    stayed, and came back on another day.
 
     Step 4 used to be a wholesale overwrite, which would have deleted every
     caregiver pin the first night this ran. It now keeps them, and rescales what
@@ -87,7 +98,10 @@ async def analyze_behavior(
 
     df = gps_history_to_dataframe(records) # แปลง list ของ GPS records (จาก database) ให้กลายเป็น pandas DataFrame (ตารางข้อมูล)
     df = preprocess_gps(df) # รับ DataFrame เข้าไป ทำความสะอาด (ตามที่ doc บอก: ลบ noise ด้วย Kalman Filter, normalize เวลา, แปลงหน่วยความเร็ว) แล้ว return DataFrame ที่สะอาดแล้ว ทับตัวแปรเดิม
-    learned = cluster_places(df) # รับ DataFrame ที่สะอาดแล้ว ส่งเข้า clustering (DBSCAN) แล้วคืนค่าเป็น list of places (dict)
+
+    arrivals = await crud.get_trip_arrivals(db, patient_id, days=days)
+    visits = qualifying_visits(arrivals, records) # ถึงแล้วและอยู่นานพอ
+    learned = learn_places_from_trips(visits) # DBSCAN บนจุดที่ไปถึงจริง
 
     # หมุดที่ผู้ดูแลปักไว้ต้องไม่หาย และค่าที่เรียนรู้มาต้องถูกปรับสเกลให้ตรงกันก่อนผสม
     profile = await crud.get_behavioral_profile(db, patient_id)
@@ -115,6 +129,10 @@ async def analyze_behavior(
     return {
         "patient_id": patient_id,
         "places": places,
+        # What this pass learned, before `normalize_learned` rescales it onto
+        # the caregiver's axes (visits -> 0-40, minutes -> seconds). Callers
+        # that want to report what happened need the counts as measured.
+        "learned_from_trips": learned,
         "routine_patterns": routine,
         "avg_walking_speed_ms": walking_speed,
     }

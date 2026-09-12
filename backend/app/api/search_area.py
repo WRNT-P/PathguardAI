@@ -31,6 +31,9 @@ from app.db.database import get_db
 from app.services.auth import Caller, verify_patient_access
 from app.ai.module3_risk import detect_gps_gap
 from app.services.notification import notify_alert
+from app.ai.module4_search_area.last_known_position import (
+    _DEFAULT_SPEED_MS as DEFAULT_SPEED_MS,
+)
 from app.ai.module4_search_area import (
     calculate_search_radius,
     extract_last_known,
@@ -48,6 +51,41 @@ from app.models.search_area import (
 )
 
 router = APIRouter()
+
+# Below this, a speed reading is not a walking pace. A phone lying on a table
+# reports 0.1-0.2 m/s of jitter, and so does one in the pocket of somebody
+# standing still — and "standing still now" says nothing about the next half
+# hour. Taking such a reading literally drew a 262 m circle for a patient
+# missing 30 minutes, where the cautious constant draws 2,520 m.
+#
+# Deliberately asymmetric: readings ABOVE the walking band are kept. A fast
+# reading widens the circle, and being wrong in that direction costs effort
+# rather than a life. The floor matches the band Module 1 learns from
+# (behavior_pipeline._WALK_MIN_MS), so "this is walking" means one thing.
+_MIN_TRUSTED_SPEED_MS = 0.3
+
+
+def _choose_speed(override_ms, last_known: dict, profile) -> tuple[float, str]:
+    """Pick the speed the radius is built from, and say where it came from.
+
+    In order: an explicit override (tests and the demo runner pass one; the
+    caregiver app never does, because a family reporting someone missing
+    cannot be asked for metres per second), then a trustworthy live reading,
+    then this patient's own learned pace, then the population constant.
+    """
+    if override_ms is not None and override_ms > 0:
+        return float(override_ms), "override"
+
+    measured = last_known.get("speed_ms")
+    defaulted = (last_known.get("_meta") or {}).get("speed_defaulted", False)
+    if not defaulted and measured is not None and measured >= _MIN_TRUSTED_SPEED_MS:
+        return float(measured), "last_fix"
+
+    learned = getattr(profile, "avg_walking_speed_ms", None) if profile else None
+    if learned is not None and learned > 0:
+        return float(learned), "learned"
+
+    return float(DEFAULT_SPEED_MS), "default"
 
 
 @router.get(
@@ -95,7 +133,7 @@ async def get_search_area(
     # Query params override stored values
     origin_lat = last_lat if last_lat is not None else last_known["lat"]
     origin_lng = last_lng if last_lng is not None else last_known["lng"]
-    speed_ms = last_speed_ms if last_speed_ms is not None else last_known["speed_ms"]
+    speed_ms, speed_source = _choose_speed(last_speed_ms, last_known, profile)
     direction_deg = last_direction_deg if last_direction_deg is not None else last_known["direction_deg"]
     t_missing = time_missing_minutes if time_missing_minutes is not None else 25  # cautious default
 
@@ -249,6 +287,8 @@ async def get_search_area(
         search_radius_meters=base_radius_m,
         adjusted_radius_meters=adjusted_radius_m,
         adjustment_reason=adjustment["adjustment_reason"],
+        speed_ms_used=speed_ms,
+        speed_source=speed_source,
         high_probability_zone=_to_zones(kde_result.get("high_zone", [])),
         medium_probability_zone=_to_zones(kde_result.get("medium_zone", [])),
         low_probability_zone=_to_zones(kde_result.get("low_zone", [])),

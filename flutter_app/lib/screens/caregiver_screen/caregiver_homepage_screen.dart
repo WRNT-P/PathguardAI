@@ -34,6 +34,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   List<Map<String, dynamic>> patients = [];
   bool _loadingPatients = true;
   Timer? _countdownTicker;
+  Timer? _riskTicker;
   int _sosAlertCount = 0;
   Timer? _locationTicker;
   /// Which patients are mid-walk right now, keyed by patient id. Drives the
@@ -90,14 +91,18 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
     super.initState();
     _loadPatients();
     _loadOwnAvailability();
-    // Keeps the "expires in Xh Ym" label live and refreshes each patient's
-    // risk badge — cheap enough to just always tick.
+    // Keeps the "expires in Xh Ym" label live and re-counts the bell badge.
     _countdownTicker = Timer.periodic(const Duration(minutes: 1), (_) {
       if (!mounted) return;
       setState(() {});
-      _refreshRiskLevels();
       _refreshSosCount();
     });
+    // The risk badge on its own, faster ticker: it is the number a caregiver
+    // watches change, and a minute behind the map reads as broken. Kept apart
+    // from the badge count above because that one costs a request per patient
+    // per tick and this one is a single cheap read each.
+    _riskTicker = Timer.periodic(
+      const Duration(seconds: 10), (_) => _refreshRiskLevels());
     // Where this caregiver is, for the patient's SOS ranking. Its own timer
     // rather than a share of the one above: the ranking sorts on freshness
     // before distance and expires a position at 1800 s, so five minutes keeps
@@ -114,6 +119,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   @override
   void dispose() {
     _countdownTicker?.cancel();
+    _riskTicker?.cancel();
     _locationTicker?.cancel();
     TripRequestDirectory.instance.removeListener(_onTripRequestsChanged);
     for (final sub in _activeTripSubs.values) {

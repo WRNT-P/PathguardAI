@@ -235,6 +235,30 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
     super.dispose();
   }
 
+  /// A caregiver's face with their availability drawn as the ring around it.
+  ///
+  /// Three colours, not two. Green is "I am available" and red is "I am not",
+  /// but the column behind this is nullable on purpose: a caregiver who has
+  /// never answered the question has not said no, and painting them red would
+  /// tell the family not to bother calling someone who might well come.
+  Widget _availabilityAvatar(bool? isAvailable) {
+    final ring = switch (isAvailable) {
+      true => Colors.green,
+      false => Colors.red,
+      null => Colors.grey.shade400,
+    };
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: ring, width: 3),
+      ),
+      alignment: Alignment.center,
+      child: Icon(Icons.person, color: Colors.grey[700], size: 24),
+    );
+  }
+
   /// The one way out. Every exit goes through here so no two can fire.
   void _close() {
     if (_leaving) return;
@@ -288,15 +312,25 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
         '/api/patients/${widget.patientId}/caregivers',
       );
       if (rankRes.statusCode == 200) {
-        final ranked = jsonDecode(rankRes.body)['caregivers'] as List;
-        // The endpoint lists every caregiver of the patient, the one reading
-        // this screen included — and a call button to yourself is noise.
-        final myId = CaregiverSession.instance.caregiverId;
-        final others = ranked
-            .cast<Map<String, dynamic>>()
-            .where((c) => c['caregiver_id'] != myId)
-            .toList();
-        if (mounted) setState(() => _rankedCaregivers = others);
+        final ranked =
+            (jsonDecode(rankRes.body)['caregivers'] as List)
+                .cast<Map<String, dynamic>>();
+        // Everyone, the reader included: "am I the closest?" is the first
+        // question this screen has to answer, and it cannot be answered by a
+        // list that leaves the reader out of it.
+        //
+        // Sorted here rather than trusting the endpoint's order — that one
+        // ranks by position freshness first, which is right for deciding whom
+        // to notify and wrong for a list a human reads top to bottom. Anyone
+        // whose position is unknown sinks to the bottom.
+        ranked.sort((a, b) {
+          final da = (a['distance_m'] as num?)?.toDouble();
+          final db = (b['distance_m'] as num?)?.toDouble();
+          if (da == null) return db == null ? 0 : 1;
+          if (db == null) return -1;
+          return da.compareTo(db);
+        });
+        if (mounted) setState(() => _rankedCaregivers = ranked);
       }
     } catch (_) {}
   }
@@ -475,20 +509,25 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
               children: _rankedCaregivers.map((c) {
                 final distance = c['distance_m'] as num?;
                 final phone = c['phone'] as String?;
+                final isMe = c['caregiver_id'] == myId;
                 return ListTile(
-                  leading: const Icon(Icons.person),
-                  title: Text(c['name'] as String? ?? 'ไม่มีชื่อ'),
+                  leading: _availabilityAvatar(c['is_available'] as bool?),
+                  title: Text(isMe
+                      ? '${c['name'] as String? ?? 'ไม่มีชื่อ'} (คุณ)'
+                      : c['name'] as String? ?? 'ไม่มีชื่อ'),
                   subtitle: Text(
                     distance != null
                         ? '${(distance / 1000).toStringAsFixed(1)} กม.'
                         : 'ไม่ทราบตำแหน่ง',
                   ),
-                  trailing: phone != null
-                      ? IconButton(
+                  // No call button on your own row — there is nobody on the
+                  // other end of it.
+                  trailing: (isMe || phone == null)
+                      ? null
+                      : IconButton(
                           icon: const Icon(Icons.call, color: Colors.green),
                           onPressed: () => launchUrl(Uri.parse('tel:$phone')),
-                        )
-                      : null,
+                        ),
                 );
               }).toList(),
             ),

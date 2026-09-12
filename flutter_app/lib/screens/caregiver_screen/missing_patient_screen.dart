@@ -236,6 +236,16 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
     final searchRadius = result['search_radius_meters'];
     final adjustedRadius = result['adjusted_radius_meters'];
     final adjustmentReason = result['adjustment_reason'] as String?;
+    final speedUsed = (result['speed_ms_used'] as num?)?.toDouble();
+    final speedLabel = speedUsed == null
+        ? null
+        : 'ความเร็วที่ใช้คำนวณ: ${(speedUsed * 3.6).toStringAsFixed(1)} กม./ชม. '
+            '(${switch (result['speed_source'] as String?) {
+              'last_fix' => 'วัดได้จากตำแหน่งล่าสุด',
+              'learned' => 'ค่าเฉลี่ยที่ระบบเรียนรู้จากผู้ป่วย',
+              'override' => 'ค่าที่ระบุเอง',
+              _ => 'ค่ามาตรฐาน ยังไม่รู้ความเร็วของผู้ป่วย',
+            }})';
     final targets = (result['target_locations'] as List?) ?? [];
     final lastKnown = result['last_known_location'] as Map<String, dynamic>?;
     final gridBounds = result['grid_bounds'] as Map<String, dynamic>?;
@@ -275,6 +285,12 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
               if (widget.minutesMissing != null)
                 Text('คำนวณจากเวลาที่หายไป ${widget.minutesMissing} นาที',
                     style: TextStyle(color: Colors.grey[600])),
+              // The other half of speed x time. A radius built on an assumed
+              // pace and one built on this patient's measured pace are
+              // different claims, and only the caregiver can judge which to
+              // trust against what they know about today.
+              if (speedLabel != null)
+                Text(speedLabel, style: TextStyle(color: Colors.grey[600])),
               if (adjustmentReason != null)
                 Text(adjustmentReason, style: TextStyle(color: Colors.grey[600])),
               const SizedBox(height: 8),

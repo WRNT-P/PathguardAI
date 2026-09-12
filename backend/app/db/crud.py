@@ -267,6 +267,40 @@ async def get_gps_history(
     return list(result.scalars().all())
 
 
+async def get_trip_arrivals(
+    db: AsyncSession, patient_id: int, days: int = 30,
+) -> list[dict]:
+    """Completed navigated trips over the last ``days``, oldest first.
+
+    One row per ``trip_arrived`` alert — the patient picked that destination in
+    the app and the phone reported reaching it. Module 1 learns places from
+    these rather than from the raw track, because the track cannot tell a
+    destination somebody chose from a spot they ended up lost in.
+
+    Returned as plain dicts: the AI layer is kept free of ORM objects, same as
+    every other read it uses.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(Alert)
+        .where(
+            Alert.patient_id == patient_id,
+            Alert.alert_type == "trip_arrived",
+            Alert.created_at >= since,
+        )
+        .order_by(Alert.created_at)
+    )
+    return [
+        {
+            "latitude": alert.latitude,
+            "longitude": alert.longitude,
+            "destination_name": alert.destination_name,
+            "arrived_at": alert.created_at,
+        }
+        for alert in result.scalars().all()
+    ]
+
+
 async def get_latest_gps(db: AsyncSession, patient_id: int) -> GPSData | None:
     """Return the most recent GPS reading, or None if the patient has none."""
     result = await db.execute(

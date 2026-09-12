@@ -171,19 +171,19 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     }
   }
 
-  /// The one place Module 1 worked out on its own, kept apart from the rest.
+  /// The place Module 1 worked out on its own, drawn apart from the pins.
   ///
   /// A caregiver's pin is a person saying "she goes here"; this is the app
-  /// noticing she keeps stopping somewhere and asking. They are not the same
-  /// claim, so they are not drawn the same — the card says AI แนะนำ, and the
-  /// backend does not count it as a safe place until somebody confirms it.
+  /// noticing she chose that destination, walked there, stayed, and came back
+  /// another day. Same standing as a pin now, but shown as its own thing so
+  /// the family can see what the app learned and undo it if it is wrong.
   Future<void> _loadAiSuggestion(int patientId) async {
     try {
       final res = await apiGet('/api/patients/$patientId/places');
       if (res.statusCode != 200) return;
       final places = (jsonDecode(res.body)['places'] as List)
           .cast<Map<String, dynamic>>()
-          .where((p) => p['source'] == 'learned')
+          .where((p) => p['source'] == 'learned_trip')
           .toList();
       if (places.isEmpty) return;
       places.sort((a, b) => ((b['visit_frequency'] as num?) ?? 0)
@@ -194,7 +194,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
         _aiSuggestion = {
           // A learned place has no name — nobody has given it one yet — so it
           // is described by what is actually known about it.
-          'name': 'ที่ที่คุณแวะบ่อย',
+          'name': (top['place_name'] as String?) ?? 'ที่ที่คุณไปบ่อย',
           'lat': (top['latitude'] as num).toDouble(),
           'lng': (top['longitude'] as num).toDouble(),
           'ai_suggestion': true,
@@ -322,6 +322,46 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     );
   }
 
+  Widget _placeCard(Map<String, dynamic> place) {
+    final isSuggestion = place['ai_suggestion'] == true;
+      return Card(
+        color: isSuggestion ? PatientColors.lavender : Colors.white,
+        elevation: 1,
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: ListTile(
+            title: Text(place['name'], style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
+            subtitle: isSuggestion
+                ? const Text('AI จำได้ · คุณเคยเดินทางมาที่นี่หลายครั้ง',
+                    style: TextStyle(fontSize: 14, color: PatientColors.berry))
+                : const Text('ไปบ่อย', style: TextStyle(fontSize: 14)),
+            trailing: SizedBox(
+              height: 48,
+              child: ElevatedButton(
+                onPressed: _startingTrip
+                    ? null
+                    : () => _requestTrip(place),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: PatientColors.berry,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(88, 48),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: _startingTrip && _selectedPlace == place
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('เริ่ม', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
 
   Widget _buildBrowsingState() {
@@ -330,13 +370,8 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     .toLowerCase()
     .contains(_searchQuery.toLowerCase()))
     .toList();
-    // Three places the family put there, then the one the app worked out for
-    // itself. The suggestion is dropped while searching: it is an offer, and a
-    // patient typing a place name is not browsing offers.
-    final shownPlaces = [
-      ...filteredPlaces.take(3),
-      if (_aiSuggestion != null && _searchQuery.isEmpty) _aiSuggestion!,
-    ];
+    final familiar = filteredPlaces.take(3).toList();
+    final showAi = _aiSuggestion != null && _searchQuery.isEmpty;
     return Container(
         // Soft lavender-to-white backdrop for the whole home screen — the
         // one calm accent surface this screen gets, kept behind the content
@@ -439,61 +474,28 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                             style: TextStyle(fontSize: 16, color: Colors.grey),
                           ),
                         )
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      : ListView(
+                          // Same reason as the predictions list above: keeps
+                          // the last card clear of the centered SOS FAB, which
+                          // otherwise sits on top of it and steals the tap.
+                          padding: const EdgeInsets.only(bottom: 110),
                           children: [
-                            const Text('สถานที่ที่คุณอาจชอบ:', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: PatientColors.charcoal)),
+                            const Text('สถานที่ที่คุณอาจชอบ:',
+                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: PatientColors.charcoal)),
                             const SizedBox(height: 4),
-                            Expanded(
-                              child: ListView.builder(
-                                // Same reason as the predictions list above:
-                                // clears the last card from underneath the
-                                // centered SOS FAB.
-                                padding: const EdgeInsets.only(bottom: 110),
-                                itemCount: shownPlaces.length,
-                                itemBuilder: (context, index) {
-                                  final place = shownPlaces[index];
-                                  final isSuggestion = place['ai_suggestion'] == true;
-                                  return Card(
-                                    color: isSuggestion ? PatientColors.lavender : Colors.white,
-                                    elevation: 1,
-                                    margin: const EdgeInsets.symmetric(vertical: 6),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                                      child: ListTile(
-                                        title: Text(place['name'], style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
-                                        subtitle: isSuggestion
-                                            ? const Text('AI แนะนำ · ระบบพบว่าคุณแวะที่นี่บ่อย',
-                                                style: TextStyle(fontSize: 14, color: PatientColors.berry))
-                                            : const Text('ไปบ่อย', style: TextStyle(fontSize: 14)),
-                                        trailing: SizedBox(
-                                          height: 48,
-                                          child: ElevatedButton(
-                                            onPressed: _startingTrip
-                                                ? null
-                                                : () => _requestTrip(place),
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: PatientColors.berry,
-                                              foregroundColor: Colors.white,
-                                              minimumSize: const Size(88, 48),
-                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                            ),
-                                            child: _startingTrip && _selectedPlace == place
-                                                ? const SizedBox(
-                                                    width: 18,
-                                                    height: 18,
-                                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                                  )
-                                                : const Text('เริ่ม', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
+                            ...familiar.map(_placeCard),
+                            // Under its own heading, not mixed into the list
+                            // above: a pin is the family saying "she goes
+                            // here", this is the app having noticed. Hidden
+                            // while searching — an offer is not an answer to
+                            // someone typing a place name.
+                            if (showAi) ...[
+                              const SizedBox(height: 10),
+                              const Text('AI แนะนำ:',
+                                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: PatientColors.berry)),
+                              const SizedBox(height: 4),
+                              _placeCard(_aiSuggestion!),
+                            ],
                           ],
                         ),
             )
