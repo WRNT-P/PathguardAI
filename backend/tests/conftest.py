@@ -135,3 +135,26 @@ async def client(session_factory):
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+async def record_arrival(db, patient_id: int, lat: float, lng: float,
+                         name: str, arrived_at):
+    """Write the `trip_arrived` alert a completed navigated trip leaves behind.
+
+    Module 1 learns places from these (module1_behavior/trip_learning.py), so a
+    test that wants a patient with a settled profile has to say where they
+    actually went, not just where their GPS happened to linger. `created_at` is
+    set explicitly because the whole point is history spread over days, and the
+    column otherwise defaults to now().
+    """
+    from app.db import crud
+
+    alert = await crud.save_alert(
+        db, patient_id,
+        alert_type="trip_arrived", severity="low",
+        message=f"ถึง {name} แล้ว",
+        latitude=lat, longitude=lng, destination_name=name,
+    )
+    alert.created_at = arrived_at
+    await db.flush()
+    return alert

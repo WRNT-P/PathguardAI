@@ -67,3 +67,18 @@ python -m pytest tests/test_import_geolife.py tests/test_phase4_integration.py -
 `test_phase4_integration.py` drives the whole pipeline on in-memory SQLite (no
 TensorFlow, no GeoLife files) and asserts risk > 80 + emergency, traceable to the
 injected segment.
+
+## Module 1 — learning from completed trips
+
+Ingestion trains each patient's profile on its own, at most once every 15
+minutes per patient. To see it happen now rather than waiting:
+
+```bash
+python -m scripts.train_behavior --patient 57 --dry-run   # report, roll back
+python -m scripts.train_behavior --patient 57             # write the profile
+```
+
+It prints the chain that decides the outcome: GPS fixes → completed trips
+(`trip_arrived`) → visits long enough to count → places learned. A patient with
+plenty of GPS and no completed trips learns nothing, on purpose — standing
+somewhere twice is also what getting lost in the same place twice looks like.

@@ -43,6 +43,13 @@ class SearchAreaResponse(BaseModel):
     search_radius_meters: float | None = None
     adjusted_radius_meters: float | None = None
     adjustment_reason: str | None = None
+    # The radius is speed x time, so the speed is half of every number above —
+    # and it can come from a live reading, from what Module 1 learned about
+    # this patient, or from a population constant. A search party deserves to
+    # know which: "measured them walking" and "assumed 1.4 m/s" are not the
+    # same claim about the same circle.
+    speed_ms_used: float | None = None
+    speed_source: Literal["override", "last_fix", "learned", "default"] | None = None
     high_probability_zone: list[ProbabilityZone] | None = None
     medium_probability_zone: list[ProbabilityZone] | None = None
     low_probability_zone: list[ProbabilityZone] | None = None

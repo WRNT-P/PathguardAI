@@ -30,6 +30,7 @@ from app.api.search_area import get_search_area
 from app.db import crud
 from app.db.models import Alert, DangerZone, GPSData
 from scripts.inject_wandering import _offset, build_pacing, to_gps_rows
+from tests.conftest import record_arrival
 
 pytestmark = pytest.mark.asyncio
 
@@ -47,13 +48,36 @@ async def _seed_normal_routine(db, patient_id, days=25):
     for d in range(days, 0, -1):  # oldest -> newest, all older than the injection
         day0 = now - timedelta(days=d)
         for visit, (plat, plon) in enumerate(_PLACES):
+            arrived_at = day0 + timedelta(hours=visit)
             for k in range(8):  # spans ~21 min -> a real stay, not a passing fix
                 jlat, jlon = _offset(plat, plon, k * 1.5, k * 1.5)
                 await crud.save_gps_point(
                     db, patient_id, latitude=jlat, longitude=jlon,
-                    speed=1.2, recorded_at=day0 + timedelta(hours=visit, minutes=k * 3),
+                    speed=1.2, recorded_at=arrived_at + timedelta(minutes=k * 3),
                 )
+            # The trip the patient chose in the app and completed. Module 1
+            # learns places from these, not from the track alone, so a routine
+            # seeded only as GPS teaches it nothing (see trip_learning.py).
+            await record_arrival(db, patient_id, plat, plon,
+                                 f"Place {visit}", arrived_at)
     await db.commit()
+
+
+async def _confirm_learned_places(db, pid: int) -> None:
+    """Mark everything Module 1 learned as confirmed by a caregiver.
+
+    Clustered places are deliberately excluded from safety decisions until a
+    human confirms them (see risk_data_collection._extract_known_places), and
+    these tests are about what happens to a patient who HAS a settled profile —
+    so the confirmation a real caregiver would give is done here.
+    """
+    profile = await crud.get_behavioral_profile(db, pid)
+    places = json.loads(profile.known_places)
+    for place in places:
+        place["source"] = "manual"
+    await crud.upsert_behavioral_profile(
+        db, patient_id=pid, known_places=json.dumps(places, ensure_ascii=False))
+    await db.flush()
 
 
 async def test_phase4_full_pipeline_high_risk_from_injected_segment(db_session):
@@ -65,6 +89,7 @@ async def test_phase4_full_pipeline_high_risk_from_injected_segment(db_session):
     # ── 1-2. normal routine -> Module 1 builds a clean profile ────────────────
     await _seed_normal_routine(db, pid)
     res = await analyze_behavior(db, pid, days=30)
+    await _confirm_learned_places(db, pid)
     await db.commit()
     places = res["places"]
     assert len(places) >= 5, f"Module 1 should learn >=5 known places, got {len(places)}"
@@ -154,6 +179,7 @@ async def test_phase4_safe_zone_exit_alert_and_real_distance_scaling(db_session)
 
     await _seed_normal_routine(db, pid)
     res = await analyze_behavior(db, pid, days=30)
+    await _confirm_learned_places(db, pid)
     await db.commit()
     assert len(res["places"]) >= 5
 
@@ -214,6 +240,7 @@ async def test_phase4_geofence_alert_auto_resolves_when_patient_leaves_danger_zo
 
     await _seed_normal_routine(db, pid)
     await analyze_behavior(db, pid, days=30)
+    await _confirm_learned_places(db, pid)
     await db.commit()
 
     zone_lat, zone_lon = _offset(_PLACES[0][0], _PLACES[0][1], 3000.0, 3000.0)
@@ -266,11 +293,16 @@ async def test_an_sos_raised_out_walking_closes_when_the_patient_gets_somewhere_
 
     await _seed_normal_routine(db, pid)
     await analyze_behavior(db, pid, days=30)
+    await _confirm_learned_places(db, pid)
     await db.commit()
 
     for alert_type in ("sos", "sos_home"):
-        await crud.save_alert(db, pid, alert_type=alert_type, severity="critical",
-                              message="Patient pressed the SOS button.")
+        alert = await crud.save_alert(db, pid, alert_type=alert_type, severity="critical",
+                                      message="Patient pressed the SOS button.")
+        # Raised a while ago: this test is about an episode that ran and then
+        # ended. One raised seconds ago is a different case, and the test below
+        # is the one that pins it.
+        alert.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
     await db.commit()
 
     # Home, well inside the first known place.
@@ -286,3 +318,47 @@ async def test_an_sos_raised_out_walking_closes_when_the_patient_gets_somewhere_
         "an SOS pressed at home must wait for a person — being at home is "
         "exactly where it was raised"
     )
+
+
+async def test_a_just_pressed_sos_survives_the_next_scoring_round(db_session):
+    """An SOS raised inside a familiar place must not close itself instantly.
+
+    "They reached somewhere they know" is the end of an episode only if it was
+    ever untrue. A patient can press SOS standing in their own garden, or
+    walking past the market — and then the condition holds from the first
+    second, the next scoring round resolves the row, and the caregiver's
+    full-screen alert opens and vanishes while they are looking at it. That is
+    what the grace period in risk.py::SOS_AUTO_RESOLVE_GRACE_S prevents.
+    """
+    db = db_session
+    user = await crud.create_user(db, firebase_uid="sos_fresh_test", name="Pat",
+                                  role="patient")
+    await db.flush()
+    pid = user.id
+
+    await _seed_normal_routine(db, pid)
+    await analyze_behavior(db, pid, days=30)
+    await _confirm_learned_places(db, pid)
+    await db.commit()
+
+    pressed = await crud.save_alert(db, pid, alert_type="sos", severity="critical",
+                                    message="Patient pressed the SOS button.")
+    await db.commit()
+
+    # Scored where they already were — inside the first known place.
+    near_lat, near_lon = _offset(_PLACES[0][0], _PLACES[0][1], 20.0, 20.0)
+    await get_risk(patient_id=pid, lat=near_lat, lng=near_lon, db=db)
+    await db.commit()
+    await db.refresh(pressed)
+    assert pressed.resolved is False, (
+        "an SOS pressed seconds ago was closed by the very next scoring round"
+    )
+
+    # Once the episode has had time to be over, the row does clear itself —
+    # nobody should have to run SQL to get the screen back.
+    pressed.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    await db.commit()
+    await get_risk(patient_id=pid, lat=near_lat, lng=near_lon, db=db)
+    await db.commit()
+    await db.refresh(pressed)
+    assert pressed.resolved is True

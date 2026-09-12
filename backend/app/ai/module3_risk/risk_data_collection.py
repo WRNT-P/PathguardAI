@@ -97,7 +97,19 @@ def _parse_ts(ts):
 
 
 def _extract_known_places(profile: dict | None) -> list:
-    """Read known_places from the profile dict, parsing a JSON string if needed."""
+    """Known places a SAFETY decision may rest on.
+
+    Everything counts except ``source == "learned"`` — places found by
+    clustering the raw GPS track alone. Stopping somewhere twice is also what a
+    patient does when they keep getting lost in the same place, so a place
+    learned that way must not make them read as familiar, in-a-safe-place or
+    on-route; the alert that should fire there never would.
+
+    ``learned_trip`` places DO count. They come from trips the patient chose in
+    the app, walked, arrived at, stayed at and returned to on another day
+    (``module1_behavior/trip_learning.py``) — evidence of intent that the track
+    by itself cannot provide.
+    """
     if not profile:
         return []
     kp = profile.get("known_places")
@@ -106,7 +118,9 @@ def _extract_known_places(profile: dict | None) -> list:
             kp = json.loads(kp)
         except (json.JSONDecodeError, TypeError):
             return []
-    return kp if isinstance(kp, list) else []
+    if not isinstance(kp, list):
+        return []
+    return [p for p in kp if isinstance(p, dict) and p.get("source") != "learned"]
 
 
 def _avg_recent_speed(recent_gps: list, n: int = 5):

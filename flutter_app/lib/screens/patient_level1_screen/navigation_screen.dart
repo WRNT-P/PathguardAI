@@ -20,7 +20,18 @@ import 'dart:convert';
 
 class NavigationScreen extends StatefulWidget {
   final Map<String, dynamic> place;
-  const NavigationScreen({super.key, required this.place});
+
+  /// True when this screen replaced a walk already under way because the
+  /// patient pressed SOS. The destination on the map is then NOT the one they
+  /// chose — the app picked it — and a patient who is already frightened
+  /// should not have to work that out from a changed place name.
+  final bool redirectedBySos;
+
+  const NavigationScreen({
+    super.key,
+    required this.place,
+    this.redirectedBySos = false,
+  });
 
   @override
   State<NavigationScreen> createState() {
@@ -143,7 +154,10 @@ class _NavigationScreenState extends State<NavigationScreen> {
     // replaced: it's no longer the point once SOS has been pressed.
     if (safePlace != null) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => NavigationScreen(place: safePlace)),
+        MaterialPageRoute(
+          builder: (context) =>
+              NavigationScreen(place: safePlace, redirectedBySos: true),
+        ),
       );
       return;
     }
@@ -790,6 +804,50 @@ class _NavigationScreenState extends State<NavigationScreen> {
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                  // Under the turn instruction, not over it: the instruction is
+                  // what they have to keep reading to walk, and this is the
+                  // reason the place name above it is not the one they picked.
+                  if (widget.redirectedBySos)
+                    Semantics(
+                      liveRegion: true,
+                      child: Container(
+                        margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade700,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.shield_outlined,
+                                color: Colors.white, size: 40),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'เปลี่ยนจุดหมายแล้ว',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'กำลังพาไปที่ปลอดภัย: '
+                                    '${widget.place['name'] ?? 'ที่ปลอดภัย'}',
+                                    style: const TextStyle(
+                                        color: Colors.white, fontSize: 16),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                 ],

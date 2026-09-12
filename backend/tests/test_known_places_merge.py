@@ -32,6 +32,7 @@ from app.ai.module1_behavior.known_places import (
 )
 from app.ai.module2_prediction.cluster_matcher import get_familiarity
 from app.db import crud
+from tests.conftest import record_arrival
 
 # What the pin form produces for "she lives here" / "most days" / "weekly".
 HOME_PIN = {
@@ -134,12 +135,17 @@ async def _seed_two_places(db, patient_id: int, days: int = 10) -> None:
         day0 = now - timedelta(days=d)
         for visit, (plat, plon) in enumerate([(13.7460, 100.5340),
                                               (13.7510, 100.5400)]):
+            arrived_at = day0 + timedelta(hours=visit)
             for k in range(8):
                 await crud.save_gps_point(
                     db, patient_id,
                     latitude=plat + k * 0.00002, longitude=plon + k * 0.00002,
-                    speed=1.2, recorded_at=day0 + timedelta(hours=visit, minutes=k * 3),
+                    speed=1.2, recorded_at=arrived_at + timedelta(minutes=k * 3),
                 )
+            # A stay only teaches Module 1 something when the patient chose to
+            # go there and the app saw them arrive — see trip_learning.py.
+            await record_arrival(db, patient_id, plat, plon,
+                                 f"ที่ {visit}", arrived_at)
     await db.commit()
 
 
