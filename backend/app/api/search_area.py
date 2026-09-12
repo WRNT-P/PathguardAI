@@ -20,6 +20,7 @@ Flow:
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -29,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import crud, rule_repository
 from app.db.database import get_db
 from app.services.auth import Caller, verify_patient_access
+from app.ai.module2_prediction.wandering_detection import WanderingDetector
 from app.ai.module3_risk import detect_gps_gap
 from app.services.notification import notify_alert
 from app.ai.module4_search_area.last_known_position import (
@@ -49,6 +51,8 @@ from app.models.search_area import (
     TargetLocation,
     GridBounds,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -183,20 +187,46 @@ async def get_search_area(
     base_radius_m = calculate_search_radius(speed_ms, t_missing)
 
     # ── 6. Adjust radius using behavioral data ────────────────────────────────
-    # Wandering score would come from Module 2; use None when unavailable
+    # The history moved up from step 7: the wandering score below needs it too,
+    # and fetching it twice would double the cost of the most expensive read in
+    # this endpoint. Still after every early-exit guard above, so a patient
+    # whose GPS is fine never pays for thousands of rows.
+    gps_history = await crud.get_gps_history(db, patient_id, days=30)
+
+    # Wandering score from Module 2, measured on the last points before the
+    # phone went dark — "was this patient wandering when we last saw them" is
+    # exactly the question that should size a search area, and ``adjust_radius``
+    # has accepted it since it was written while every caller passed None.
+    #
+    # Same detector and the same 30-point recent slice Module 3 uses on every
+    # scoring round (risk_data_collection.py), so the two cannot disagree about
+    # one patient at one moment. A patient with too little history to score
+    # leaves this None, which ``adjust_radius`` treats as "no opinion" and the
+    # radius is unchanged — the safe direction, since neither the +30% nor the
+    # −20% branch should fire on a guess.
+    wandering_score: float | None = None
+    try:
+        detector = WanderingDetector()
+        detector.fit(gps_history, known_places)
+        detected = detector.detect(gps_history[-30:])
+        if detected.get("status") == "ok":
+            wandering_score = float(detected["wandering_score"])
+    except Exception:  # noqa: BLE001 — a search must never fail on a detector
+        logger.warning(
+            "wandering detection failed for patient %s; radius unadjusted",
+            patient_id, exc_info=True,
+        )
+
     # Stage of illness — the report promises a narrower radius for a moderate-stage
     # patient and a wider one for an early-stage patient. None when the caregiver
     # never stated a stage, which changes nothing.
     patient = await crud.get_user(db, patient_id)
     adjustment = adjust_radius(base_radius_m, known_places, origin_lat, origin_lng,
-                               wandering_score=None,
+                               wandering_score=wandering_score,
                                severity_level=patient.severity_level if patient else None)
     adjusted_radius_m = adjustment["adjusted_radius_m"]
 
     # ── 7. Simulate paths ─────────────────────────────────────────────────────
-    # Now that we know the patient is missing, fetch the GPS history the
-    # simulator needs to learn directional tendencies.
-    gps_history = await crud.get_gps_history(db, patient_id, days=30)
     sim = PathSimulator(n_simulations=10_000)
     sim.fit(gps_history)
     sim_result = sim.simulate_paths(

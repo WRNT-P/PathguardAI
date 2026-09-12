@@ -29,13 +29,15 @@ statement about the LSTM alone, not about the module.
 
 Run locally:  uvicorn app.main:app --reload
 """
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
 from app.db.database import init_db, init_firebase
 from app.services.auth import log_startup_state
+from app.services.gps_watchdog import run_forever as run_gps_watchdog
 from app.api import (
     users, gps, recommendation, risk, search_area, admin_rules,
     places, danger_zones, devices, tracking, alerts, sos, pairing,
@@ -61,7 +63,16 @@ async def lifespan(app: FastAPI):
             "Firebase not initialised (%s) — live position push disabled", exc
         )
 
+    # The only thing that notices a phone which has stopped reporting. Every
+    # other path to a gps_loss alert needs either an incoming GPS point or a
+    # caregiver who has already worked it out; see gps_watchdog's docstring.
+    watchdog = asyncio.create_task(run_gps_watchdog())
+
     yield
+
+    watchdog.cancel()
+    with suppress(asyncio.CancelledError):
+        await watchdog
 
 
 app = FastAPI(title="PathGuard AI", lifespan=lifespan)

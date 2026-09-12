@@ -704,6 +704,22 @@ async def get_patients_for_caregiver(
     return [(row[0], bool(row[1])) for row in result.all()]
 
 
+async def get_all_patient_ids(db: AsyncSession) -> list[int]:
+    """Every patient in the system, oldest first.
+
+    The GPS watchdog (``app/services/gps_watchdog.py``) is the only caller, and
+    the reason this exists at all: every other patient query in this file starts
+    from a caregiver id or a patient id, because every other code path is driven
+    by somebody making a request. A patient whose phone has gone dark makes no
+    request and appears in nobody's call — so the one job that has to notice
+    them cannot be handed an id and has to ask for the list.
+    """
+    result = await db.execute(
+        select(User.id).where(User.role == "patient").order_by(User.id)
+    )
+    return list(result.scalars().all())
+
+
 async def get_caregivers_with_location(
     db: AsyncSession, patient_id: int,
 ) -> list[tuple[User, bool]]:
