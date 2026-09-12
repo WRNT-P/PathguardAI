@@ -169,13 +169,13 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
           Icon(Icons.favorite, size: 120, color: Colors.red),
           SizedBox(height: 24),
           Text(
-            'Stay where you are.',
+            'รออยู่ตรงนี้นะ',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
           ),
           SizedBox(height: 12),
           Text(
-            'Help is coming.',
+            'กำลังมีคนมาช่วย',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
           ),
@@ -189,7 +189,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     // biggest, reddest, least-buried thing in view, on purpose.
     return Semantics(
       button: true,
-      label: 'Emergency SOS, press to alert your caregiver now',
+      label: 'ปุ่มฉุกเฉิน SOS กดเพื่อแจ้งผู้ดูแลทันที',
       child: SizedBox(
         width: 96,
         height: 96,
@@ -214,7 +214,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
           const Icon(Icons.hourglass_top, size: 120, color: PatientColors.berry),
           const SizedBox(height: 24),
           Text(
-            'Asking your caregiver about ${_selectedPlace?['name'] ?? 'this trip'}...',
+            'กำลังถามผู้ดูแลเรื่อง ${_selectedPlace?['name'] ?? 'การเดินทางนี้'}...',
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
           ),
@@ -231,7 +231,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
           const Icon(Icons.info_outline, size: 120, color: PatientColors.charcoal),
           const SizedBox(height: 24),
           const Text(
-            'Let\'s pick something else',
+            'ลองเลือกที่อื่นกันนะ',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
           ),
@@ -248,7 +248,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
               minimumSize: const Size(200, 60),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+            child: const Text('ตกลง', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -263,7 +263,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
           Icon(Icons.hourglass_empty, size: 120, color: Colors.grey[500]),
           const SizedBox(height: 24),
           const Text(
-            'Waiting for your caregiver to add places',
+            'รอผู้ดูแลเพิ่มสถานที่ให้',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
           ),
@@ -277,7 +277,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       padding: const EdgeInsets.only(bottom: 16),
       child: Semantics(
         button: true,
-        label: 'Go to ${place['name']}',
+        label: 'ไป ${place['name']}',
         child: InkWell(
           onTap: () => _handleSelectPlace(place),
           borderRadius: BorderRadius.circular(16),
@@ -331,7 +331,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Choose the place you want to go.',
+            'เลือกที่ที่อยากไป',
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 20),
@@ -361,11 +361,11 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Hello, ${widget.patientName ?? "Friend"}'),
+        title: Text('สวัสดี ${widget.patientName ?? "เพื่อน"}'),
         actions: [
           IconButton(
             onPressed: _handleLogout,
-            tooltip: 'Log out',
+            tooltip: 'ออกจากระบบ',
             icon: const Icon(Icons.logout),
           ),
         ],

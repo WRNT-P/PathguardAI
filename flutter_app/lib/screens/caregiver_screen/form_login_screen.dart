@@ -68,8 +68,8 @@ class _FormLoginScreenState extends State<FormLoginScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       QuestionCard(
-                        text: 'Enter your name', 
-                        hintText: 'eg. Robert',
+                        text: 'กรอกชื่อของคุณ', 
+                        hintText: 'เช่น สมชาย',
                         onChanged: (value) => setState(() => _caregiverName = value),
                       ),
                       const SizedBox(height: 16),
@@ -91,7 +91,7 @@ class _FormLoginScreenState extends State<FormLoginScreen> {
                               minimumSize: const Size(0, 48),
                             ),
                             child: const Text(
-                              'Confirm',
+                              'ยืนยัน',
                               style: TextStyle(color: Colors.white),
                             ),
                           ),

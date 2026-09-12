@@ -97,7 +97,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // is the failure mode this project has already paid for twice.
     if (session.caregiverId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sign in again before sending a message.')),
+        const SnackBar(content: Text('กรุณาเข้าสู่ระบบใหม่ก่อนส่งข้อความ')),
       );
       return;
     }
@@ -107,14 +107,14 @@ class _ChatScreenState extends State<ChatScreen> {
       await ChatDirectory.send(
         patientId: widget.patientId,
         senderId: session.caregiverId!,
-        senderName: session.caregiverName ?? 'Caregiver',
+        senderName: session.caregiverName ?? 'ผู้ดูแล',
         text: text,
       );
       _composer.clear();
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not send. Check your connection.')),
+          const SnackBar(content: Text('ส่งไม่สำเร็จ ตรวจสอบอินเทอร์เน็ต')),
         );
       }
     } finally {
@@ -149,47 +149,68 @@ class _ChatScreenState extends State<ChatScreen> {
   /// reason: an empty list while a patient is missing is the worst answer.
   Widget _buildDistanceStrip() {
     if (_caregivers.isEmpty) return const SizedBox.shrink();
+    final myId = CaregiverSession.instance.caregiverId;
     return Container(
-      color: Colors.grey[100],
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: SizedBox(
-        height: 62,
+        height: 104,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           itemCount: _caregivers.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 10),
+          separatorBuilder: (_, _) => const SizedBox(width: 18),
           itemBuilder: (context, i) {
             final c = _caregivers[i];
             final distance = (c['distance_m'] as num?)?.toDouble();
             final usable = c['usable'] == true;
             final label = distance == null || !usable
-                ? 'Location unknown'
+                ? 'ไม่ทราบ'
                 : distance >= 1000
-                    ? '${(distance / 1000).toStringAsFixed(1)} km away'
-                    : '${distance.round()} m away';
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey[300]!),
-              ),
+                    ? '${(distance / 1000).toStringAsFixed(1)} กม.'
+                    : '${distance.round()} ม.';
+            final isMe = c['caregiver_id'] == myId;
+            // Green only for an explicit "available"; unset reads the same as
+            // unavailable here because the dot has no room for a third colour.
+            final available = c['is_available'] == true;
+            return SizedBox(
+              width: 64,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    c['name'] as String? ?? 'Caregiver',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      CircleAvatar(
+                        radius: 28,
+                        backgroundColor: Colors.grey[200],
+                        child: Icon(Icons.person_outline_rounded,
+                            size: 30, color: Colors.grey[800]),
+                      ),
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          width: 16,
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: available ? Colors.green[500] : Colors.grey[500],
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 6),
+                  Text(
+                    isMe ? 'คุณ' : c['name'] as String? ?? 'ผู้ดูแล',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, color: Colors.grey[800]),
+                  ),
                   Text(
                     label,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      color: usable && distance != null ? Colors.blue[800] : Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   ),
                 ],
               ),
@@ -308,12 +329,8 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              widget.patientName,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-            ),
-            Text(
-              'Family chat',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              'แชทครอบครัว',
+              style: TextStyle(fontSize: 20, color: Colors.black),
             ),
           ],
         ),
@@ -332,7 +349,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: Padding(
                       padding: const EdgeInsets.all(32),
                       child: Text(
-                        'No messages yet.\nCoordinate with the other caregivers here.',
+                        'ยังไม่มีข้อความ\nพูดคุยประสานงานกับผู้ดูแลคนอื่นได้ที่นี่',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.grey[600], fontSize: 14),
                       ),
@@ -369,7 +386,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _send(),
                       decoration: InputDecoration(
-                        hintText: 'Message the family',
+                        hintText: 'พิมพ์ข้อความถึงครอบครัว',
                         filled: true,
                         fillColor: Colors.grey[100],
                         contentPadding:
@@ -383,7 +400,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   const SizedBox(width: 6),
                   Semantics(
-                    label: 'Send message',
+                    label: 'ส่งข้อความ',
                     button: true,
                     child: IconButton(
                       icon: _sending

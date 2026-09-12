@@ -50,17 +50,17 @@ class TripEventIn(BaseModel):
 def _message(event: str, destination_name: str | None) -> str:
     if event == "started":
         return (
-            f"Started walking to {destination_name}."
+            f"เริ่มเดินทางไป {destination_name}"
             if destination_name
-            else "Started a trip."
+            else "เริ่มออกเดินทาง"
         )
     if event == "arrived":
         return (
-            f"Arrived at {destination_name}."
+            f"ถึง {destination_name} แล้ว"
             if destination_name
-            else "Arrived at their destination."
+            else "ถึงที่หมายแล้ว"
         )
-    return "Went off the planned route."
+    return "ออกนอกเส้นทางที่วางไว้"
 
 
 @router.post(

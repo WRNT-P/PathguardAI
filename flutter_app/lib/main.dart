@@ -69,7 +69,7 @@ Future<void> _initPushNotifications() async {
 
     final context = navigatorKey.currentContext;
     if (context == null || !context.mounted) return;
-    final title = message.notification?.title ?? 'PathGuard alert';
+    final title = message.notification?.title ?? 'แจ้งเตือนจาก PathGuard';
     final body = message.notification?.body ?? '';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -95,6 +95,7 @@ class MyApp extends StatelessWidget {
     }
     return MaterialApp(
       navigatorKey: navigatorKey,
+      debugShowCheckedModeBanner: false,
       // App-wide accent theme: charcoal headers, berry as the primary brand
       // color, lavender as the secondary/calm accent. This only sets
       // defaults — screens that already pick explicit colors for
@@ -114,7 +115,10 @@ class MyApp extends StatelessWidget {
           foregroundColor: Colors.white,
           elevation: 0,
           centerTitle: false,
+          // Explicit styles here replace the theme's text style outright, so
+          // each one has to name the font itself.
           titleTextStyle: TextStyle(
+            fontFamily: 'Kanit',
             color: Colors.white,
             fontSize: 20,
             fontWeight: FontWeight.w700,
@@ -123,13 +127,14 @@ class MyApp extends StatelessWidget {
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             minimumSize: const Size(64, 52),
-            textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            textStyle: const TextStyle(fontFamily: 'Kanit', fontSize: 18, fontWeight: FontWeight.w600),
           ),
         ),
         iconButtonTheme: IconButtonThemeData(
           style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
         ),
-        textTheme: Typography.material2021().black.apply(fontSizeFactor: 1.0),
+        fontFamily: 'Kanit',
+        textTheme: Typography.material2021().black.apply(fontSizeFactor: 1.0, fontFamily: 'Kanit'),
       ),
       home: home,
     );

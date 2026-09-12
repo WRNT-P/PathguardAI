@@ -67,7 +67,7 @@ class LoginScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Welcome to PathGuard AI',
+                    'ยินดีต้อนรับสู่ PathGuard AI',
                     style: TextStyle(
                       color: Colors.black,
                       fontSize: 20,
@@ -76,7 +76,7 @@ class LoginScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'SIGN IN TO CONTINUE',
+                    'เข้าสู่ระบบเพื่อใช้งาน',
                     style: TextStyle(
                       color: Colors.grey[700],
                       fontSize: 13,
@@ -87,7 +87,7 @@ class LoginScreen extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: CustomLoginButton(
-                      text: 'Caregiver Login',
+                      text: 'เข้าสู่ระบบผู้ดูแล',
                       onPressed: () {
                         Navigator.push(
                           context,
@@ -104,7 +104,7 @@ class LoginScreen extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: CustomLoginButton(
-                      text: 'Patient Login',
+                      text: 'เข้าสู่ระบบผู้ป่วย',
                       onPressed: () {
                         Navigator.push(
                           context,

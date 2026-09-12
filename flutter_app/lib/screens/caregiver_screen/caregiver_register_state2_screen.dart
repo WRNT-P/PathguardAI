@@ -19,8 +19,8 @@ class PhoneTextField extends StatelessWidget {
         keyboardType: TextInputType.phone,
         decoration: const InputDecoration(
           border: OutlineInputBorder(),
-          labelText: 'Phone Number',
-          hintText: 'Enter your phone number',
+          labelText: 'เบอร์โทรศัพท์',
+          hintText: 'กรอกเบอร์โทรศัพท์',
         ),
       ),
     );
@@ -39,8 +39,8 @@ class NameTextField extends StatelessWidget {
         controller: controller,
         decoration: const InputDecoration(
           border: OutlineInputBorder(),
-          labelText: 'Name',
-          hintText: 'Enter your name',
+          labelText: 'ชื่อ',
+          hintText: 'กรอกชื่อของคุณ',
         ),
       ),
     );
@@ -91,7 +91,7 @@ class _CaregiverRegistrationState2ScreenState extends State<CaregiverRegistratio
         await credential.user?.delete();
         if (!mounted) return;
         setState(() {
-          _errorMessage = 'Could not register, try again.';
+          _errorMessage = 'ลงทะเบียนไม่สำเร็จ ลองอีกครั้ง';
         });
         return;
       }
@@ -122,18 +122,18 @@ class _CaregiverRegistrationState2ScreenState extends State<CaregiverRegistratio
       if (!mounted) return;
       setState(() {
         _errorMessage = switch (e.code) {
-          'email-already-in-use' => 'This email is already registered — try logging in instead.',
-          'invalid-email' => 'That email address is not valid.',
-          'weak-password' => 'Password is too weak — use at least 6 characters.',
-          'network-request-failed' => 'Network error — check your connection and try again.',
-          _ => 'Could not create account (${e.code}).',
+          'email-already-in-use' => 'อีเมลนี้ลงทะเบียนแล้ว ลองเข้าสู่ระบบแทน',
+          'invalid-email' => 'อีเมลนี้ไม่ถูกต้อง',
+          'weak-password' => 'รหัสผ่านง่ายเกินไป ใช้อย่างน้อย 6 ตัวอักษร',
+          'network-request-failed' => 'เครือข่ายขัดข้อง ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง',
+          _ => 'สร้างบัญชีไม่สำเร็จ (${e.code})',
         };
       });
     } catch (_) {
       await credential?.user?.delete();
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Network error — check your connection and try again.';
+        _errorMessage = 'เครือข่ายขัดข้อง ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง';
       });
     }
   }
@@ -150,7 +150,7 @@ class _CaregiverRegistrationState2ScreenState extends State<CaregiverRegistratio
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
-                      'Caregiver sign up',
+                      'สมัครสมาชิกผู้ดูแล',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -175,7 +175,7 @@ class _CaregiverRegistrationState2ScreenState extends State<CaregiverRegistratio
                             backgroundColor: Colors.blue,
                             minimumSize: const Size(0, 48),
                           ),
-                          child: const Text('Sign up', style: TextStyle(color: Colors.white)),
+                          child: const Text('สมัครสมาชิก', style: TextStyle(color: Colors.white)),
                         ),
                       ),
                     ),

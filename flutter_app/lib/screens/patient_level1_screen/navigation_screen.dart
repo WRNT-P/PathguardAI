@@ -151,11 +151,11 @@ class _NavigationScreenState extends State<NavigationScreen> {
       context: context,
       builder: (context) => AlertDialog(
         icon: const Icon(Icons.check_circle, color: Colors.green, size: 64),
-        title: const Text('Alert Sent', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        title: const Text('ส่งการแจ้งเตือนแล้ว', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         content: Text(
           nearestName != null
-              ? '$nearestName is your nearest caregiver and has been notified.'
-              : 'Your caregiver has been notified.',
+              ? 'แจ้ง $nearestName ผู้ดูแลที่อยู่ใกล้คุณที่สุดแล้ว'
+              : 'แจ้งผู้ดูแลของคุณแล้ว',
           style: const TextStyle(fontSize: 18),
         ),
         actions: [
@@ -167,7 +167,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
                 MaterialPageRoute(builder: (context) => const SosContactsScreen()),
               );
             },
-            child: const Text('OK', style: TextStyle(fontSize: 18)),
+            child: const Text('ตกลง', style: TextStyle(fontSize: 18)),
           ),
         ],
       ),
@@ -518,19 +518,19 @@ class _NavigationScreenState extends State<NavigationScreen> {
 
   IconData _instructionIcon(String instruction) {
     switch (instruction) {
-      case 'Turn left':
+      case 'เลี้ยวซ้าย':
         return Icons.turn_left;
-      case 'Turn right':
+      case 'เลี้ยวขวา':
         return Icons.turn_right;
-      case 'Turn around':
+      case 'กลับหลังหัน':
         return Icons.u_turn_left;
-      case 'Go through the roundabout':
+      case 'ผ่านวงเวียน':
         return Icons.roundabout_left;
-      case 'Arriving at destination':
+      case 'ใกล้ถึงจุดหมายแล้ว':
         return Icons.flag;
-      case 'Retracing your steps':
+      case 'เดินย้อนกลับทางเดิม':
         return Icons.u_turn_left;
-      case 'Back where you started':
+      case 'กลับถึงจุดเริ่มต้นแล้ว':
         return Icons.flag;
       default:
         return Icons.straight;
@@ -596,7 +596,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
           return ListTile(
             leading: Icon(_instructionIcon(step.instruction)),
             title: Text(step.instruction),
-            trailing: Text('${step.distanceMeters.toStringAsFixed(0)}m'),
+            trailing: Text('${step.distanceMeters.toStringAsFixed(0)} ม.'),
           );
         },
       ),
@@ -656,7 +656,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
       final nextIndex = _currentStepIndex + 1;
       instructionText = nextIndex < _routeSteps!.length
           ? _routeSteps![nextIndex].instruction
-          : 'Arriving at destination';
+          : 'ใกล้ถึงจุดหมายแล้ว';
     }
 
     // Only once risk is genuinely high AND a real caregiver has claimed the
@@ -670,7 +670,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.list),
-            tooltip: 'Show all directions',
+            tooltip: 'ดูเส้นทางทั้งหมด',
             onPressed: (_routeSteps == null || _routeSteps!.isEmpty)
               ? null
               : _showDirectionsList,
@@ -720,7 +720,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              'Stay where you are — $_claimedByName is coming to get you.',
+                              'รออยู่ตรงนี้นะ $_claimedByName กำลังมารับ',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 20,
@@ -745,7 +745,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
                           SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              'Turn on location to start navigating',
+                              'เปิดตำแหน่ง (GPS) เพื่อเริ่มนำทาง',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 20,
@@ -774,7 +774,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
                               children: [
                                 if (distanceToTurn != null)
                                   Text(
-                                    '${distanceToTurn.toStringAsFixed(0)}m',
+                                    '${distanceToTurn.toStringAsFixed(0)} ม.',
                                     style: const TextStyle(color: Colors.white70, fontSize: 20),
                                   ),
                                 Text(
@@ -843,13 +843,13 @@ class _NavigationScreenState extends State<NavigationScreen> {
                               children: [
                                 Semantics(
                                   button: true,
-                                  label: 'Re-center map on my location',
+                                  label: 'เลื่อนแผนที่มาที่ตำแหน่งของฉัน',
                                   child: SizedBox(
                                     width: 48,
                                     height: 48,
                                     child: FloatingActionButton(
                                       heroTag: 'recenter',
-                                      tooltip: 'Re-center map on me',
+                                      tooltip: 'กลับมาที่ตำแหน่งของฉัน',
                                       backgroundColor: Colors.white,
                                       elevation: 3,
                                       onPressed: _recenterOnPatient,
@@ -862,16 +862,16 @@ class _NavigationScreenState extends State<NavigationScreen> {
                                 Semantics(
                                   button: true,
                                   label: _northUp
-                                      ? 'Switch to direction-up map'
-                                      : 'Switch to north-up map',
+                                      ? 'สลับเป็นแผนที่หันตามทิศที่เดิน'
+                                      : 'สลับเป็นแผนที่ทิศเหนืออยู่ด้านบน',
                                   child: SizedBox(
                                     width: 48,
                                     height: 48,
                                     child: FloatingActionButton(
                                       heroTag: 'northUpToggle',
                                       tooltip: _northUp
-                                          ? 'Switch to direction-up'
-                                          : 'Switch to north-up',
+                                          ? 'หันตามทิศที่เดิน'
+                                          : 'ทิศเหนืออยู่ด้านบน',
                                       backgroundColor:
                                           _northUp ? Colors.white : PatientColors.berry,
                                       elevation: 3,
@@ -897,7 +897,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
                                   elevation: 3,
                                   icon: const Icon(Icons.call),
                                   label: const Text(
-                                    'Call',
+                                    'โทร',
                                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                                   ),
                                 ),
@@ -909,7 +909,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
                             child: Semantics(
                               button: true,
                               label:
-                                  'Emergency SOS, press to alert your caregiver and get walked to safety',
+                                  'ปุ่มฉุกเฉิน SOS กดเพื่อแจ้งผู้ดูแลและนำทางไปที่ปลอดภัย',
                               child: SizedBox(
                                 width: 96,
                                 height: 96,

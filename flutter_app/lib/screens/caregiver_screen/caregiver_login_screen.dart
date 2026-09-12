@@ -7,27 +7,6 @@ import 'caregiver_register_screen.dart';
 import '../../services/api_client.dart';
 import '../../services/device_token_service.dart';
 import '../../services/caregiver_session.dart';
-class PasswordTextField extends StatelessWidget {
-  final TextEditingController controller;
-  const PasswordTextField({super.key, required this.controller});
-
-  @override
-  Widget build(BuildContext context) {
-    return FractionallySizedBox(
-      widthFactor: 0.7,
-      child: TextField(
-        controller: controller,
-        obscureText: true,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-          labelText: 'Password',
-          hintText: 'Enter your password',
-        ),
-      ),
-    );
-  }
-}
-
 class EmailTextField extends StatelessWidget {
   final TextEditingController controller;
   const EmailTextField({super.key, required this.controller});
@@ -41,8 +20,8 @@ class EmailTextField extends StatelessWidget {
         keyboardType: TextInputType.emailAddress,
         decoration: InputDecoration(
           border: OutlineInputBorder(),
-          labelText: 'Email',
-          hintText: 'Enter your Email',
+          labelText: 'อีเมล',
+          hintText: 'กรอกอีเมลของคุณ',
         ),
       ),
     );
@@ -100,7 +79,7 @@ class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
     } on FirebaseAuthException catch (_) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = "Wrong email or password.";
+        _errorMessage = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
       });
       return;
     }
@@ -109,12 +88,12 @@ class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
 
     if (res.statusCode == 403) {
       if (!mounted) return;
-      setState(() => _errorMessage = 'This account is not registered in the system');
+      setState(() => _errorMessage = 'บัญชีนี้ยังไม่ได้ลงทะเบียนในระบบ');
       return;
     }
     if (res.statusCode != 200) {
       if (!mounted) return;
-      setState(() => _errorMessage = 'Could not connect to the server');
+      setState(() => _errorMessage = 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
       return;
     }
 
@@ -122,7 +101,7 @@ class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
 
     if (me['role'] != 'caregiver') {
       if (!mounted) return;
-      setState(() => _errorMessage = 'This account belongs to a patient, not a caregiver');
+      setState(() => _errorMessage = 'บัญชีนี้เป็นของผู้ป่วย ไม่ใช่ผู้ดูแล');
       return;
     }
 
@@ -155,7 +134,7 @@ class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
-                      'Caregiver login',
+                      'เข้าสู่ระบบผู้ดูแล',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -175,7 +154,7 @@ class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
                       child: Row(
                         children: [
                           RememberMeCheckBox(),
-                          Text('Remember me'),
+                          Text('จดจำฉันไว้'),
                         ],
                       ),
                     ),
@@ -191,7 +170,7 @@ class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
                             minimumSize: const Size(0, 48),
                           ),
                           child: const Text(
-                            'Login',
+                            'เข้าสู่ระบบ',
                             style: TextStyle(color: Colors.white),
                           ),
                         ),
@@ -217,14 +196,14 @@ class _CaregiverLoginScreenState extends State<CaregiverLoginScreen> {
                             ),
                           );
                         },
-                        child: RichText(
+                        child: Text.rich(
                           textAlign: TextAlign.center,
-                          text: const TextSpan(
-                            text: "Need an account? ",
+                          const TextSpan(
+                            text: "ยังไม่มีบัญชี? ",
                             style: TextStyle(color: Colors.black),
                             children: <TextSpan>[
                               TextSpan(
-                                text: 'SIGN UP',
+                                text: 'สมัครสมาชิก',
                                 style: TextStyle(
                                   color: Colors.black,
                                   decoration: TextDecoration.underline,

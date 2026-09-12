@@ -31,7 +31,7 @@ class _JoinPatientScreenState extends State<JoinPatientScreen> {
   Future<void> _redeem() async {
     final code = _controller.text.trim();
     if (code.isEmpty) {
-      setState(() => _error = 'Enter the code the other caregiver gave you.');
+      setState(() => _error = 'กรอกรหัสที่ผู้ดูแลอีกคนให้มา');
       return;
     }
 
@@ -62,7 +62,7 @@ class _JoinPatientScreenState extends State<JoinPatientScreen> {
     } catch (_) {
       if (mounted) {
         setState(() => _error =
-            'Could not reach the server. Check your connection and try again.');
+            'ติดต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง');
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -76,15 +76,13 @@ class _JoinPatientScreenState extends State<JoinPatientScreen> {
   String _messageFor(int status) {
     switch (status) {
       case 404:
-        return 'That code did not work. It may be mistyped, already used, or '
-            'older than 24 hours. Ask for a new one.';
+        return 'รหัสนี้ใช้ไม่ได้ อาจพิมพ์ผิด ถูกใช้ไปแล้ว หรือเกิน 24 ชั่วโมง ขอรหัสใหม่อีกครั้ง';
       case 422:
-        return 'This account cannot join a patient. Sign in as a caregiver and '
-            'try again.';
+        return 'บัญชีนี้เข้าร่วมดูแลผู้ป่วยไม่ได้ กรุณาเข้าสู่ระบบในฐานะผู้ดูแลแล้วลองใหม่';
       case 401:
-        return 'Your sign-in has expired. Sign in again and retry.';
+        return 'การเข้าสู่ระบบหมดอายุ กรุณาเข้าสู่ระบบใหม่แล้วลองอีกครั้ง';
       default:
-        return 'Could not join (error $status). Please try again.';
+        return 'เข้าร่วมไม่สำเร็จ (ข้อผิดพลาด $status) กรุณาลองอีกครั้ง';
     }
   }
 
@@ -94,15 +92,14 @@ class _JoinPatientScreenState extends State<JoinPatientScreen> {
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.check_circle, color: Colors.green, size: 56),
-        title: Text(alreadyLinked ? 'Already yours' : 'You can now see $patientName'),
+        title: Text(alreadyLinked ? 'คุณดูแลอยู่แล้ว' : 'ตอนนี้คุณดูแล $patientName ได้แล้ว'),
         content: Text(
           alreadyLinked
               // Not an error. The code was spent either way — one that stayed
               // live because the holder was already linked is a code that can
               // be passed on to somebody who is not.
-              ? 'You already had access to $patientName. Nothing changed, and '
-                  'the code has now been used up.'
-              : 'You will get their alerts and can see where they are.',
+              ? 'คุณดูแล $patientName อยู่แล้ว ไม่มีอะไรเปลี่ยนแปลง และรหัสนี้ถูกใช้ไปแล้ว'
+              : 'คุณจะได้รับการแจ้งเตือนและเห็นตำแหน่งของผู้ป่วย',
           style: const TextStyle(fontSize: 16),
         ),
         actions: [
@@ -111,7 +108,7 @@ class _JoinPatientScreenState extends State<JoinPatientScreen> {
               Navigator.pop(dialogContext);
               Navigator.pop(context, true); // tell the homepage to reload
             },
-            child: const Text('OK'),
+            child: const Text('ตกลง'),
           ),
         ],
       ),
@@ -121,20 +118,19 @@ class _JoinPatientScreenState extends State<JoinPatientScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Join a patient')),
+      appBar: AppBar(title: const Text('เข้าร่วมดูแลผู้ป่วย')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Enter the invite code',
+              'กรอกรหัสเชิญ',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             const Text(
-              'A caregiver who already looks after the patient can create one '
-              'for you from their patient list.',
+              'ผู้ดูแลที่ดูแลผู้ป่วยอยู่แล้วสร้างรหัสให้คุณได้จากรายชื่อผู้ป่วยของเขา',
               style: TextStyle(fontSize: 16, color: Colors.black87),
             ),
             const SizedBox(height: 24),
@@ -169,7 +165,7 @@ class _JoinPatientScreenState extends State<JoinPatientScreen> {
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white),
                     )
-                  : const Text('Join', style: TextStyle(fontSize: 18)),
+                  : const Text('เข้าร่วม', style: TextStyle(fontSize: 18)),
             ),
             if (_error != null) ...[
               const SizedBox(height: 20),

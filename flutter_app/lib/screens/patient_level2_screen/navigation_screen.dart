@@ -319,15 +319,15 @@ class _NavigationScreenState extends State<NavigationScreen>{
 
   IconData _instructionIcon(String instruction) {
     switch (instruction) {
-      case 'Turn left':
+      case 'เลี้ยวซ้าย':
         return Icons.turn_left;
-      case 'Turn right':
+      case 'เลี้ยวขวา':
         return Icons.turn_right;
-      case 'Turn around':
+      case 'กลับหลังหัน':
         return Icons.u_turn_left;
-      case 'Go through the roundabout':
+      case 'ผ่านวงเวียน':
         return Icons.roundabout_left;
-      case 'Arriving at destination':
+      case 'ใกล้ถึงจุดหมายแล้ว':
         return Icons.flag;
       default:
         return Icons.straight;
@@ -344,7 +344,7 @@ class _NavigationScreenState extends State<NavigationScreen>{
           return ListTile(
             leading: Icon(_instructionIcon(step.instruction)),
             title: Text(step.instruction),
-            trailing: Text('${step.distanceMeters.toStringAsFixed(0)}m'),
+            trailing: Text('${step.distanceMeters.toStringAsFixed(0)} ม.'),
           );
         },
       ),
@@ -502,15 +502,15 @@ class _NavigationScreenState extends State<NavigationScreen>{
         context: context,
         builder: (context) => AlertDialog(
           icon: const Icon(Icons.check_circle, color: Colors.green, size: 128),
-          title: const Text('Alert Sent', style: TextStyle(
+          title: const Text('ส่งการแจ้งเตือนแล้ว', style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold
           )),
-          content: const Text('Your caregiver has been notified.', style: TextStyle(fontSize: 18)),
+          content: const Text('แจ้งผู้ดูแลของคุณแล้ว', style: TextStyle(fontSize: 18)),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('OK')
+              child: const Text('ตกลง')
             )
           ],
         ),
@@ -522,9 +522,9 @@ class _NavigationScreenState extends State<NavigationScreen>{
   /// word, not a precise bearing.
   String _directionText(double relativeAngle) {
     final magnitude = relativeAngle.abs();
-    if (magnitude < 20) return 'Go straight ahead';
-    if (magnitude >= 150) return 'Turn around';
-    return relativeAngle > 0 ? 'Turn right' : 'Turn left';
+    if (magnitude < 20) return 'เดินตรงไป';
+    if (magnitude >= 150) return 'กลับหลังหัน';
+    return relativeAngle > 0 ? 'เลี้ยวขวา' : 'เลี้ยวซ้าย';
   }
 
   /// The centre graphic for states that aren't "walking with a known
@@ -546,11 +546,11 @@ class _NavigationScreenState extends State<NavigationScreen>{
   }
 
   String _statusText(bool arrived, String? directionText) {
-    if (arrived) return "You've arrived!";
-    if (_locationUnavailable) return 'Turn on location to start';
+    if (arrived) return 'ถึงแล้ว!';
+    if (_locationUnavailable) return 'เปิดตำแหน่ง (GPS) เพื่อเริ่ม';
     if (directionText != null) return directionText;
-    if (_currentLocation != null) return 'Start walking to find your direction';
-    return 'Finding your location…';
+    if (_currentLocation != null) return 'เริ่มเดินเพื่อหาทิศทาง';
+    return 'กำลังหาตำแหน่งของคุณ…';
   }
 
   @override
@@ -624,7 +624,7 @@ class _NavigationScreenState extends State<NavigationScreen>{
       actions: [
         IconButton(
           icon: const Icon(Icons.list),
-          tooltip: 'Show all directions',
+          tooltip: 'ดูเส้นทางทั้งหมด',
           onPressed: _routeSteps == null || _routeSteps!.isEmpty
           ? null
           : _showDirectionsList,
@@ -659,7 +659,7 @@ class _NavigationScreenState extends State<NavigationScreen>{
                 padding: const EdgeInsets.all(24.0),
                 color: Colors.white.withValues(alpha: 0.85),
                 child: Text(
-                  'Going to: ${widget.place['name']}',
+                  'กำลังไป: ${widget.place['name']}',
                   style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                 ),
@@ -722,7 +722,7 @@ class _NavigationScreenState extends State<NavigationScreen>{
                 // the biggest, reddest, least-buried thing in view.
                 child: Semantics(
                   button: true,
-                  label: 'Emergency SOS, press to alert your caregiver now',
+                  label: 'ปุ่มฉุกเฉิน SOS กดเพื่อแจ้งผู้ดูแลทันที',
                   child: SizedBox(
                     width: 96,
                     height: 96,
@@ -750,7 +750,7 @@ class _NavigationScreenState extends State<NavigationScreen>{
                 height: 48,
                 child: FloatingActionButton(
                   heroTag: 'northUpToggle',
-                  tooltip: _northUp ? 'Switch to direction-up' : 'Switch to north-up',
+                  tooltip: _northUp ? 'หันตามทิศที่เดิน' : 'ทิศเหนืออยู่ด้านบน',
                   backgroundColor: _northUp ? Colors.white : PatientColors.berry,
                   onPressed: _toggleNorthUp,
                   child: Icon(

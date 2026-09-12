@@ -11,7 +11,7 @@ Future<void> _callNumber(BuildContext context, String phone) async {
   if (!await launchUrl(uri)) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Could not call $phone')),
+      SnackBar(content: Text('โทรหา $phone ไม่ได้')),
     );
   }
 }
@@ -62,7 +62,7 @@ class CaregiverCard extends StatelessWidget {
                     const SizedBox(width: 4),
                     Flexible(
                       child: Text(
-                        isAvailable == null ? 'Unknown status' : (isAvailable! ? 'Available' : 'Unavailable'),
+                        isAvailable == null ? 'ไม่ทราบสถานะ' : (isAvailable! ? 'ว่าง' : 'ไม่ว่าง'),
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 13,
@@ -79,7 +79,7 @@ class CaregiverCard extends StatelessWidget {
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
-                  distanceM != null ? '${(distanceM! / 1000).toStringAsFixed(1)} km' : 'Unknown location',
+                  distanceM != null ? '${(distanceM! / 1000).toStringAsFixed(1)} กม.' : 'ไม่ทราบตำแหน่ง',
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.right,
                   style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600),
@@ -106,11 +106,11 @@ class CaregiverCard extends StatelessWidget {
           Center(
             child: Semantics(
               button: true,
-              label: 'Call $name',
+              label: 'โทรหา $name',
               child: ElevatedButton.icon(
                 onPressed: phone == null ? null : () => _callNumber(context, phone!),
                 icon: const Icon(Icons.phone, size: 20),
-                label: const Text('Phone', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                label: const Text('โทรศัพท์', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: PatientColors.safe,
                   foregroundColor: Colors.white,
@@ -178,12 +178,12 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         icon: const Icon(Icons.check_circle, color: Colors.green, size: 64),
-        title: const Text('Alert Sent', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        content: const Text('Your caregiver has been notified.', style: TextStyle(fontSize: 18)),
+        title: const Text('ส่งการแจ้งเตือนแล้ว', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        content: const Text('แจ้งผู้ดูแลของคุณแล้ว', style: TextStyle(fontSize: 18)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK', style: TextStyle(fontSize: 18)),
+            child: const Text('ตกลง', style: TextStyle(fontSize: 18)),
           ),
         ],
       ),
@@ -194,7 +194,7 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
   Widget _buildSosButton(){
     return Semantics(
       button: true,
-      label: 'Call for help now',
+      label: 'โทรขอความช่วยเหลือตอนนี้',
       child: GestureDetector(
       onTap: _sosSending ? null : _handleSOS,
       child: SizedBox(
@@ -231,7 +231,7 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
               // caregiver has not been told until this is pressed.
               child: const Center (
                 child: Text(
-                  'Call for\nhelp',
+                  'โทรขอ\nความช่วยเหลือ',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, height: 1.15),
                 ),
@@ -260,7 +260,7 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Contact your caregiver',
+                      'ติดต่อผู้ดูแลของคุณ',
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: PatientColors.charcoal),
                     ),
                   ),
@@ -273,7 +273,7 @@ class _SosContactsScreenState extends State<SosContactsScreen> {
                   else if (caregivers.isEmpty)
                     const Padding(
                       padding: EdgeInsets.all(24),
-                      child: Text('No caregivers found'),
+                      child: Text('ไม่พบผู้ดูแล'),
                     )
                   else
                     GridView.count(

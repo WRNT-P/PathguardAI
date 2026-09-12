@@ -80,18 +80,18 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       builder: (dialogContext) => AlertDialog(
         icon: Icon(sent ? Icons.check_circle : Icons.error_outline,
             color: sent ? Colors.green : Colors.red, size: 64),
-        title: Text(sent ? 'Help is coming' : 'Could not send',
+        title: Text(sent ? 'กำลังมีคนมาช่วย' : 'ส่งไม่สำเร็จ',
             style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         content: Text(
           sent
-              ? 'Your caregiver has been told. Stay where you are.'
-              : 'We could not reach your caregiver. Please try again.',
+              ? 'แจ้งผู้ดูแลแล้ว รออยู่ตรงนี้นะ'
+              : 'ติดต่อผู้ดูแลไม่ได้ กรุณาลองอีกครั้ง',
           style: const TextStyle(fontSize: 18),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('OK', style: TextStyle(fontSize: 18)),
+            child: const Text('ตกลง', style: TextStyle(fontSize: 18)),
           ),
         ],
       ),
@@ -223,7 +223,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
           const Icon(Icons.hourglass_top, size: 120, color: PatientColors.berry),
           const SizedBox(height: 24),
           Text(
-            'Asking your caregiver about ${_selectedPlace?['name'] ?? 'this trip'}...',
+            'กำลังถามผู้ดูแลเรื่อง ${_selectedPlace?['name'] ?? 'การเดินทางนี้'}...',
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
           ),
@@ -240,7 +240,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
           const Icon(Icons.info_outline, size: 120, color: PatientColors.charcoal),
           const SizedBox(height: 24),
           const Text(
-            'Let\'s pick something else',
+            'ลองเลือกที่อื่นกันนะ',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
           ),
@@ -257,7 +257,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
               minimumSize: const Size(200, 60),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+            child: const Text('ตกลง', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -276,7 +276,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
 
         if (details == null) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Could not load that place, try again')),
+            const SnackBar(content: Text('โหลดสถานที่นี้ไม่สำเร็จ ลองอีกครั้ง')),
           );
           return;
         }
@@ -309,7 +309,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
               children: [
                 Expanded(
                   child: Text(
-                     'Hello!\n${widget.patientName ?? "Friend"}',
+                     'สวัสดี!\n${widget.patientName ?? "เพื่อน"}',
                      style: const TextStyle(
                       fontSize: 26,
                       fontWeight: FontWeight.bold,
@@ -322,13 +322,13 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
             ),
             const SizedBox(height: 8),
             Text (
-              'Choose your destination',
+              'เลือกที่ที่อยากไป',
               style: TextStyle(fontSize: 17, color: Colors.grey[800]),
             ),
             const SizedBox(height: 16),
             Semantics(
               textField: true,
-              label: 'Search for a place to go',
+              label: 'ค้นหาสถานที่ที่จะไป',
               child: TextField(
               controller: _searchController,
               style: const TextStyle(fontSize: 18),
@@ -362,7 +362,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                 filled: true,
                 fillColor: Colors.white,
                 prefixIcon: const Icon(Icons.search, size: 26),
-                hintText: 'Search',
+                hintText: 'ค้นหา',
                 contentPadding: const EdgeInsets.symmetric(vertical: 16),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(100),
@@ -392,14 +392,14 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                       : filteredPlaces.isEmpty
                       ? const Center(
                           child: Text(
-                            'No places found',
+                            'ไม่พบสถานที่',
                             style: TextStyle(fontSize: 16, color: Colors.grey),
                           ),
                         )
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Places you may like:', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: PatientColors.charcoal)),
+                            const Text('สถานที่ที่คุณอาจชอบ:', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: PatientColors.charcoal)),
                             const SizedBox(height: 4),
                             Expanded(
                               child: ListView.builder(
@@ -419,7 +419,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                                       child: ListTile(
                                         title: Text(place['name'], style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
-                                        subtitle: const Text('Often visited', style: TextStyle(fontSize: 14)),
+                                        subtitle: const Text('ไปบ่อย', style: TextStyle(fontSize: 14)),
                                         trailing: SizedBox(
                                           height: 48,
                                           child: ElevatedButton(
@@ -438,7 +438,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                                                     height: 18,
                                                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                                   )
-                                                : const Text('Start', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                                                : const Text('เริ่ม', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                                           ),
                                         ),
                                       ),
@@ -473,14 +473,14 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Patient Home'),
+        title: const Text('หน้าหลัก'),
         actions: [
           Semantics(
             button: true,
-            label: 'Log out',
+            label: 'ออกจากระบบ',
             child: IconButton(
               onPressed: _handleLogout,
-              tooltip: 'Log out',
+              tooltip: 'ออกจากระบบ',
               icon: const Icon(Icons.logout),
             ),
           ),
@@ -492,7 +492,7 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
       // biggest, reddest, least-buried thing in view, on purpose.
       floatingActionButton: Semantics(
         button: true,
-        label: 'Emergency SOS, press to alert your caregiver now',
+        label: 'ปุ่มฉุกเฉิน SOS กดเพื่อแจ้งผู้ดูแลทันที',
         child: SizedBox(
           width: 88,
           height: 88,

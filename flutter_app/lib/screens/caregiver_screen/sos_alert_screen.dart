@@ -41,6 +41,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
   Map<String, dynamic>? _prediction;
   bool _acting = false;
   Timer? _refreshTimer;
+
   /// Set the instant this screen starts going away, by any of its four exits.
   ///
   /// They can race: marking an alert resolved pops immediately, and the 8s
@@ -59,7 +60,10 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
     super.initState();
     _refresh();
     _loadPrediction();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 8), (_) => _refresh());
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 8),
+      (_) => _refresh(),
+    );
   }
 
   /// Module 2 — where this patient usually goes next, off the Markov
@@ -86,8 +90,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
       if (body['status'] == 'ok') {
         if (mounted) setState(() => _prediction = body);
       }
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 
   /// The first prediction the caregiver can actually be told about.
@@ -139,13 +142,16 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Walking to $destination',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 16)),
+                  Text(
+                    'กำลังเดินไป $destination',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   Text(
-                    'Their app is guiding them to this safe place now, so they '
-                    'are already leaving the position on the map.',
+                    'แอปของผู้ป่วยกำลังนำทางไปสถานที่ปลอดภัยนี้ ตำแหน่งจริงจึงอาจไม่ตรงกับบนแผนที่แล้ว',
                     style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                   ),
                 ],
@@ -172,27 +178,28 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
       // returns are an equal division across the known places — arithmetic,
       // not a prediction — and its own docstring says not to render them as
       // confidence. Saying so plainly is more use than an empty box.
-      headline = 'No destination prediction yet';
+      headline = 'ยังคาดเดาจุดหมายไม่ได้';
       caveat = top == null && historyStatus != 'none'
-          ? 'The places on file have no names, so there is nothing to name here.'
-          : 'This patient has not been recorded travelling between their saved '
-              'places yet, so there is nothing to predict from.';
+          ? 'สถานที่ที่บันทึกไว้ยังไม่มีชื่อ จึงบอกชื่อจุดหมายไม่ได้'
+          : 'ยังไม่มีประวัติการเดินทางระหว่างสถานที่ที่บันทึกไว้ จึงยังคาดเดาไม่ได้';
       background = Colors.grey[100]!;
       borderColour = Colors.grey[300]!;
     } else if (historyStatus == 'ok') {
-      headline = 'Likely heading to ${top['place_name']} '
+      headline =
+          'น่าจะกำลังไป ${top['place_name']} '
           '(${top['probability_pct']}%)';
-      caveat = 'Based on $observed recorded moves in the last 30 days.';
+      caveat = 'อ้างอิงจากการเดินทาง $observed ครั้งใน 30 วันที่ผ่านมา';
       background = Colors.orange[50]!;
       borderColour = Colors.orange[200]!;
     } else {
       // sparse — a real number off a history too thin to lean on. Shown,
       // because it is the only signal there is, and captioned so nobody
       // mistakes it for the case above.
-      headline = 'Possibly heading to ${top['place_name']} '
+      headline =
+          'อาจกำลังไป ${top['place_name']} '
           '(${top['probability_pct']}%)';
-      caveat = 'Low confidence — only $observed recorded moves in the last '
-          '30 days. Treat this as a hint, not a destination.';
+      caveat =
+          'ความมั่นใจต่ำ มีข้อมูลการเดินทางแค่ $observed ครั้งใน 30 วันที่ผ่านมา ใช้เป็นแนวทางเท่านั้น';
       background = Colors.amber[50]!;
       borderColour = Colors.amber[300]!;
     }
@@ -210,8 +217,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(headline,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text(headline, style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
             Text(
               caveat,
@@ -234,21 +240,31 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
     if (_leaving) return;
     _leaving = true;
     _refreshTimer?.cancel();
-    if (mounted) Navigator.of(context).pop();
+    if (!mounted) return;
+    // A bare pop() closes whatever is on top. With the "someone is going"
+    // dialog up, that was the dialog — this screen stayed, and _leaving then
+    // turned every later exit (the Close button included) into a no-op.
+    final route = ModalRoute.of(context);
+    final navigator = Navigator.of(context);
+    if (route != null) navigator.popUntil((r) => r == route);
+    navigator.pop();
   }
 
   Future<void> _refresh() async {
     if (_leaving) return;
     try {
-      final alertsRes = await apiGet('/api/patients/${widget.patientId}/alerts?limit=100');
+      final alertsRes = await apiGet(
+        '/api/patients/${widget.patientId}/alerts?limit=100',
+      );
       if (alertsRes.statusCode == 200) {
         final alerts = jsonDecode(alertsRes.body)['alerts'] as List;
         final updated = alerts.cast<Map<String, dynamic>>().firstWhere(
-              (a) => a['id'] == _alert['id'],
-              orElse: () => _alert,
-            );
+          (a) => a['id'] == _alert['id'],
+          orElse: () => _alert,
+        );
         final myId = CaregiverSession.instance.caregiverId;
-        final newlyClaimedByOther = _alert['claimed_by'] == null &&
+        final newlyClaimedByOther =
+            _alert['claimed_by'] == null &&
             updated['claimed_by'] != null &&
             updated['claimed_by'] != myId;
         if (mounted) setState(() => _alert = updated);
@@ -262,17 +278,27 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
         // actually seeing who's responding.
         if (newlyClaimedByOther && !_claimPopupShown && mounted) {
           _claimPopupShown = true;
-          await _showClaimAcknowledgement(updated['claimed_by_name'] as String?);
+          await _showClaimAcknowledgement(
+            updated['claimed_by_name'] as String?,
+          );
         }
       }
 
-      final rankRes = await apiGet('/api/patients/${widget.patientId}/caregivers');
+      final rankRes = await apiGet(
+        '/api/patients/${widget.patientId}/caregivers',
+      );
       if (rankRes.statusCode == 200) {
         final ranked = jsonDecode(rankRes.body)['caregivers'] as List;
-        if (mounted) setState(() => _rankedCaregivers = ranked.cast<Map<String, dynamic>>());
+        // The endpoint lists every caregiver of the patient, the one reading
+        // this screen included — and a call button to yourself is noise.
+        final myId = CaregiverSession.instance.caregiverId;
+        final others = ranked
+            .cast<Map<String, dynamic>>()
+            .where((c) => c['caregiver_id'] != myId)
+            .toList();
+        if (mounted) setState(() => _rankedCaregivers = others);
       }
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 
   /// Shown to every OTHER caregiver still on this screen once someone claims
@@ -286,7 +312,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
         title: const Text('มีคนไปรับแล้ว'),
-        content: Text('${claimerName ?? "เพื่อนร่วมดูแล"} กำลังไปรับผู้ป่วย'),
+        content: Text('${claimerName ?? "ผู้ดูแลอีกคน"} กำลังไปรับผู้ป่วย'),
         actions: [
           ElevatedButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
@@ -327,16 +353,16 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
         }
         return;
       } else if (res.statusCode == 409 && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Someone already claimed this')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('มีคนรับเรื่องนี้ไปแล้ว')));
         await _refresh();
       } else if (mounted) {
         // Anything else used to fall through in silence: the button just did
         // nothing and the screen stayed open with no explanation, which is
         // how a 401 from an auth-disabled backend went unnoticed for a day.
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not claim this alert (${res.statusCode})')),
+          SnackBar(content: Text('รับเรื่องไม่สำเร็จ (${res.statusCode})')),
         );
       }
     } catch (_) {
@@ -352,7 +378,10 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
   Future<void> _markResolved() async {
     setState(() => _acting = true);
     try {
-      final res = await apiPatch('/api/alerts/${_alert['id']}', body: {'resolved': true});
+      final res = await apiPatch(
+        '/api/alerts/${_alert['id']}',
+        body: {'resolved': true},
+      );
       if (res.statusCode == 200) {
         _close();
         return;
@@ -397,7 +426,7 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              _alert['message'] as String? ?? 'The patient needs help',
+              _alert['message'] as String? ?? 'ผู้ป่วยต้องการความช่วยเหลือ',
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
@@ -423,18 +452,24 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
                   gmaps.Marker(
                     markerId: const gmaps.MarkerId('patient'),
                     position: gmaps.LatLng(lat, lng),
-                    icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueRed),
+                    icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                      gmaps.BitmapDescriptor.hueRed,
+                    ),
                   ),
                 },
               ),
             ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text('Nearest caregivers', style: TextStyle(fontWeight: FontWeight.w600)),
+          if (_rankedCaregivers.isNotEmpty)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'ผู้ดูแลที่อยู่ใกล้ที่สุด',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
             ),
-          ),
           Expanded(
             child: ListView(
               children: _rankedCaregivers.map((c) {
@@ -442,11 +477,11 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
                 final phone = c['phone'] as String?;
                 return ListTile(
                   leading: const Icon(Icons.person),
-                  title: Text(c['name'] as String? ?? 'Unnamed'),
+                  title: Text(c['name'] as String? ?? 'ไม่มีชื่อ'),
                   subtitle: Text(
                     distance != null
-                        ? '${(distance / 1000).toStringAsFixed(1)} km'
-                        : 'Unknown location',
+                        ? '${(distance / 1000).toStringAsFixed(1)} กม.'
+                        : 'ไม่ทราบตำแหน่ง',
                   ),
                   trailing: phone != null
                       ? IconButton(
@@ -470,43 +505,71 @@ class _SosAlertScreenState extends State<SosAlertScreen> {
                           backgroundColor: Colors.red,
                           minimumSize: const Size(0, 48),
                         ),
-                        child: const Text("I'll go get them", style: TextStyle(color: Colors.white)),
+                        child: const Text(
+                          'ฉันจะไปรับเอง',
+                          style: TextStyle(color: Colors.white),
+                        ),
                       )
                     : claimedBy == myId
-                        ? Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (_alert['alert_type'] == 'sos')
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: ElevatedButton(
-                                    onPressed: _acting ? null : _markResolved,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green,
-                                      minimumSize: const Size(double.infinity, 48),
-                                    ),
-                                    child: const Text('Mark as resolved', style: TextStyle(color: Colors.white)),
-                                  ),
+                    ? Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_alert['alert_type'] == 'sos')
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: ElevatedButton(
+                                onPressed: _acting ? null : _markResolved,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  minimumSize: const Size(double.infinity, 48),
                                 ),
-                              ElevatedButton(
-                                onPressed: _acting ? null : _cancelClaim,
-                                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 48)),
-                                child: const Text('Cancel claim'),
+                                child: const Text(
+                                  'ยืนยันว่าปลอดภัยแล้ว',
+                                  style: TextStyle(color: Colors.white),
+                                ),
                               ),
-                            ],
-                          )
-                        : Container(
+                            ),
+                          ElevatedButton(
+                            onPressed: _acting ? null : _cancelClaim,
+                            style: ElevatedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 48),
+                            ),
+                            child: const Text('ยกเลิกการรับเรื่อง'),
+                          ),
+                        ],
+                      )
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: double.infinity,
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               color: Colors.green[100],
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              '${claimedByName ?? "Another caregiver"} is on their way',
+                              '${claimedByName ?? "ผู้ดูแลอีกคน"} กำลังไปรับ',
                               textAlign: TextAlign.center,
-                              style: const TextStyle(fontWeight: FontWeight.w600),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
+                          const SizedBox(height: 8),
+                          // Someone else is already handling this — safe to
+                          // leave without the "nobody dismisses an unclaimed
+                          // SOS by accident" concern above, since this
+                          // caregiver isn't the one responsible for it.
+                          ElevatedButton(
+                            onPressed: _close,
+                            style: ElevatedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 48),
+                            ),
+                            child: const Text('ปิด'),
+                          ),
+                        ],
+                      ),
               ),
             ),
           ),

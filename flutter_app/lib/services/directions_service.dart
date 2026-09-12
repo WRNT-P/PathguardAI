@@ -93,23 +93,23 @@ String _maneuverText(String? maneuver) {
     case 'turn-sharp-left':
     case 'ramp-left':
     case 'fork-left':
-      return 'Turn left';
+      return 'เลี้ยวซ้าย';
     case 'turn-right':
     case 'turn-slight-right':
     case 'turn-sharp-right':
     case 'ramp-right':
     case 'fork-right':
-      return 'Turn right';
+      return 'เลี้ยวขวา';
     case 'uturn-left':
     case 'uturn-right':
-      return 'Turn around';
+      return 'กลับหลังหัน';
     case 'roundabout-left':
     case 'roundabout-right':
-      return 'Go through the roundabout';
+      return 'ผ่านวงเวียน';
     case 'merge':
     case 'straight':
     default:
-      return 'Go straight ahead';
+      return 'เดินตรงไป';
   }
 }
 

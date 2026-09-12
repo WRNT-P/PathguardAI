@@ -169,7 +169,7 @@ class _TrackScreenState extends State<TrackScreen>{
     _loadPatientIcon();
     _fetchPlaces();
     _watchActiveTrip();
-    _timer = Timer.periodic(const Duration(seconds: 15), (timer) async {
+    _timer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       final points = await _fetchRecentTrack();
       final risk = await _fetchLatestRisk();
       if (!mounted) return;
@@ -222,22 +222,22 @@ class _TrackScreenState extends State<TrackScreen>{
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
               child: Text(
-                'When did you last see them?',
+                'คุณเห็นผู้ป่วยครั้งล่าสุดเมื่อไหร่',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: Text(
-                'This sets how far the search area reaches.',
+                'ใช้กำหนดว่าพื้นที่ค้นหากว้างแค่ไหน',
                 style: TextStyle(fontSize: 14, color: Colors.black54),
               ),
             ),
             for (final option in const [
-              (15, 'Within the last 15 minutes'),
-              (30, 'About half an hour ago'),
-              (60, 'About an hour ago'),
-              (180, 'More than two hours ago'),
+              (15, 'ภายใน 15 นาทีที่แล้ว'),
+              (30, 'ประมาณครึ่งชั่วโมงที่แล้ว'),
+              (60, 'ประมาณ 1 ชั่วโมงที่แล้ว'),
+              (180, 'มากกว่า 2 ชั่วโมงที่แล้ว'),
             ])
               ListTile(
                 title: Text(option.$2, style: const TextStyle(fontSize: 16)),
@@ -377,22 +377,22 @@ class _TrackScreenState extends State<TrackScreen>{
   String _riskAgeLabel() {
     if (_riskCalculatedAt == null) return '';
     final ageMinutes = DateTime.now().difference(_riskCalculatedAt!).inMinutes;
-    if (ageMinutes < 1) return ' just now';
-    if (ageMinutes < 60) return ' $ageMinutes min ago';
+    if (ageMinutes < 1) return ' เมื่อสักครู่';
+    if (ageMinutes < 60) return ' $ageMinutes นาทีที่แล้ว';
     final ageHours = ageMinutes ~/ 60;
-    return ' ${ageHours}h ago';
+    return ' $ageHours ชม. ที่แล้ว';
   }
 
   String _riskLevelLabel(String? level) {
     switch (level) {
       case 'high':
-        return 'High';
+        return 'สูง';
       case 'medium':
-        return 'Medium';
+        return 'ปานกลาง';
       case 'low':
-        return 'Low';
+        return 'ต่ำ';
       default:
-        return 'Unknown';
+        return 'ไม่ทราบ';
     }
   }
 
@@ -404,18 +404,18 @@ class _TrackScreenState extends State<TrackScreen>{
   /// has to know the current time to notice the fix is 90 minutes cold. Once
   /// the fix is stale the age is spelled out beside it.
   String _lastUpdatedLabel() {
-    if (_lastUpdated == null) return 'Waiting for location...';
+    if (_lastUpdated == null) return 'กำลังรอตำแหน่ง...';
     final at = _formatTime(_lastUpdated!);
-    if (!_lastFixIsStale) return 'Location last updated $at';
+    if (!_lastFixIsStale) return 'อัปเดตตำแหน่งล่าสุด $at';
     final minutes = DateTime.now().difference(_lastUpdated!).inMinutes;
-    final age = minutes < 60 ? '$minutes min ago' : '${minutes ~/ 60}h ${minutes % 60}m ago';
-    return 'Location last updated $at — $age';
+    final age = minutes < 60 ? '$minutes นาทีที่แล้ว' : '${minutes ~/ 60} ชม. ${minutes % 60} นาทีที่แล้ว';
+    return 'อัปเดตตำแหน่งล่าสุด $at — $age';
   }
 
   @override
   Widget build(BuildContext context) {
     final profileImage = widget.patient['profileImage'] as File?;
-    final patientName = widget.patient['name'] as String? ?? 'Patient';
+    final patientName = widget.patient['name'] as String? ?? 'ผู้ป่วย';
     // "At safe place" used to mean nothing more than "no unresolved alert", so
     // it stayed green with the patient kilometres from anywhere they know — an
     // alert only exists once risk has recomputed (60 s throttle) and survived
@@ -451,16 +451,16 @@ class _TrackScreenState extends State<TrackScreen>{
     // A named destination beats "Traveling": it is the difference between a
     // caregiver knowing to leave them to it and having to go and look.
     final statusLabel = fixIsStale
-        ? 'No recent signal'
+        ? 'ไม่มีสัญญาณล่าสุด'
         : onTrip
             ? (trip.destinationName?.isNotEmpty == true
-                ? 'On a trip to ${trip.destinationName}'
-                : 'On a trip')
+                ? 'กำลังเดินทางไป ${trip.destinationName}'
+                : 'กำลังเดินทาง')
             : isTraveling
-                ? 'Traveling'
+                ? 'กำลังเคลื่อนที่'
                 : atKnownPlace
-                    ? 'At safe place'
-                    : 'Away from safe places';
+                    ? 'อยู่ในที่ปลอดภัย'
+                    : 'อยู่นอกที่ปลอดภัย';
     // The two states in which a caregiver is likely already reaching for the
     // phone. Being on a named trip is not one of them: they know where the
     // patient is going, and shouting "I can't find them" at them would be the
@@ -527,7 +527,7 @@ class _TrackScreenState extends State<TrackScreen>{
           if (isHighRisk)
             Semantics(
               liveRegion: true,
-              label: 'Warning: high wandering risk for $patientName',
+              label: 'คำเตือน: $patientName มีความเสี่ยงหลงทางสูง',
               child: Container(
                 width: double.infinity,
                 color: Colors.red[700],
@@ -538,7 +538,7 @@ class _TrackScreenState extends State<TrackScreen>{
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'High risk right now — check on $patientName',
+                        'ความเสี่ยงสูงตอนนี้ — ตรวจดู $patientName ด้วย',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 16,
@@ -603,7 +603,7 @@ class _TrackScreenState extends State<TrackScreen>{
                           (place['longitude'] as num).toDouble(),
                         ),
                         infoWindow: gmaps.InfoWindow(
-                          title: place['place_name'] as String? ?? 'Unnamed place',
+                          title: place['place_name'] as String? ?? 'สถานที่ไม่มีชื่อ',
                         ),
                         icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
                           place['is_home'] == true
@@ -620,7 +620,7 @@ class _TrackScreenState extends State<TrackScreen>{
                       child: Padding(
                         padding: EdgeInsets.all(16),
                         child: Text(
-                          'Waiting for location...',
+                          'กำลังรอตำแหน่ง...',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -642,7 +642,7 @@ class _TrackScreenState extends State<TrackScreen>{
                   bottom: 16,
                   child: Semantics(
                     button: true,
-                    label: 'Re-centre map on patient',
+                    label: 'เลื่อนแผนที่ไปที่ผู้ป่วย',
                     child: Material(
                       color: Colors.white,
                       elevation: 3,
@@ -690,8 +690,8 @@ class _TrackScreenState extends State<TrackScreen>{
                   children: [
                     Semantics(
                       label: _riskScore != null
-                          ? 'Risk score ${_riskScore!.toStringAsFixed(0)} out of 100, ${_riskLevelLabel(_riskLevel)} risk'
-                          : 'Risk score not available',
+                          ? 'คะแนนความเสี่ยง ${_riskScore!.toStringAsFixed(0)} จาก 100 ระดับ${_riskLevelLabel(_riskLevel)}'
+                          : 'ยังไม่มีคะแนนความเสี่ยง',
                       child: Container(
                         width: 64,
                         height: 64,
@@ -714,13 +714,13 @@ class _TrackScreenState extends State<TrackScreen>{
                         children: [
                           Text(
                             _riskScore != null
-                                ? '${_riskLevelLabel(_riskLevel)} risk'
-                                : 'Risk score not available',
+                                ? 'ความเสี่ยง${_riskLevelLabel(_riskLevel)}'
+                                : 'ยังไม่มีคะแนนความเสี่ยง',
                             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: riskColor),
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            _riskScore != null ? 'Updated${_riskAgeLabel()}' : 'Waiting for first calculation',
+                            _riskScore != null ? 'อัปเดต${_riskAgeLabel()}' : 'รอการคำนวณครั้งแรก',
                             style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                           ),
                         ],
@@ -737,7 +737,7 @@ class _TrackScreenState extends State<TrackScreen>{
                       child: _StatTile(
                         icon: statusIcon,
                         iconColor: statusColor,
-                        label: 'Status',
+                        label: 'สถานะ',
                         value: statusLabel,
                         valueColor: statusColor,
                       ),
@@ -746,10 +746,10 @@ class _TrackScreenState extends State<TrackScreen>{
                       child: _StatTile(
                         icon: Icons.social_distance_rounded,
                         iconColor: Colors.blueGrey,
-                        label: 'From home',
+                        label: 'ห่างจากบ้าน',
                         value: distanceInMeters != null
-                            ? '${distanceInMeters.toStringAsFixed(0)} m'
-                            : 'Not set',
+                            ? '${distanceInMeters.toStringAsFixed(0)} ม.'
+                            : 'ยังไม่ได้ตั้งค่า',
                         valueColor: Colors.black87,
                       ),
                     ),
@@ -795,18 +795,18 @@ class _TrackScreenState extends State<TrackScreen>{
                       ? FilledButton.icon(
                           onPressed: _startManualSearch,
                           icon: const Icon(Icons.person_search_rounded),
-                          label: const Text("I can't find them"),
+                          label: const Text('หาผู้ป่วยไม่เจอ'),
                           style: FilledButton.styleFrom(
                             backgroundColor: Colors.red[700],
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             textStyle: const TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold),
+                                fontFamily: 'Kanit', fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                         )
                       : OutlinedButton.icon(
                           onPressed: _startManualSearch,
                           icon: const Icon(Icons.person_search_rounded),
-                          label: const Text("I can't find them"),
+                          label: const Text('หาผู้ป่วยไม่เจอ'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.red[700],
                             side: BorderSide(color: Colors.red[200]!),

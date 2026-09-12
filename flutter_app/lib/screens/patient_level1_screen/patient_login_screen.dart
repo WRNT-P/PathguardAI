@@ -59,7 +59,7 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
 
     if (pairResponse == null || pairResponse.statusCode != 200){
       setState(() {
-        _errorMessage = 'Patient ID not found. Please check and try again';
+        _errorMessage = 'ไม่พบรหัสผู้ป่วย กรุณาตรวจสอบแล้วลองอีกครั้ง';
       });
       return;
     }
@@ -72,7 +72,7 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
     if (severityLevel == null){
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Ask your caregiver to set a severity level first.';
+        _errorMessage = 'ให้ผู้ดูแลตั้งระดับอาการก่อน';
       });
       return;
     }
@@ -87,7 +87,7 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
     if (name == null){
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Patient data not found. Please check and try again.';
+        _errorMessage = 'ไม่พบข้อมูลผู้ป่วย กรุณาตรวจสอบแล้วลองอีกครั้ง';
       });
       return;
     }
@@ -140,7 +140,7 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
                       const Icon(Icons.favorite, color: Colors.white, size: 48),
                       const SizedBox(height: 12),
                       const Text(
-                        'Patient login',
+                        'เข้าสู่ระบบผู้ป่วย',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 26,
@@ -159,14 +159,14 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Text(
-                            'Ask your caregiver for your pairing code',
+                            'ขอรหัสเข้าสู่ระบบจากผู้ดูแลของคุณ',
                             textAlign: TextAlign.center,
                             style: TextStyle(fontSize: 16, color: PatientColors.charcoal),
                           ),
                           const SizedBox(height: 20),
                           Semantics(
                             textField: true,
-                            label: 'Patient ID, enter your pairing code',
+                            label: 'รหัสผู้ป่วย กรอกรหัสเข้าสู่ระบบ',
                             child: TextField(
                               controller: _idController,
                               keyboardType: TextInputType.text,
@@ -181,8 +181,8 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                   borderSide: const BorderSide(color: PatientColors.berry, width: 2),
                                 ),
-                                labelText: 'Patient ID',
-                                hintText: 'Pairing code',
+                                labelText: 'รหัสผู้ป่วย',
+                                hintText: 'รหัสเข้าสู่ระบบ',
                                 contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
                               ),
                             ),
@@ -218,7 +218,7 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
                                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
                                     )
                                   : const Text(
-                                      'Login',
+                                      'เข้าสู่ระบบ',
                                       style: TextStyle(
                                         color: Colors.white,
                                         fontSize: 22,

@@ -16,8 +16,8 @@ void _initForegroundTask() {
   FlutterForegroundTask.init(
     androidNotificationOptions: AndroidNotificationOptions(
       channelId: 'pathguard_gps_channel',
-      channelName: 'PathGuard location tracking',
-      channelDescription: 'Keeps sending your location to your caregiver.',
+      channelName: 'PathGuard ติดตามตำแหน่ง',
+      channelDescription: 'ส่งตำแหน่งของคุณให้ผู้ดูแลอยู่ตลอด',
     ),
     iosNotificationOptions: const IOSNotificationOptions(),
     foregroundTaskOptions: ForegroundTaskOptions(
@@ -72,8 +72,8 @@ Future<void> startGpsReporting() async {
   _initForegroundTask();
   await FlutterForegroundTask.startService(
     serviceId: 256,
-    notificationTitle: 'PathGuard is tracking your location',
-    notificationText: 'This keeps your caregiver updated even when the screen is off.',
+    notificationTitle: 'PathGuard กำลังติดตามตำแหน่งของคุณ',
+    notificationText: 'ผู้ดูแลจะเห็นตำแหน่งของคุณแม้ปิดหน้าจออยู่',
     callback: startGpsCallback,
   );
 }

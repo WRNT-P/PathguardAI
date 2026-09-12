@@ -48,7 +48,7 @@ router = APIRouter()
 # it is 60 s and not 0.
 _FALLBACK_COOLDOWN_S = 60.0
 
-_MESSAGE = "Patient pressed the SOS button."
+_MESSAGE = "ผู้ป่วยกดปุ่ม SOS"
 
 
 

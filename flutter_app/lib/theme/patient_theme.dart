@@ -59,7 +59,7 @@ class PatientBackButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: 'Go back',
+      label: 'ย้อนกลับ',
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
@@ -72,7 +72,7 @@ class PatientBackButton extends StatelessWidget {
         height: 52,
         child: IconButton(
           icon: const Icon(Icons.arrow_back, color: PatientColors.charcoal, size: 26),
-          tooltip: 'Go back',
+          tooltip: 'ย้อนกลับ',
           onPressed: () => Navigator.pop(context),
         ),
       ),

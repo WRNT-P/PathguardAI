@@ -187,7 +187,7 @@ class _SafePlaceLinkInputState extends State<SafePlaceLinkInput> {
             controller: _controller,
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
-              hintText: 'Paste Google Maps link here',
+              hintText: 'วางลิงก์ Google Maps ที่นี่',
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
               suffixIcon: _status == _LinkParseStatus.loading
                   ? const Padding(
@@ -205,12 +205,12 @@ class _SafePlaceLinkInputState extends State<SafePlaceLinkInput> {
           const SizedBox(height: 6),
           if (_status == _LinkParseStatus.success && _result != null)
             Text(
-              'Location found: ${_result!.latitude.toStringAsFixed(5)}, ${_result!.longitude.toStringAsFixed(5)}',
+              'พบตำแหน่ง: ${_result!.latitude.toStringAsFixed(5)}, ${_result!.longitude.toStringAsFixed(5)}',
               style: const TextStyle(fontSize: 12, color: Colors.green),
             ),
           if (_status == _LinkParseStatus.error)
             const Text(
-              "Couldn't read a location from that link — check it's a Google Maps share link and try again.",
+              'อ่านตำแหน่งจากลิงก์นี้ไม่ได้ ตรวจสอบว่าเป็นลิงก์แชร์จาก Google Maps แล้วลองใหม่',
               style: TextStyle(fontSize: 12, color: Colors.red),
             ),
         ],
@@ -356,7 +356,7 @@ class _FamiliarPlaceInputState extends State<FamiliarPlaceInput> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Place ${widget.index}',
+                    'สถานที่ ${widget.index}',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -365,7 +365,7 @@ class _FamiliarPlaceInputState extends State<FamiliarPlaceInput> {
                   ),
                   Semantics(
                     button: true,
-                    label: 'Remove place ${widget.index}',
+                    label: 'ลบสถานที่ ${widget.index}',
                     child: InkWell(
                       borderRadius: BorderRadius.circular(20),
                       onTap: widget.onRemove,
@@ -383,7 +383,7 @@ class _FamiliarPlaceInputState extends State<FamiliarPlaceInput> {
                 controller: _nameController,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
-                  hintText: 'Enter place name',
+                  hintText: 'กรอกชื่อสถานที่',
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                 ),
                 onChanged: (_) => _reportChange(),
@@ -393,7 +393,7 @@ class _FamiliarPlaceInputState extends State<FamiliarPlaceInput> {
                 controller: _linkController,
                 decoration: InputDecoration(
                   border: const OutlineInputBorder(),
-                  hintText: 'Paste Google Maps link here',
+                  hintText: 'วางลิงก์ Google Maps ที่นี่',
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                   suffixIcon: _status == _PlaceLinkStatus.loading
                       ? const Padding(
@@ -411,12 +411,12 @@ class _FamiliarPlaceInputState extends State<FamiliarPlaceInput> {
               const SizedBox(height: 4),
               if (_status == _PlaceLinkStatus.success && _location != null)
                 Text(
-                  'Location found: ${_location!.latitude.toStringAsFixed(5)}, ${_location!.longitude.toStringAsFixed(5)}',
+                  'พบตำแหน่ง: ${_location!.latitude.toStringAsFixed(5)}, ${_location!.longitude.toStringAsFixed(5)}',
                   style: const TextStyle(fontSize: 12, color: Colors.green),
                 ),
               if (_status == _PlaceLinkStatus.error)
                 const Text(
-                  "Couldn't read a location from that link.",
+                  'อ่านตำแหน่งจากลิงก์นี้ไม่ได้',
                   style: TextStyle(fontSize: 12, color: Colors.red),
                 ),
             ],
@@ -475,21 +475,21 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                     const SizedBox(height: 26),
 
                     QuestionCard(
-                      text: '1. What is your patient name? ',
-                      hintText: 'eg. Robert',
+                      text: '1. ผู้ป่วยชื่ออะไร',
+                      hintText: 'เช่น สมชาย',
                       onChanged: (value) => setState(() => _patientName = value),
                     ),
                     const SizedBox(height: 16),
 
                     MultipleChoiceCard(
-                      text: '2. What is the patient state of Alzheimer\'s?',
-                      options: const ['1 : Normal-Memory Loss', '2 : Memory Loss-Severe'],
+                      text: '2. ผู้ป่วยมีภาวะอัลไซเมอร์ระดับไหน',
+                      options: const ['1 : ปกติถึงความจำเสื่อมเล็กน้อย', '2 : ความจำเสื่อมถึงขั้นรุนแรง'],
                       onSelected: (value) => setState(() => _alzheimerState = value),
                     ),
                     const SizedBox(height: 16),
 
                     SafePlaceLinkInput(
-                      text: '3. Where is your patient\'s home?',
+                      text: '3. บ้านของผู้ป่วยอยู่ที่ไหน',
                       onChanged: (value) => setState(() => _home = value),
                     ),
 
@@ -500,12 +500,12 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            '4. Other places your patient knows well (recommended)',
+                            '4. สถานที่อื่นที่ผู้ป่วยคุ้นเคย (แนะนำ)',
                             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'e.g. temple, market, a relative\'s house — helps avoid false alarms when your patient visits places they know.',
+                            'เช่น วัด ตลาด บ้านญาติ ช่วยลดการแจ้งเตือนผิดพลาดเมื่อผู้ป่วยไปสถานที่ที่คุ้นเคย',
                             style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                           ),
                         ],
@@ -529,7 +529,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                           child: OutlinedButton.icon(
                             onPressed: _addPlaceRow,
                             icon: const Icon(Icons.add, size: 18),
-                            label: Text('Add a place (${_otherPlaceRowIds.length}/$_maxOtherPlaces)'),
+                            label: Text('เพิ่มสถานที่ (${_otherPlaceRowIds.length}/$_maxOtherPlaces)'),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.blue,
                               side: BorderSide(color: Colors.blue[200]!),
@@ -547,17 +547,17 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                       onPressed: () {
                         if (_patientName == null || _patientName!.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Please enter a patient name')),
+                            const SnackBar(content: Text('กรุณากรอกชื่อผู้ป่วย')),
                           );
                         }
                         else if(_alzheimerState == null){
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Please select an Alzheimer\'s state')),
+                            const SnackBar(content: Text('กรุณาเลือกระดับอัลไซเมอร์')),
                           );
                         }
                         else if(_home == null){
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Please provide the home location')),
+                            const SnackBar(content: Text('กรุณาระบุตำแหน่งบ้าน')),
                           );
                         }
                         else{
@@ -580,7 +580,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child: const Text('Confirm', style: TextStyle(color: Colors.white, fontSize: 14)),
+                      child: const Text('ยืนยัน', style: TextStyle(color: Colors.white, fontSize: 14)),
                     ),
                   ]
                 )

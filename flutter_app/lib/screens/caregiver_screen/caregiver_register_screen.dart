@@ -1,23 +1,43 @@
 import 'package:flutter/material.dart';
 import 'caregiver_register_state2_screen.dart';
 
-class PasswordTextField extends StatelessWidget {
+class PasswordTextField extends StatefulWidget {
   final TextEditingController controller;
   final String? errorText;
-  const PasswordTextField({super.key, required this.controller, this.errorText});
+  final String label;
+  final String hint;
+  const PasswordTextField({
+    super.key,
+    required this.controller,
+    this.errorText,
+    this.label = 'รหัสผ่าน',
+    this.hint = 'กรอกรหัสผ่าน',
+  });
+
+  @override
+  State<PasswordTextField> createState() => _PasswordTextFieldState();
+}
+
+class _PasswordTextFieldState extends State<PasswordTextField> {
+  bool _obscure = true;
 
   @override
   Widget build(BuildContext context) {
     return FractionallySizedBox(
       widthFactor: 0.7,
       child: TextField(
-        controller: controller,
-        obscureText: true,
+        controller: widget.controller,
+        obscureText: _obscure,
         decoration: InputDecoration(
           border: OutlineInputBorder(),
-          labelText: 'Password',
-          hintText: 'Enter your password',
-          errorText: errorText,
+          labelText: widget.label,
+          hintText: widget.hint,
+          errorText: widget.errorText,
+          suffixIcon: IconButton(
+            icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+            tooltip: _obscure ? 'แสดงรหัสผ่าน' : 'ซ่อนรหัสผ่าน',
+            onPressed: () => setState(() => _obscure = !_obscure),
+          ),
         ),
       ),
     );
@@ -38,8 +58,8 @@ class EmailTextField extends StatelessWidget {
         keyboardType: TextInputType.emailAddress,
         decoration: InputDecoration(
           border: OutlineInputBorder(),
-          labelText: 'Email',
-          hintText: 'Enter your Email',
+          labelText: 'อีเมล',
+          hintText: 'กรอกอีเมลของคุณ',
           errorText: errorText,
         ),
       ),
@@ -57,9 +77,11 @@ class CaregiverRegistrationScreen extends StatefulWidget {
 class _CaregiverRegistrationScreenState extends State<CaregiverRegistrationScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmController = TextEditingController();
 
   String? _emailError;
   String? _passwordError;
+  String? _confirmError;
   String? _errorMessage;
 
   static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
@@ -68,6 +90,7 @@ class _CaregiverRegistrationScreenState extends State<CaregiverRegistrationScree
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmController.dispose();
     super.dispose();
   }
 
@@ -75,12 +98,17 @@ class _CaregiverRegistrationScreenState extends State<CaregiverRegistrationScree
     setState(() {
       _emailError = _emailPattern.hasMatch(_emailController.text.trim())
         ? null
-        : 'Enter a valid email address';
+        : 'กรุณากรอกอีเมลให้ถูกต้อง';
       _passwordError = _passwordController.text.length < 6
-        ? 'Password must be at least 6 characters'
+        ? 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'
+        : null;
+      _confirmError = _confirmController.text != _passwordController.text
+        ? 'รหัสผ่านไม่ตรงกัน'
         : null;
     });
-    if (_emailError != null || _passwordError != null) return;
+    if (_emailError != null || _passwordError != null || _confirmError != null) {
+      return;
+    }
 
     Navigator.push(
       context,
@@ -106,7 +134,7 @@ class _CaregiverRegistrationScreenState extends State<CaregiverRegistrationScree
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
-                      'Caregiver sign up',
+                      'สมัครสมาชิกผู้ดูแล',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -116,6 +144,13 @@ class _CaregiverRegistrationScreenState extends State<CaregiverRegistrationScree
                     EmailTextField(controller: _emailController, errorText: _emailError),
                     const SizedBox(height: 16),
                     PasswordTextField(controller: _passwordController, errorText: _passwordError),
+                    const SizedBox(height: 16),
+                    PasswordTextField(
+                      controller: _confirmController,
+                      errorText: _confirmError,
+                      label: 'ยืนยันรหัสผ่าน',
+                      hint: 'กรอกรหัสผ่านอีกครั้ง',
+                    ),
                     const SizedBox(height: 16),
                     if (_errorMessage != null) ...[
                       const SizedBox(height: 8),
@@ -133,7 +168,7 @@ class _CaregiverRegistrationScreenState extends State<CaregiverRegistrationScree
                             minimumSize: const Size(0, 48),
                           ),
                           child: const Text(
-                            'Next',
+                            'ถัดไป',
                             style: TextStyle(color: Colors.white),
                           ),
                         ),

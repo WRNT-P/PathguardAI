@@ -412,19 +412,18 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Reached ${widget.patientName}?'),
+        title: Text('ถึงตัว ${widget.patientName} แล้วใช่ไหม'),
         content: const Text(
-          'This closes the emergency for everyone. Only do it once the '
-          'patient is safe with you.',
+          'การยืนยันจะปิดเหตุฉุกเฉินนี้สำหรับทุกคน กดเมื่อผู้ป่วยอยู่กับคุณอย่างปลอดภัยแล้วเท่านั้น',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Not yet'),
+            child: const Text('ยังไม่ถึง'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Yes, they are safe'),
+            child: const Text('ใช่ ปลอดภัยแล้ว'),
           ),
         ],
       ),
@@ -441,12 +440,12 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not close this alert (${res.statusCode})')),
+        SnackBar(content: Text('ปิดการแจ้งเตือนนี้ไม่สำเร็จ (${res.statusCode})')),
       );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not reach the server')),
+        const SnackBar(content: Text('ติดต่อเซิร์ฟเวอร์ไม่ได้')),
       );
     } finally {
       if (mounted) setState(() => _resolving = false);
@@ -463,13 +462,13 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
   /// the same on both sides of the family.
   IconData _instructionIcon(String instruction) {
     switch (instruction) {
-      case 'Turn left':
+      case 'เลี้ยวซ้าย':
         return Icons.turn_left;
-      case 'Turn right':
+      case 'เลี้ยวขวา':
         return Icons.turn_right;
-      case 'Turn around':
+      case 'กลับหลังหัน':
         return Icons.u_turn_left;
-      case 'Go through the roundabout':
+      case 'ผ่านวงเวียน':
         return Icons.roundabout_left;
       default:
         return Icons.straight;
@@ -479,11 +478,11 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
   String get _distanceLabel {
     final me = _caregiverLocation;
     final them = _patientLocation;
-    if (me == null || them == null) return 'Locating…';
+    if (me == null || them == null) return 'กำลังหาตำแหน่ง…';
     final metres = const Distance().as(LengthUnit.Meter, me, them);
     return metres < 1000
-        ? '${metres.round()} m away'
-        : '${(metres / 1000).toStringAsFixed(1)} km away';
+        ? 'ห่าง ${metres.round()} ม.'
+        : 'ห่าง ${(metres / 1000).toStringAsFixed(1)} กม.';
   }
 
   @override
@@ -494,7 +493,7 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
       appBar: AppBar(
         backgroundColor: Colors.red,
         foregroundColor: Colors.white,
-        title: Text('Going to ${widget.patientName}'),
+        title: Text('กำลังไปหา ${widget.patientName}'),
       ),
       body: them == null
           ? const Center(child: CircularProgressIndicator())
@@ -586,7 +585,7 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text('${_currentStep!.distanceMeters.round()} m',
+                                      Text('${_currentStep!.distanceMeters.round()} ม.',
                                           style: TextStyle(color: Colors.red[100], fontSize: 13)),
                                       Text(_currentStep!.instruction,
                                           style: const TextStyle(
@@ -618,13 +617,13 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                         children: [
                           Semantics(
                             button: true,
-                            label: 'Re-centre map on me',
+                            label: 'เลื่อนแผนที่มาที่ตำแหน่งของฉัน',
                             child: SizedBox(
                               width: 48,
                               height: 48,
                               child: FloatingActionButton(
                                 heroTag: 'caregiverRecenter',
-                                tooltip: 'Re-centre on me',
+                                tooltip: 'กลับมาที่ตำแหน่งของฉัน',
                                 backgroundColor: Colors.white,
                                 elevation: 3,
                                 onPressed: () {
@@ -639,16 +638,16 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                           Semantics(
                             button: true,
                             label: _northUp
-                                ? 'Switch to direction-up map'
-                                : 'Switch to north-up map',
+                                ? 'สลับเป็นแผนที่หันตามทิศที่เดิน'
+                                : 'สลับเป็นแผนที่ทิศเหนืออยู่ด้านบน',
                             child: SizedBox(
                               width: 48,
                               height: 48,
                               child: FloatingActionButton(
                                 heroTag: 'caregiverNorthUp',
                                 tooltip: _northUp
-                                    ? 'Switch to direction-up'
-                                    : 'Switch to north-up',
+                                    ? 'หันตามทิศที่เดิน'
+                                    : 'ทิศเหนืออยู่ด้านบน',
                                 backgroundColor:
                                     _northUp ? Colors.white : PatientColors.berry,
                                 elevation: 3,
@@ -685,7 +684,7 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                         if (_patientFixAt != null) ...[
                           const SizedBox(height: 4),
                           Text(
-                            'Position updated '
+                            'อัปเดตตำแหน่งเมื่อ '
                             '${_patientFixAt!.hour.toString().padLeft(2, '0')}:'
                             '${_patientFixAt!.minute.toString().padLeft(2, '0')}',
                             style: TextStyle(fontSize: 13, color: Colors.grey[600]),
@@ -703,7 +702,7 @@ class _CaregiverNavigationScreenState extends State<CaregiverNavigationScreen> {
                                 backgroundColor: Colors.green[700],
                                 minimumSize: const Size(0, 48),
                               ),
-                              label: const Text("I've reached them",
+                              label: const Text('ถึงตัวผู้ป่วยแล้ว',
                                   style: TextStyle(color: Colors.white, fontSize: 16)),
                             ),
                           ),

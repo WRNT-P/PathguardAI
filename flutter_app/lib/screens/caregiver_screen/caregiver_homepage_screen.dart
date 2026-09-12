@@ -10,10 +10,12 @@ import 'missing_patient_screen.dart';
 import 'sos_alert_screen.dart';
 import 'invite_caregiver_screen.dart';
 import 'join_patient_screen.dart';
+import 'trip_info_card.dart';
 import 'dart:convert';
 import '../../services/api_client.dart';
 import '../../services/location_service.dart';
 import '../../services/alert_navigation.dart';
+import '../../services/active_trip_service.dart';
 import '../../services/caregiver_location_service.dart';
 import '../../services/caregiver_session.dart';
 import '../../services/trip_request_directory.dart';
@@ -34,6 +36,11 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
   Timer? _countdownTicker;
   int _sosAlertCount = 0;
   Timer? _locationTicker;
+  /// Which patients are mid-walk right now, keyed by patient id. Drives the
+  /// [TripInfoCard] block under a patient's card — absent or null means no
+  /// card, same as [ActiveTripService.watch] reporting nobody underway.
+  final Map<int, ActiveTrip?> _activeTrips = {};
+  final Map<int, StreamSubscription<ActiveTrip?>> _activeTripSubs = {};
   /// Three states, and the third is why this is nullable: null means this
   /// caregiver has never answered the question, which is not the same claim as
   /// "unavailable" and must not be drawn as one. Matches the column behind it.
@@ -109,7 +116,22 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
     _countdownTicker?.cancel();
     _locationTicker?.cancel();
     TripRequestDirectory.instance.removeListener(_onTripRequestsChanged);
+    for (final sub in _activeTripSubs.values) {
+      sub.cancel();
+    }
     super.dispose();
+  }
+
+  /// One [ActiveTripService] subscription per patient, added as each patient
+  /// loads and never duplicated — a patient added mid-session (or reloaded on
+  /// a re-run of [_loadPatients]) must still get watched exactly once.
+  void _watchActiveTrip(int patientId) {
+    if (_activeTripSubs.containsKey(patientId)) return;
+    _activeTripSubs[patientId] =
+        ActiveTripService.instance.watch(patientId).listen((trip) {
+      if (!mounted) return;
+      setState(() => _activeTrips[patientId] = trip);
+    });
   }
 
   void _onTripRequestsChanged() {
@@ -134,13 +156,13 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       return '';
     }
     if (_pairingCodeIsExpired(patient)) {
-      return 'Code: $code\nExpired';
+      return 'รหัส: $code\nหมดอายุแล้ว';
     }
     final remaining = expiresAt.difference(DateTime.now());
     final hours = remaining.inHours;
     final minutes = remaining.inMinutes % 60;
-    final remainingLabel = hours > 0 ? '${hours}h ${minutes}m' : '${minutes}m';
-    return 'Code: $code\nExpires in $remainingLabel';
+    final remainingLabel = hours > 0 ? '$hours ชม. $minutes นาที' : '$minutes นาที';
+    return 'รหัส: $code\nหมดอายุใน $remainingLabel';
   }
 
   /// The patient list used to live only in this widget's in-memory state, so
@@ -173,6 +195,9 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       // arrives until this device says which patients it is entitled to.
       TripRequestDirectory.instance
           .watch(loaded.map((p) => p['id'] as int));
+      for (final p in loaded) {
+        _watchActiveTrip(p['id'] as int);
+      }
       await _refreshSosCount();
       await _checkForActiveAlerts();
     } catch (_) {
@@ -214,7 +239,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       if (res.statusCode != 201) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not generate a new code, try again')),
+          const SnackBar(content: Text('สร้างรหัสใหม่ไม่สำเร็จ ลองอีกครั้ง')),
         );
         return;
       }
@@ -228,15 +253,15 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('New code ready'),
+          title: const Text('รหัสใหม่พร้อมแล้ว'),
           content: Text(
-            'Give this code to the patient to log in again:\n\n${data['pairing_code']}',
+            'ให้รหัสนี้กับผู้ป่วยเพื่อเข้าสู่ระบบอีกครั้ง:\n\n${data['pairing_code']}',
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
+              child: const Text('ตกลง'),
             ),
           ],
         ),
@@ -244,7 +269,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not connect to the server')),
+        const SnackBar(content: Text('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')),
       );
     }
   }
@@ -377,7 +402,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
             ),
             const SizedBox(height: 20),
             const Text(
-              'No patients yet',
+              'ยังไม่มีผู้ป่วย',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 20,
@@ -387,7 +412,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Add a patient to start tracking their location and safety status.',
+              'เพิ่มผู้ป่วยเพื่อเริ่มติดตามตำแหน่งและความปลอดภัย',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 15,
@@ -423,7 +448,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
 
                   if (response.statusCode != 201) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Could not add patient, try again')),
+                      const SnackBar(content: Text('เพิ่มผู้ป่วยไม่สำเร็จ ลองอีกครั้ง')),
                     );
                     return;
                   }
@@ -436,7 +461,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
 
                   if (home != null) {
                     places.add({
-                      'place_name': 'Home',
+                      'place_name': 'บ้าน',
                       'latitude': home.latitude,
                       'longitude': home.longitude,
                       'visit_rank': 'daily_live',
@@ -460,7 +485,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                     final placesResponse = await apiPost('/api/patients/$patientId/places', body: {'places': places});
                     if (placesResponse.statusCode != 201 && mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Patient added, but saving places failed')),
+                        const SnackBar(content: Text('เพิ่มผู้ป่วยแล้ว แต่บันทึกสถานที่ไม่สำเร็จ')),
                       );
                     }
                   }
@@ -485,15 +510,15 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                   showDialog(
                     context: context,
                     builder: (context) => AlertDialog(
-                      title: const Text('Patient Added'),
+                      title: const Text('เพิ่มผู้ป่วยแล้ว'),
                       content: Text(
-                        'Give this code to the patient to log in:\n\n${data['pairing_code']}',
+                        'ให้รหัสนี้กับผู้ป่วยเพื่อเข้าสู่ระบบ:\n\n${data['pairing_code']}',
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                       ),
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.pop(context),
-                          child: const Text('OK'),
+                          child: const Text('ตกลง'),
                         ),
                       ],
                     ),
@@ -501,7 +526,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 } catch (_) {
                   if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Network error — check your connection and try again.')),
+                    const SnackBar(content: Text('เครือข่ายขัดข้อง ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง')),
                   );
                 }
               }
@@ -514,7 +539,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 ),
                 icon: const Icon(Icons.add_rounded, size: 24),
                 label: const Text(
-                  'Add Patient',
+                  'เพิ่มผู้ป่วย',
                   style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
                 ),
               ),
@@ -539,7 +564,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                 ),
                 icon: const Icon(Icons.group_add_rounded, size: 22),
                 label: const Text(
-                  'Join a patient',
+                  'เข้าร่วมดูแลผู้ป่วย',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
               ),
@@ -608,14 +633,14 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
             ? Colors.orange[50]!
             : Colors.green[50]!;
     final label = level == 'high'
-        ? 'High risk'
+        ? 'ความเสี่ยงสูง'
         : level == 'medium'
-            ? 'Medium risk'
-            : 'Low risk';
+            ? 'ความเสี่ยงปานกลาง'
+            : 'ความเสี่ยงต่ำ';
     return Padding(
       padding: const EdgeInsets.only(top: 4, bottom: 4),
       child: Semantics(
-        label: '$label for ${patient['name']}',
+        label: '$label ของ ${patient['name']}',
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
@@ -641,7 +666,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
 
   Widget _buildPatientCard(Map<String, dynamic> patient) {
     final profileImage = patient['profileImage'] as File?;
-    final name = patient['name'] as String? ?? 'Patient';
+    final name = patient['name'] as String? ?? 'ผู้ป่วย';
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
       elevation: 1.5,
@@ -681,10 +706,10 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                   ),
                 ),
                 Semantics(
-                  label: 'Open the family chat for $name',
+                  label: 'เปิดแชทครอบครัวของ $name',
                   button: true,
                   child: IconButton(
-                    tooltip: 'Family chat',
+                    tooltip: 'แชทครอบครัว',
                     icon: const Icon(Icons.forum_rounded),
                     color: Colors.grey[700],
                     onPressed: () {
@@ -701,10 +726,10 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                   ),
                 ),
                 Semantics(
-                  label: 'Invite another caregiver for $name',
+                  label: 'ชวนผู้ดูแลอีกคนมาดูแล $name',
                   button: true,
                   child: IconButton(
-                    tooltip: 'Invite another caregiver',
+                    tooltip: 'ชวนผู้ดูแลอีกคน',
                     icon: const Icon(Icons.person_add_alt_1_rounded),
                     color: Colors.grey[700],
                     onPressed: () {
@@ -721,10 +746,10 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                   ),
                 ),
                 Semantics(
-                  label: 'Generate a new pairing code for $name',
+                  label: 'สร้างรหัสเข้าสู่ระบบใหม่ให้ $name',
                   button: true,
                   child: IconButton(
-                    tooltip: 'Generate new pairing code',
+                    tooltip: 'สร้างรหัสเข้าสู่ระบบใหม่',
                     icon: const Icon(Icons.autorenew_rounded),
                     color: Colors.grey[700],
                     onPressed: () => _regeneratePairingCode(patient),
@@ -734,7 +759,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
             ),
             const SizedBox(height: 14),
             Semantics(
-              label: 'Track $name\'s live location',
+              label: 'ติดตามตำแหน่งของ $name',
               button: true,
               child: SizedBox(
                 width: double.infinity,
@@ -756,7 +781,7 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                   },
                   icon: const Icon(Icons.my_location_rounded, size: 22),
                   label: const Text(
-                    'Track',
+                    'ติดตาม',
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -786,12 +811,12 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Welcome back,',
+                  'ยินดีต้อนรับกลับมา',
                   style: TextStyle(fontSize: 14, color: Colors.grey[700]),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  widget.caregiverName ?? 'Caregiver',
+                  widget.caregiverName ?? 'ผู้ดูแล',
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
                 ),
@@ -804,24 +829,20 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
           // own row is what the person in trouble sees on theirs.
           Semantics(
             label: switch (_isAvailable) {
-              null => 'Availability not set, tap to say you are available',
-              true => 'Available to caregiving requests, tap to go unavailable',
-              false => 'Unavailable to caregiving requests, tap to go available',
+              null => 'ยังไม่ได้ตั้งสถานะ แตะเพื่อบอกว่าว่าง',
+              true => 'ว่างรับเรื่อง แตะเพื่อเปลี่ยนเป็นไม่ว่าง',
+              false => 'ไม่ว่างรับเรื่อง แตะเพื่อเปลี่ยนเป็นว่าง',
             },
-            child: Container(
+            child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     switch (_isAvailable) {
-                      null => 'Not set',
-                      true => 'Available',
-                      false => 'Unavailable',
+                      null => 'ยังไม่ได้ตั้งค่า',
+                      true => 'ว่าง',
+                      false => 'ไม่ว่าง',
                     },
                     style: TextStyle(
                       fontSize: 12,
@@ -850,8 +871,8 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
             // presses too, and a screen reader announcing an emergency as a
             // trip request is worse than announcing nothing.
             label: pendingCount > 0
-                ? 'Notifications, $pendingCount item${pendingCount == 1 ? '' : 's'} needing attention'
-                : 'Notifications',
+                ? 'การแจ้งเตือน มี $pendingCount รายการที่ต้องดู'
+                : 'การแจ้งเตือน',
             button: true,
             child: IconButton(
               onPressed: () {
@@ -866,10 +887,10 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
             ),
           ),
           Semantics(
-            label: 'Sign out',
+            label: 'ออกจากระบบ',
             button: true,
             child: IconButton(
-              tooltip: 'Sign out',
+              tooltip: 'ออกจากระบบ',
               onPressed: () async {
                 await FirebaseAuth.instance.signOut();
                 // Drop the Firebase listeners with the session. The next account on
@@ -905,7 +926,15 @@ class _CaregiverHomePageScreenState extends State<CaregiverHomePageScreen> {
                       ? _buildEmptyState()
                       : ListView(
                           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                          children: patients.map((p) => _buildPatientCard(p)).toList(),
+                          children: patients.expand((p) {
+                            final patientId = p['id'] as int;
+                            final trip = _activeTrips[patientId];
+                            return [
+                              _buildPatientCard(p),
+                              if (trip != null)
+                                TripInfoCard(patientId: patientId, trip: trip),
+                            ];
+                          }).toList(),
                         ),
             ),
           ],

@@ -26,6 +26,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
   List<Map<String, dynamic>> _alerts = [];
   bool _loadingAlerts = true;
   Timer? _poll;
+  Set<int> _myPatientIds = {};
 
   @override
   void initState() {
@@ -87,6 +88,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
       if (!mounted) return;
       setState(() {
         _alerts = found;
+        _myPatientIds = patients.map((p) => p['patient_id'] as int).toSet();
         _loadingAlerts = false;
       });
     } catch (_) {
@@ -105,19 +107,18 @@ class _NotificationScreenState extends State<NotificationScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Close ${patient['name']}\'s SOS?'),
+        title: Text('ปิด SOS ของ ${patient['name']} ใช่ไหม'),
         content: const Text(
-          'This clears the alert for everyone. Only do it if you know the '
-          'patient is safe.',
+          'การแจ้งเตือนนี้จะถูกปิดสำหรับทุกคน กดเมื่อแน่ใจว่าผู้ป่วยปลอดภัยแล้วเท่านั้น',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
+            child: const Text('ยกเลิก'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('They are safe'),
+            child: const Text('ปลอดภัยแล้ว'),
           ),
         ],
       ),
@@ -129,13 +130,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
       if (!mounted) return;
       if (res.statusCode != 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not close it (${res.statusCode})')),
+          SnackBar(content: Text('ปิดไม่สำเร็จ (${res.statusCode})')),
         );
       }
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not reach the server')),
+        const SnackBar(content: Text('ติดต่อเซิร์ฟเวอร์ไม่ได้')),
       );
     }
     _loadAlerts();
@@ -153,18 +154,18 @@ class _NotificationScreenState extends State<NotificationScreen> {
         leading: const Icon(Icons.emergency_share, color: Colors.red, size: 32),
         title: Text(
             alert['alert_type'] == 'sos_home'
-                ? '${patient['name']} pressed SOS at home'
-                : '${patient['name']} pressed SOS',
+                ? '${patient['name']} กด SOS ที่บ้าน'
+                : '${patient['name']} กด SOS',
             style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text([
           if (createdAt != null)
             '${createdAt.hour.toString().padLeft(2, '0')}:'
                 '${createdAt.minute.toString().padLeft(2, '0')}',
-          if (claimedByName != null) '$claimedByName is on their way',
+          if (claimedByName != null) '$claimedByName กำลังไปรับ',
         ].join(' · ')),
         trailing: IconButton(
           icon: const Icon(Icons.check_circle_outline, color: Colors.green),
-          tooltip: 'Mark as resolved',
+          tooltip: 'ยืนยันว่าปลอดภัยแล้ว',
           onPressed: () => _resolve(alert),
         ),
         onTap: () async {
@@ -216,11 +217,11 @@ class _NotificationScreenState extends State<NotificationScreen> {
           if (createdAt != null)
             '${createdAt.hour.toString().padLeft(2, '0')}:'
                 '${createdAt.minute.toString().padLeft(2, '0')}',
-          if (claimedByName != null) '$claimedByName is on their way',
+          if (claimedByName != null) '$claimedByName กำลังไปรับ',
         ].join(' · ')),
         trailing: IconButton(
           icon: const Icon(Icons.check_circle_outline, color: Colors.green),
-          tooltip: 'Mark as resolved',
+          tooltip: 'ยืนยันว่าปลอดภัยแล้ว',
           onPressed: () => _resolve(alert),
         ),
       ),
@@ -281,12 +282,12 @@ class _NotificationScreenState extends State<NotificationScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '${request.patientName} want to ask to go to ${request.place['name']}',
+              '${request.patientName} ขออนุญาตไป ${request.place['name']}',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             if (request.confidence != null)
               Text(
-                'Confidence: ${(request.confidence! * 100).toStringAsFixed(0)}%',
+                'ความมั่นใจ: ${(request.confidence! * 100).toStringAsFixed(0)}%',
                 style: const TextStyle(fontSize: 13, color: Colors.grey),
               ),
             const SizedBox(height: 12),
@@ -299,7 +300,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
                     ),
-                    child: const Text('Approve'),
+                    child: const Text('อนุญาต'),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -310,7 +311,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
                     ),
-                    child: const Text('Reject'),
+                    child: const Text('ไม่อนุญาต'),
                   ),
                 ),
               ],
@@ -323,16 +324,18 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pending = TripRequestDirectory.instance.pending;
+    final pending = TripRequestDirectory.instance.pending
+      .where((r) => _myPatientIds.contains(r.patientId))
+      .toList();
     final nothingAtAll =
         pending.isEmpty && _alerts.isEmpty && !_loadingAlerts;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifications'),
+        title: const Text('การแจ้งเตือน'),
       ),
       body: nothingAtAll
-          ? const Center(child: Text('No notifications'))
+          ? const Center(child: Text('ไม่มีการแจ้งเตือน'))
           : RefreshIndicator(
               onRefresh: _loadAlerts,
               child: ListView(

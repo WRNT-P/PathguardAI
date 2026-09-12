@@ -59,7 +59,7 @@ class _InviteCaregiverScreenState extends State<InviteCaregiverScreen> {
       // the two need different things from the person reading this.
       if (mounted) {
         setState(() => _error =
-            'Could not reach the server. Check your connection and try again.');
+            'ติดต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง');
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -73,13 +73,13 @@ class _InviteCaregiverScreenState extends State<InviteCaregiverScreen> {
   String _messageFor(int status) {
     switch (status) {
       case 403:
-        return 'Only a caregiver of ${widget.patientName} can invite someone else.';
+        return 'เฉพาะผู้ดูแลของ ${widget.patientName} เท่านั้นที่ชวนคนอื่นได้';
       case 404:
-        return 'This patient no longer exists.';
+        return 'ไม่พบผู้ป่วยคนนี้แล้ว';
       case 401:
-        return 'Your sign-in has expired. Sign in again and retry.';
+        return 'การเข้าสู่ระบบหมดอายุ กรุณาเข้าสู่ระบบใหม่แล้วลองอีกครั้ง';
       default:
-        return 'Could not create an invite code (error $status). Please try again.';
+        return 'สร้างรหัสเชิญไม่สำเร็จ (ข้อผิดพลาด $status) กรุณาลองอีกครั้ง';
     }
   }
 
@@ -94,14 +94,14 @@ class _InviteCaregiverScreenState extends State<InviteCaregiverScreen> {
     await Clipboard.setData(ClipboardData(text: _code!));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Code copied')),
+      const SnackBar(content: Text('คัดลอกรหัสแล้ว')),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Invite another caregiver')),
+      appBar: AppBar(title: const Text('ชวนผู้ดูแลอีกคน')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -113,8 +113,7 @@ class _InviteCaregiverScreenState extends State<InviteCaregiverScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'The person you invite will be able to see this patient’s '
-              'location and alerts, exactly as you can.',
+              'คนที่คุณชวนจะเห็นตำแหน่งและการแจ้งเตือนของผู้ป่วยคนนี้ได้เหมือนกับคุณ',
               style: TextStyle(fontSize: 16, color: Colors.black87),
             ),
             const SizedBox(height: 24),
@@ -134,7 +133,7 @@ class _InviteCaregiverScreenState extends State<InviteCaregiverScreen> {
                         child: CircularProgressIndicator(
                             strokeWidth: 2, color: Colors.white),
                       )
-                    : const Text('Create invite code',
+                    : const Text('สร้างรหัสเชิญ',
                         style: TextStyle(fontSize: 18)),
               ),
             ] else ...[
@@ -158,7 +157,7 @@ class _InviteCaregiverScreenState extends State<InviteCaregiverScreen> {
                     if (_expiresAt != null) ...[
                       const SizedBox(height: 10),
                       Text(
-                        'Valid until ${_formatExpiry(_expiresAt!)}',
+                        'ใช้ได้ถึง ${_formatExpiry(_expiresAt!)}',
                         style: const TextStyle(fontSize: 15, color: Colors.black54),
                       ),
                     ],
@@ -167,23 +166,21 @@ class _InviteCaregiverScreenState extends State<InviteCaregiverScreen> {
               ),
               const SizedBox(height: 16),
               const Text(
-                'Give this code to the other caregiver. They open PathGuard, '
-                'sign in, and tap “Join a patient”.\n\n'
-                'It works once and then stops — create another if they need a '
-                'second try.',
+                'ส่งรหัสนี้ให้ผู้ดูแลอีกคน ให้เขาเปิด PathGuard เข้าสู่ระบบ แล้วกด “เข้าร่วมดูแลผู้ป่วย”\n\n'
+                'รหัสใช้ได้ครั้งเดียว ถ้าต้องลองใหม่ให้สร้างรหัสใหม่',
                 style: TextStyle(fontSize: 15, color: Colors.black87),
               ),
               const SizedBox(height: 20),
               OutlinedButton.icon(
                 onPressed: _copyCode,
                 icon: const Icon(Icons.copy),
-                label: const Text('Copy code'),
+                label: const Text('คัดลอกรหัส'),
                 style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
               ),
               const SizedBox(height: 10),
               TextButton(
                 onPressed: _sending ? null : _createInvite,
-                child: const Text('Create a different code'),
+                child: const Text('สร้างรหัสใหม่'),
               ),
             ],
 

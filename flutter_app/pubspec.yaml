@@ -77,6 +77,19 @@ flutter:
   assets:
     - .env
 
+  # Bundled rather than fetched at runtime so Thai text renders the same
+  # offline — the patient app is used out on the street. OFL, see OFL.txt.
+  fonts:
+    - family: Kanit
+      fonts:
+        - asset: assets/fonts/Kanit-Regular.ttf
+        - asset: assets/fonts/Kanit-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Kanit-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Kanit-Bold.ttf
+          weight: 700
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

@@ -11,7 +11,7 @@ Future<void> _callNumber(BuildContext context, String phone) async {
   if (!await launchUrl(uri)) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Could not call $phone')),
+      SnackBar(content: Text('โทรหา $phone ไม่ได้')),
     );
   }
 }
@@ -71,7 +71,7 @@ class CaregiverTile extends StatelessWidget {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      isAvailable == null ? 'Unknown status' : (isAvailable! ? 'Available' : 'Unavailable'),
+                      isAvailable == null ? 'ไม่ทราบสถานะ' : (isAvailable! ? 'ว่าง' : 'ไม่ว่าง'),
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -87,11 +87,11 @@ class CaregiverTile extends StatelessWidget {
           ),
           Semantics(
             button: true,
-            label: 'Call $name',
+            label: 'โทรหา $name',
             child: ElevatedButton.icon(
               onPressed: phone == null ? null : () => _callNumber(context, phone!),
               icon: const Icon(Icons.phone, size: 24),
-              label: const Text('Call', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              label: const Text('โทร', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: PatientColors.safe,
                 foregroundColor: Colors.white,
@@ -151,12 +151,12 @@ class SosContactScreen extends StatefulWidget {
       context: context,
       builder: (context) => AlertDialog(
         icon: const Icon(Icons.check_circle, color: Colors.green, size: 64),
-        title: const Text('Alert Sent', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        content: const Text('Your caregiver has been notified.', style: TextStyle(fontSize: 18)),
+        title: const Text('ส่งการแจ้งเตือนแล้ว', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        content: const Text('แจ้งผู้ดูแลของคุณแล้ว', style: TextStyle(fontSize: 18)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK', style: TextStyle(fontSize: 18)),
+            child: const Text('ตกลง', style: TextStyle(fontSize: 18)),
           ),
         ],
       ),
@@ -166,7 +166,7 @@ class SosContactScreen extends StatefulWidget {
   Widget _buildSosButton(){
     return Semantics(
       button: true,
-      label: 'Send SOS, alert your caregiver now',
+      label: 'ส่ง SOS แจ้งผู้ดูแลทันที',
       child: GestureDetector(
       onTap: _sosSending ? null : _handleSOS,
       child: SizedBox(
@@ -227,7 +227,7 @@ class SosContactScreen extends StatefulWidget {
                   Center(child: _buildSosButton()),
                   const SizedBox(height: 32),
                   const Text(
-                    'Your contacts',
+                    'ผู้ติดต่อของคุณ',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: PatientColors.charcoal),
                   ),
                   const SizedBox(height: 16),

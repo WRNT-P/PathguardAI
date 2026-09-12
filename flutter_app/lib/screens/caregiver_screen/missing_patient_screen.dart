@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import '../../services/api_client.dart';
+import '../../utils/patient_marker.dart';
 
 /// Module 4 — the search area for a patient nobody can find.
 ///
@@ -72,6 +74,7 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
   String? _error;
   Map<String, dynamic>? _result;
   Timer? _alertPoll;
+  gmaps.BitmapDescriptor? _patientIcon;
   /// Same guard as sos_alert_screen: the close button and the 10s poll can
   /// both decide to leave, and two pops take the patient list with them and
   /// leave a black screen.
@@ -83,6 +86,7 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
   void initState() {
     super.initState();
     _search();
+    _loadPatientIcon();
     // Nothing to watch on a manual search, and watching nothing would mean
     // `firstWhere ... orElse: _alert` on a null alert.
     if (!_isManual) {
@@ -94,6 +98,13 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
   void dispose() {
     _alertPoll?.cancel();
     super.dispose();
+  }
+
+  /// Same avatar the track and navigation maps draw, so the patient looks like
+  /// one person across every screen a caregiver moves between mid-search.
+  Future<void> _loadPatientIcon() async {
+    final icon = await buildPatientMarkerIcon(widget.patient['profileImage'] as File?);
+    if (mounted) setState(() => _patientIcon = icon);
   }
 
   /// The one way out, so no two exits can fire.
@@ -143,12 +154,12 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
         queryParams: params.isEmpty ? null : params,
       );
       if (res.statusCode != 200) {
-        setState(() => _error = 'Could not connect to the server');
+        setState(() => _error = 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
         return;
       }
       setState(() => _result = jsonDecode(res.body) as Map<String, dynamic>);
     } catch (_) {
-      setState(() => _error = 'Could not connect to the server');
+      setState(() => _error = 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -162,8 +173,8 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
         backgroundColor: Colors.red,
         foregroundColor: Colors.white,
         title: Text(_isManual
-            ? 'Search for ${widget.patient['name']}'
-            : 'Missing — ${widget.patient['name']}'),
+            ? 'ค้นหา ${widget.patient['name']}'
+            : 'หายตัว — ${widget.patient['name']}'),
         automaticallyImplyLeading: false,
         actions: [
           IconButton(icon: const Icon(Icons.close), onPressed: _close),
@@ -190,7 +201,7 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
       // would be answering about the phone, so it offers the retry instead.
       if (!_isManual) {
         return const Center(
-          child: Text("The patient's GPS is reporting again — no need to search", textAlign: TextAlign.center),
+          child: Text('GPS ของผู้ป่วยกลับมาส่งตำแหน่งแล้ว ไม่ต้องค้นหา', textAlign: TextAlign.center),
         );
       }
       return Center(
@@ -200,18 +211,16 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                "The phone is still reporting its position, so no last-seen "
-                "point was sent to search from.",
+                'โทรศัพท์ยังส่งตำแหน่งอยู่ จึงไม่มีจุดที่เห็นล่าสุดให้ใช้ค้นหา',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               const Text(
-                'Open the map, wait for a position to load, and start the '
-                'search again.',
+                'เปิดแผนที่ รอให้ตำแหน่งโหลด แล้วเริ่มค้นหาใหม่',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              FilledButton(onPressed: _search, child: const Text('Try again')),
+              FilledButton(onPressed: _search, child: const Text('ลองอีกครั้ง')),
             ],
           ),
         ),
@@ -220,7 +229,7 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
 
     if (status == 'no_data') {
       return const Center(
-        child: Text('Not enough location data yet to calculate a search area', textAlign: TextAlign.center),
+        child: Text('ข้อมูลตำแหน่งยังไม่พอสำหรับคำนวณพื้นที่ค้นหา', textAlign: TextAlign.center),
       );
     }
 
@@ -258,35 +267,35 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Search radius: ${adjustedRadius}m (from ${searchRadius}m)',
+              Text('รัศมีค้นหา: $adjustedRadius ม. (จากเดิม $searchRadius ม.)',
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               // The radius is speed × time, so the caregiver should be able to
               // see the time it was worked out from — a radius quoted with no
               // basis is a number they cannot sanity-check or correct.
               if (widget.minutesMissing != null)
-                Text('Based on ${widget.minutesMissing} minutes missing',
+                Text('คำนวณจากเวลาที่หายไป ${widget.minutesMissing} นาที',
                     style: TextStyle(color: Colors.grey[600])),
               if (adjustmentReason != null)
                 Text(adjustmentReason, style: TextStyle(color: Colors.grey[600])),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  _legendDot(Colors.red, 'High probability'),
+                  _legendDot(Colors.red, 'โอกาสสูง'),
                   const SizedBox(width: 12),
-                  _legendDot(Colors.orange, 'Medium probability'),
+                  _legendDot(Colors.orange, 'โอกาสปานกลาง'),
                   const SizedBox(width: 12),
-                  _legendDot(Colors.yellow[700]!, 'Low probability'),
+                  _legendDot(Colors.yellow[700]!, 'โอกาสต่ำ'),
                 ],
               ),
               const SizedBox(height: 12),
-              const Text('Check these places first', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text('ตรวจดูสถานที่เหล่านี้ก่อน', style: TextStyle(fontWeight: FontWeight.w600)),
               if (targets.isEmpty)
-                const Text('No familiar places to suggest — the patient has no pinned places yet')
+                const Text('ยังไม่มีสถานที่คุ้นเคยให้แนะนำ เพราะยังไม่ได้ปักหมุดสถานที่ของผู้ป่วย')
               else
                 ...targets.map((t) => Card(
                       child: ListTile(
                         leading: const Icon(Icons.place),
-                        title: Text(t['name'] as String? ?? 'Unnamed'),
+                        title: Text(t['name'] as String? ?? 'ไม่มีชื่อ'),
                       ),
                     )),
             ],
@@ -359,15 +368,25 @@ class _MissingPatientScreenState extends State<MissingPatientScreen> {
           (lastKnown['latitude'] as num).toDouble(),
           (lastKnown['longitude'] as num).toDouble(),
         ),
-        icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueBlue),
-        infoWindow: const gmaps.InfoWindow(title: 'Last seen location'),
+        icon: _patientIcon ??
+            gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueBlue),
+        // The avatar is a circle, so it has to sit centred on the coordinate.
+        // A marker's default anchor is the tip of a teardrop, which would put
+        // the last known position half a marker below where it really was.
+        anchor: _patientIcon == null ? const Offset(0.5, 1.0) : const Offset(0.5, 0.5),
+        infoWindow: const gmaps.InfoWindow(title: 'ตำแหน่งที่เห็นล่าสุด'),
       ));
     }
     for (final t in targets) {
       markers.add(gmaps.Marker(
         markerId: gmaps.MarkerId('target_${t['name']}_${t['latitude']}'),
         position: gmaps.LatLng((t['latitude'] as num).toDouble(), (t['longitude'] as num).toDouble()),
-        infoWindow: gmaps.InfoWindow(title: t['name'] as String? ?? 'Unnamed'),
+        // Violet, not the default red: red/orange/yellow are spoken for by the
+        // probability zones below, and a warm pin reads as "likely here" when
+        // it actually means "a place worth checking". Green would collide with
+        // the red zone for the commonest colour blindness.
+        icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueViolet),
+        infoWindow: gmaps.InfoWindow(title: t['name'] as String? ?? 'ไม่มีชื่อ'),
       ));
     }
     return markers;

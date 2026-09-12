@@ -58,7 +58,7 @@ class ChatDirectory {
         return ChatMessage(
           id: entry.key as String,
           senderId: (map['sender_id'] as num?)?.toInt() ?? 0,
-          senderName: map['sender_name'] as String? ?? 'Caregiver',
+          senderName: map['sender_name'] as String? ?? 'ผู้ดูแล',
           text: map['text'] as String? ?? '',
           sentAt: sentAt is int
               ? DateTime.fromMillisecondsSinceEpoch(sentAt)
