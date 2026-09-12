@@ -56,6 +56,23 @@ async def _seed_normal_routine(db, patient_id, days=25):
     await db.commit()
 
 
+async def _confirm_learned_places(db, pid: int) -> None:
+    """Mark everything Module 1 learned as confirmed by a caregiver.
+
+    Clustered places are deliberately excluded from safety decisions until a
+    human confirms them (see risk_data_collection._extract_known_places), and
+    these tests are about what happens to a patient who HAS a settled profile —
+    so the confirmation a real caregiver would give is done here.
+    """
+    profile = await crud.get_behavioral_profile(db, pid)
+    places = json.loads(profile.known_places)
+    for place in places:
+        place["source"] = "manual"
+    await crud.upsert_behavioral_profile(
+        db, patient_id=pid, known_places=json.dumps(places, ensure_ascii=False))
+    await db.flush()
+
+
 async def test_phase4_full_pipeline_high_risk_from_injected_segment(db_session):
     db = db_session
     user = await crud.create_user(db, firebase_uid="geolife_test", name="Pat", role="patient")
@@ -65,6 +82,7 @@ async def test_phase4_full_pipeline_high_risk_from_injected_segment(db_session):
     # ── 1-2. normal routine -> Module 1 builds a clean profile ────────────────
     await _seed_normal_routine(db, pid)
     res = await analyze_behavior(db, pid, days=30)
+    await _confirm_learned_places(db, pid)
     await db.commit()
     places = res["places"]
     assert len(places) >= 5, f"Module 1 should learn >=5 known places, got {len(places)}"
@@ -154,6 +172,7 @@ async def test_phase4_safe_zone_exit_alert_and_real_distance_scaling(db_session)
 
     await _seed_normal_routine(db, pid)
     res = await analyze_behavior(db, pid, days=30)
+    await _confirm_learned_places(db, pid)
     await db.commit()
     assert len(res["places"]) >= 5
 
@@ -214,6 +233,7 @@ async def test_phase4_geofence_alert_auto_resolves_when_patient_leaves_danger_zo
 
     await _seed_normal_routine(db, pid)
     await analyze_behavior(db, pid, days=30)
+    await _confirm_learned_places(db, pid)
     await db.commit()
 
     zone_lat, zone_lon = _offset(_PLACES[0][0], _PLACES[0][1], 3000.0, 3000.0)
@@ -266,6 +286,7 @@ async def test_an_sos_raised_out_walking_closes_when_the_patient_gets_somewhere_
 
     await _seed_normal_routine(db, pid)
     await analyze_behavior(db, pid, days=30)
+    await _confirm_learned_places(db, pid)
     await db.commit()
 
     for alert_type in ("sos", "sos_home"):

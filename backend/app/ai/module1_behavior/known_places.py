@@ -100,5 +100,9 @@ def merge_learned(existing: list[dict], learned: list[dict]) -> list[dict]:
     side keeps the learned entries, this side keeps the manual ones. Neither
     writer may delete the other's rows.
     """
-    manual = [p for p in existing if p.get("source") == "manual"]
+    # Anything not explicitly learned is kept. Rows written before `source`
+    # existed carry no marker at all, and now that ingestion trains on its own
+    # (gps.py::_train_profile_after_ingest) a stricter test would delete those
+    # patients' places the first time their phone reported a position.
+    manual = [p for p in existing if p.get("source") != "learned"]
     return renumber(manual + normalize_learned(learned))

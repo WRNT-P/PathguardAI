@@ -20,6 +20,33 @@ from app.db.models import GPSData
 from app.ai.module1_behavior.data_preprocessing import preprocess_gps
 from app.ai.module1_behavior.known_places import decode, merge_learned
 from app.ai.module1_behavior.place_clustering import cluster_places
+from app.ai.module1_behavior.routine_patterns import build_routine_patterns
+
+# A fix slower than this is somebody standing still with GPS noise around them;
+# faster than this is a vehicle. Averaging either into "how fast do they walk"
+# is what makes a search radius wrong in the direction that loses people.
+_WALK_MIN_MS = 0.3
+_WALK_MAX_MS = 2.5
+
+# Relearn a patient's profile at most this often. One pass reads 30 days of
+# GPS, Kalman-smooths it and runs DBSCAN, which is far heavier than a risk
+# round — and what it learns moves on the scale of days, not minutes.
+PROFILE_TRAIN_INTERVAL_S = 900
+
+
+def average_walking_speed_ms(records: list[GPSData]) -> float | None:
+    """Mean speed across this patient's own walking fixes, or None.
+
+    None rather than a default: Module 4 already has a documented fallback for
+    "we don't know", and a made-up number here would silently outrank it.
+    """
+    speeds = [
+        r.speed for r in records
+        if r.speed is not None and _WALK_MIN_MS <= r.speed <= _WALK_MAX_MS
+    ]
+    if not speeds:
+        return None
+    return round(sum(speeds) / len(speeds), 3)
 
 
 def gps_history_to_dataframe(records: list[GPSData]) -> pd.DataFrame:
@@ -66,11 +93,28 @@ async def analyze_behavior(
     profile = await crud.get_behavioral_profile(db, patient_id)
     places = merge_learned(decode(profile.known_places if profile else None), learned)
 
+    # When is this patient usually where, and how fast do they walk. Both are
+    # read off the same history this pass already loaded, and both are derived
+    # from `places` above — so they are rebuilt here, in the same pass, rather
+    # than left for a script somebody has to remember to run after every
+    # change to the pins.
+    routine = build_routine_patterns(
+        [(r.latitude, r.longitude, r.recorded_at) for r in records], places
+    )
+    walking_speed = average_walking_speed_ms(records)
+
     await crud.upsert_behavioral_profile( # บันทึกผลลัพธ์กลับ database
         db,
         patient_id=patient_id,
         known_places=json.dumps(places, ensure_ascii=False), # places เป็น list ของ dict (Python object) ต้องแปลงเป็น string JSON ก่อนเก็บลง database
+        routine_patterns=json.dumps(routine, ensure_ascii=False),
+        avg_walking_speed_ms=walking_speed,
         last_trained_at=datetime.now(timezone.utc), # บันทึกเวลาปัจจุบัน (UTC timezone) ไว้
     )
 
-    return {"patient_id": patient_id, "places": places}
+    return {
+        "patient_id": patient_id,
+        "places": places,
+        "routine_patterns": routine,
+        "avg_walking_speed_ms": walking_speed,
+    }

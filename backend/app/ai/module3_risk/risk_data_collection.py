@@ -97,7 +97,16 @@ def _parse_ts(ts):
 
 
 def _extract_known_places(profile: dict | None) -> list:
-    """Read known_places from the profile dict, parsing a JSON string if needed."""
+    """Known places a SAFETY decision may rest on — the confirmed ones only.
+
+    Places Module 1 clustered by itself are dropped here. They are a real
+    observation ("she stopped here twice") and they stay in the profile for
+    prediction and for a caregiver to confirm, but until a human does confirm
+    one it must not make a patient read as familiar, in-a-safe-place, or
+    on-route. The failure mode that rule exists for: a patient who gets lost
+    and stands in the same wrong place twice would otherwise teach the system
+    that the place is safe, and the alert that should fire never would.
+    """
     if not profile:
         return []
     kp = profile.get("known_places")
@@ -106,7 +115,9 @@ def _extract_known_places(profile: dict | None) -> list:
             kp = json.loads(kp)
         except (json.JSONDecodeError, TypeError):
             return []
-    return kp if isinstance(kp, list) else []
+    if not isinstance(kp, list):
+        return []
+    return [p for p in kp if isinstance(p, dict) and p.get("source") != "learned"]
 
 
 def _avg_recent_speed(recent_gps: list, n: int = 5):

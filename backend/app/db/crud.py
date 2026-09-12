@@ -380,6 +380,7 @@ async def upsert_behavioral_profile(
     known_places: str | None = None,
     routine_patterns: str | None = None,
     typical_range_km: float | None = None,
+    avg_walking_speed_ms: float | None = None,
     last_trained_at: datetime | None = None,
 ) -> BehavioralProfile:
     """Create or update a patient's behavioral profile (one row per patient).
@@ -398,6 +399,8 @@ async def upsert_behavioral_profile(
         profile.routine_patterns = routine_patterns
     if typical_range_km is not None:
         profile.typical_range_km = typical_range_km
+    if avg_walking_speed_ms is not None:
+        profile.avg_walking_speed_ms = avg_walking_speed_ms
     if last_trained_at is not None:
         profile.last_trained_at = last_trained_at
 

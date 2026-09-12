@@ -15,6 +15,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.module1_behavior.behavior_pipeline import (
+    PROFILE_TRAIN_INTERVAL_S, analyze_behavior,
+)
 from app.api.risk import RISK_RECOMPUTE_INTERVAL_S, evaluate_risk
 from app.db import crud
 from app.db.database import get_db
@@ -49,6 +52,29 @@ async def _require_patient(db: AsyncSession, patient_id: int) -> None:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"unknown patient_id {patient_id} — call /api/register first",
         )
+
+
+async def _train_profile_after_ingest(db: AsyncSession, patient_id: int) -> None:
+    """Relearn this patient's behavioural profile, throttled, after GPS landed.
+
+    Module 1 had no caller at all: its clustering, routine patterns and walking
+    speed were written, tested, and never run against a live patient, so every
+    profile in production held only what a caregiver had typed. This is the
+    caller. Same two rules as risk scoring above — throttled, and never fatal:
+    a GPS reading that reached the database must stay there even if learning
+    from it blows up.
+    """
+    try:
+        profile = await crud.get_behavioral_profile(db, patient_id)
+        if profile is not None and profile.last_trained_at is not None:
+            trained = profile.last_trained_at
+            if trained.tzinfo is None:  # SQLite hands back naive timestamps
+                trained = trained.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - trained).total_seconds() < PROFILE_TRAIN_INTERVAL_S:
+                return
+        await analyze_behavior(db, patient_id)
+    except Exception as exc:  # noqa: BLE001 — never let learning lose a GPS point
+        logger.warning("Behaviour training failed for patient %s: %s", patient_id, exc)
 
 
 async def _score_risk_after_ingest(db: AsyncSession, patient_id: int) -> None:
@@ -91,6 +117,7 @@ async def receive_gps(
     await _require_patient(db, reading.patient_id)
     await gps_processor.process_gps_point(db, reading)
     await _score_risk_after_ingest(db, reading.patient_id)
+    await _train_profile_after_ingest(db, reading.patient_id)
     return GPSAck(status="success", patient_id=reading.patient_id, accepted=1)
 
 
@@ -123,6 +150,7 @@ async def receive_gps_batch(
     # patient is now, and the intermediate points are already in the history the
     # scorer reads.
     await _score_risk_after_ingest(db, patient_id)
+    await _train_profile_after_ingest(db, patient_id)
 
     return GPSAck(
         status="success", patient_id=patient_id, accepted=len(payload.points)

@@ -213,6 +213,11 @@ class BehavioralProfile(Base):
     known_places: Mapped[str | None] = mapped_column(Text, nullable=True)          # JSON: [{lat, lon, label, visits}]
     routine_patterns: Mapped[str | None] = mapped_column(Text, nullable=True)      # JSON: [{hour, cluster_id, probability, samples}] — ai/module1_behavior/routine_patterns.py
     typical_range_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # How fast this patient actually walks, m/s, averaged over their own moving
+    # fixes — not a population constant. Module 4 sizes its search radius as
+    # speed x time, so the difference between 0.6 and 1.4 m/s is the difference
+    # between two search areas of very different size.
+    avg_walking_speed_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_trained_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

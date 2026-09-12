@@ -27,6 +27,7 @@ class PatientHomePageScreen extends StatefulWidget {
 
 class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
   List<Map<String, dynamic>> recommendedPlaces = [];
+  Map<String, dynamic>? _aiSuggestion;
   bool _loadingPlaces = true;
 
   final TextEditingController _searchController = TextEditingController();
@@ -163,9 +164,44 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
             .toList();
         _loadingPlaces = false;
       });
+      await _loadAiSuggestion(patientId);
     } catch (_) {
       if (!mounted) return;
       setState(() => _loadingPlaces = false);
+    }
+  }
+
+  /// The one place Module 1 worked out on its own, kept apart from the rest.
+  ///
+  /// A caregiver's pin is a person saying "she goes here"; this is the app
+  /// noticing she keeps stopping somewhere and asking. They are not the same
+  /// claim, so they are not drawn the same — the card says AI แนะนำ, and the
+  /// backend does not count it as a safe place until somebody confirms it.
+  Future<void> _loadAiSuggestion(int patientId) async {
+    try {
+      final res = await apiGet('/api/patients/$patientId/places');
+      if (res.statusCode != 200) return;
+      final places = (jsonDecode(res.body)['places'] as List)
+          .cast<Map<String, dynamic>>()
+          .where((p) => p['source'] == 'learned')
+          .toList();
+      if (places.isEmpty) return;
+      places.sort((a, b) => ((b['visit_frequency'] as num?) ?? 0)
+          .compareTo((a['visit_frequency'] as num?) ?? 0));
+      final top = places.first;
+      if (!mounted) return;
+      setState(() {
+        _aiSuggestion = {
+          // A learned place has no name — nobody has given it one yet — so it
+          // is described by what is actually known about it.
+          'name': 'ที่ที่คุณแวะบ่อย',
+          'lat': (top['latitude'] as num).toDouble(),
+          'lng': (top['longitude'] as num).toDouble(),
+          'ai_suggestion': true,
+        };
+      });
+    } catch (_) {
+      // Suggestion only. The places that matter are already on screen.
     }
   }
 
@@ -294,6 +330,13 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
     .toLowerCase()
     .contains(_searchQuery.toLowerCase()))
     .toList();
+    // Three places the family put there, then the one the app worked out for
+    // itself. The suggestion is dropped while searching: it is an offer, and a
+    // patient typing a place name is not browsing offers.
+    final shownPlaces = [
+      ...filteredPlaces.take(3),
+      if (_aiSuggestion != null && _searchQuery.isEmpty) _aiSuggestion!,
+    ];
     return Container(
         // Soft lavender-to-white backdrop for the whole home screen — the
         // one calm accent surface this screen gets, kept behind the content
@@ -407,11 +450,12 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                                 // clears the last card from underneath the
                                 // centered SOS FAB.
                                 padding: const EdgeInsets.only(bottom: 110),
-                                itemCount: filteredPlaces.length,
+                                itemCount: shownPlaces.length,
                                 itemBuilder: (context, index) {
-                                  final place = filteredPlaces[index];
+                                  final place = shownPlaces[index];
+                                  final isSuggestion = place['ai_suggestion'] == true;
                                   return Card(
-                                    color: Colors.white,
+                                    color: isSuggestion ? PatientColors.lavender : Colors.white,
                                     elevation: 1,
                                     margin: const EdgeInsets.symmetric(vertical: 6),
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -419,7 +463,10 @@ class _PatientHomePageScreenState extends State<PatientHomePageScreen> {
                                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                                       child: ListTile(
                                         title: Text(place['name'], style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
-                                        subtitle: const Text('ไปบ่อย', style: TextStyle(fontSize: 14)),
+                                        subtitle: isSuggestion
+                                            ? const Text('AI แนะนำ · ระบบพบว่าคุณแวะที่นี่บ่อย',
+                                                style: TextStyle(fontSize: 14, color: PatientColors.berry))
+                                            : const Text('ไปบ่อย', style: TextStyle(fontSize: 14)),
                                         trailing: SizedBox(
                                           height: 48,
                                           child: ElevatedButton(

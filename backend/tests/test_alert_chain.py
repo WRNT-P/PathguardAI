@@ -89,9 +89,12 @@ async def test_gps_ingestion_scores_risk_with_nobody_calling_the_endpoint(
 ):
     """The whole chain: a fresh patient's GPS lands and a RiskScore appears.
 
-    The patient has no behavioral profile — analyze_behavior() is called by
-    nothing in production — so this also proves partial mode carries a patient
-    who has existed for thirty seconds.
+    Scoring runs before training on the same reading, so this patient is scored
+    with no profile at all — which is what proves partial mode carries a patient
+    who has existed for thirty seconds. The profile then exists, because
+    ingestion now trains one (see gps.py::_train_profile_after_ingest); thirty
+    seconds of circling contains no 15-minute stay, so it is an empty profile,
+    and that is the honest answer rather than an invented place.
     """
     patient_id = await _register_patient(client, "chain-fresh")
 
@@ -100,7 +103,10 @@ async def test_gps_ingestion_scores_risk_with_nobody_calling_the_endpoint(
     )
     assert resp.status_code == 200
 
-    assert await crud.get_behavioral_profile(db_session, patient_id) is None
+    profile = await crud.get_behavioral_profile(db_session, patient_id)
+    assert profile is not None, "ingestion no longer trains the profile"
+    assert json.loads(profile.known_places) == []
+    assert profile.last_trained_at is not None
 
     score = await crud.get_latest_risk_score(db_session, patient_id)
     assert score is not None, "GPS ingestion did not score risk — the chain is broken"
